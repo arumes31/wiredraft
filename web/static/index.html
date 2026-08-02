@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11181b">
+  <meta name="description" content="Interactive enterprise rack, cabling, and VLAN designer">
+  <title>Netdiagram · Rack Operations Bench</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand" aria-label="Netdiagram">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span><strong>NETDIAGRAM</strong><small>RACK OPERATIONS BENCH</small></span>
+    </div>
+    <label class="topology-picker">
+      <span>ACTIVE MAP</span>
+      <select id="topology-select" aria-label="Active topology"></select>
+    </label>
+    <nav class="toolbar" aria-label="Diagram tools">
+      <button id="undo-button" class="icon-button" title="Undo (Ctrl+Z)">↶</button>
+      <button id="redo-button" class="icon-button" title="Redo (Ctrl+Y)">↷</button>
+      <span class="tool-divider"></span>
+      <button id="fit-button">FIT MAP</button>
+      <button id="add-device-button">+ DEVICE</button>
+      <button id="vlan-button">VLAN MATRIX</button>
+      <button id="trace-button">TRACE PATH</button>
+      <details class="export-menu">
+        <summary>EXPORT</summary>
+        <button id="png-button">PNG image</button>
+        <button id="svg-button">SVG vector</button>
+        <button id="json-button">JSON backup</button>
+        <button id="import-button">Restore JSON</button>
+      </details>
+    </nav>
+    <div id="connection-status" class="connection-status" data-state="connecting">
+      <span></span><b>SYNCING</b>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="rail rail-left" aria-label="Diagram overview">
+      <section class="rail-section overview-panel">
+        <p class="eyebrow">LIVE TOPOLOGY</p>
+        <h1 id="topology-name">Loading map…</h1>
+        <div class="overview-stats">
+          <span><b id="device-count">0</b>DEVICES</span>
+          <span><b id="link-count">0</b>CABLES</span>
+          <span><b id="vlan-count">0</b>VLANS</span>
+        </div>
+      </section>
+      <section class="rail-section">
+        <div class="section-heading"><h2>VLAN PALETTE</h2><span>TAG / COLOR</span></div>
+        <div id="vlan-palette" class="vlan-palette"></div>
+      </section>
+      <section class="rail-section warnings-section">
+        <div class="section-heading"><h2>RULE ENGINE</h2><span id="analysis-count">SCANNING</span></div>
+        <div id="analysis-list" class="analysis-list" aria-live="polite"></div>
+      </section>
+      <footer class="rail-foot">
+        <kbd>SPACE</kbd> PAN <kbd>WHEEL</kbd> ZOOM<br>
+        PORT → PORT TO PATCH
+      </footer>
+    </aside>
+
+    <section class="diagram-stage" aria-label="Network diagram canvas">
+      <canvas id="diagram-canvas" tabindex="0" aria-label="Interactive network rack diagram"></canvas>
+      <div class="canvas-readout">
+        <span id="zoom-readout">100%</span>
+        <span id="pointer-readout">X 0000 · Y 0000</span>
+      </div>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </section>
+
+    <aside class="rail rail-right" aria-label="Selection inspector">
+      <div class="inspector-header">
+        <p class="eyebrow">CONFIGURATION BUS</p>
+        <h2>INSPECTOR</h2>
+      </div>
+      <div id="inspector-empty" class="empty-state">
+        <div class="empty-jack" aria-hidden="true"></div>
+        <h3>NO ENDPOINT SELECTED</h3>
+        <p>Select a device, port, or cable to inspect its physical and logical configuration.</p>
+      </div>
+      <div id="inspector-content" class="inspector-content" hidden></div>
+    </aside>
+  </main>
+
+  <dialog id="device-dialog" class="panel-dialog">
+    <form id="device-form" method="dialog">
+      <header><div><p class="eyebrow">HARDWARE CATALOG</p><h2>INSTALL DEVICE</h2></div><button type="button" class="dialog-close" data-close="device-dialog">×</button></header>
+      <div class="form-grid">
+        <label><span>PROVIDER</span><select name="vendor" id="device-vendor"></select></label>
+        <label><span>HARDWARE MODEL</span><select name="model" id="device-model"></select></label>
+        <label><span>DEVICE NAME</span><input name="name" required maxlength="120" value="ACCESS SWITCH"></label>
+        <label><span>CHASSIS COLOR</span><input type="color" name="color" value="#243b3d"></label>
+      </div>
+	  <div id="catalog-profile-summary" class="catalog-profile-summary"></div>
+      <footer><button type="button" id="catalog-import-button" class="secondary">IMPORT PROFILE</button><button type="button" class="secondary" data-close="device-dialog">CANCEL</button><button value="install" class="primary">INSTALL IN RACK</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="vlan-modal" class="panel-dialog wide-dialog">
+    <div class="dialog-shell">
+      <header><div><p class="eyebrow">LAYER 2 CONTROL</p><h2>VLAN MATRIX</h2></div><button type="button" class="dialog-close" data-close="vlan-modal">×</button></header>
+      <div class="vlan-manager">
+        <div><div class="section-heading"><h3>ACTIVE NETWORKS</h3><span>1—4094</span></div><div id="vlan-manager-list" class="vlan-manager-list"></div></div>
+        <form id="vlan-form">
+          <p class="eyebrow">NEW VLAN</p>
+          <label><span>VLAN ID</span><input name="id" type="number" min="1" max="4094" required></label>
+          <label><span>NAME</span><input name="name" maxlength="80" required></label>
+          <label><span>COLOR</span><input name="colorHex" type="color" value="#42d9c8"></label>
+          <label><span>DESCRIPTION</span><textarea name="description" maxlength="500" rows="3"></textarea></label>
+          <button class="primary">ADD NETWORK</button>
+        </form>
+      </div>
+      <footer><button type="button" class="secondary" data-close="vlan-modal">DONE</button></footer>
+    </div>
+  </dialog>
+
+  <dialog id="trace-dialog" class="panel-dialog">
+    <form id="trace-form" method="dialog">
+      <header><div><p class="eyebrow">FORWARDING ANALYSIS</p><h2>TRACE VLAN PATH</h2></div><button type="button" class="dialog-close" data-close="trace-dialog">×</button></header>
+      <p class="dialog-note">Choose two physical interfaces. The backend highlights the shortest path on which every endpoint carries the selected VLAN.</p>
+      <label><span>SOURCE PORT</span><select name="source" required></select></label>
+      <label><span>DESTINATION PORT</span><select name="target" required></select></label>
+      <label><span>VLAN</span><select name="vlan" required></select></label>
+      <footer><button type="button" class="secondary" data-close="trace-dialog">CANCEL</button><button value="trace" class="primary">TRACE SIGNAL</button></footer>
+    </form>
+  </dialog>
+
+  <input id="import-file" type="file" accept="application/json,.json" hidden>
+	<input id="catalog-file" type="file" accept="application/json,.json" hidden>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

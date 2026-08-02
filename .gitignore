@@ -1,0 +1,9 @@
+/data/
+/netdiagram
+/netdiagram.exe
+/*.test
+/*.out
+/coverage.*
+*.tmp
+.DS_Store
+graphify-out/

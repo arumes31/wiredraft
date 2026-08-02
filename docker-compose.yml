@@ -1,0 +1,20 @@
+services:
+  netdiagram:
+    build: .
+    image: netdiagram:latest
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DATA_DIR: /data
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "/netdiagram", "-healthcheck"]
+      interval: 15s
+      timeout: 4s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped

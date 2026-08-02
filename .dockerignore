@@ -1,0 +1,10 @@
+.git
+.gitignore
+data
+graphify-out
+netdiagram
+netdiagram.exe
+*.test
+*.out
+coverage.*
+docs/plans
