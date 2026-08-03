@@ -101,6 +101,7 @@ func analyzeLinkGroups(topology Topology, ports map[string]Port) []Issue {
 		links[link.ID] = link
 	}
 	issues := []Issue{}
+	logicalDevices := logicalDeviceIDs(topology)
 	for _, group := range topology.LinkGroups {
 		members := make([]Link, 0, len(group.LinkIDs))
 		for _, linkID := range group.LinkIDs {
@@ -122,7 +123,7 @@ func analyzeLinkGroups(topology Topology, ports map[string]Port) []Issue {
 				}
 			}
 		case LinkGroupModeLACP:
-			if !sameDevicePair(members) {
+			if !sameLogicalDevicePair(members, logicalDevices) {
 				issues = append(issues, linkGroupIssue(
 					group,
 					firstLinkID,
@@ -132,7 +133,7 @@ func analyzeLinkGroups(topology Topology, ports map[string]Port) []Issue {
 			}
 			issues = append(issues, aggregationMediaIssues(group, firstLinkID, members, ports)...)
 		case LinkGroupModeMCLAG:
-			if !hasMCLAGShape(members) {
+			if !hasMCLAGShape(members, logicalDevices) {
 				issues = append(issues, linkGroupIssue(
 					group,
 					firstLinkID,
@@ -159,10 +160,23 @@ func analyzeLinkGroups(topology Topology, ports map[string]Port) []Issue {
 	return issues
 }
 
-func sameDevicePair(links []Link) bool {
-	left, right := orderedDevicePair(links[0])
+func logicalDeviceIDs(topology Topology) map[string]string {
+	logical := make(map[string]string, len(topology.Devices))
+	for _, device := range topology.Devices {
+		logical[device.ID] = device.ID
+	}
+	for _, system := range topology.SwitchSystems {
+		for _, deviceID := range system.DeviceIDs {
+			logical[deviceID] = system.ID
+		}
+	}
+	return logical
+}
+
+func sameLogicalDevicePair(links []Link, logicalDevices map[string]string) bool {
+	left, right := orderedLogicalDevicePair(links[0], logicalDevices)
 	for _, link := range links[1:] {
-		currentLeft, currentRight := orderedDevicePair(link)
+		currentLeft, currentRight := orderedLogicalDevicePair(link, logicalDevices)
 		if currentLeft != left || currentRight != right {
 			return false
 		}
@@ -170,14 +184,19 @@ func sameDevicePair(links []Link) bool {
 	return true
 }
 
-func orderedDevicePair(link Link) (string, string) {
-	if link.SourceDeviceID < link.TargetDeviceID {
-		return link.SourceDeviceID, link.TargetDeviceID
+func orderedLogicalDevicePair(link Link, logicalDevices map[string]string) (string, string) {
+	left := logicalDevices[link.SourceDeviceID]
+	right := logicalDevices[link.TargetDeviceID]
+	if left < right {
+		return left, right
 	}
-	return link.TargetDeviceID, link.SourceDeviceID
+	return right, left
 }
 
-func hasMCLAGShape(links []Link) bool {
+func hasMCLAGShape(links []Link, logicalDevices map[string]string) bool {
+	if sameLogicalDevicePair(links, logicalDevices) && spansPhysicalPeer(links, logicalDevices) {
+		return true
+	}
 	first := links[0]
 	candidates := []string{first.SourceDeviceID, first.TargetDeviceID}
 	for _, commonDeviceID := range candidates {
@@ -194,6 +213,25 @@ func hasMCLAGShape(links []Link) bool {
 			}
 		}
 		if valid && len(peers) >= 2 {
+			return true
+		}
+	}
+	return false
+}
+
+func spansPhysicalPeer(links []Link, logicalDevices map[string]string) bool {
+	physicalByLogical := make(map[string]map[string]struct{})
+	for _, link := range links {
+		for _, deviceID := range []string{link.SourceDeviceID, link.TargetDeviceID} {
+			logicalID := logicalDevices[deviceID]
+			if physicalByLogical[logicalID] == nil {
+				physicalByLogical[logicalID] = make(map[string]struct{})
+			}
+			physicalByLogical[logicalID][deviceID] = struct{}{}
+		}
+	}
+	for _, physicalIDs := range physicalByLogical {
+		if len(physicalIDs) > 1 {
 			return true
 		}
 	}

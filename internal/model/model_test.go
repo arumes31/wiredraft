@@ -226,6 +226,52 @@ func TestAnalyze(t *testing.T) {
 	}
 }
 
+func TestDeviceInventoryAndSTPMetadataValidation(t *testing.T) {
+	t.Parallel()
+	topology := mustDemo(t)
+	device := topology.Devices[2]
+	device.SerialNumber = "CN42ABC123"
+	device.AssetTag = "NET-CORE-001"
+	device.Hostname = "core-sw-01.example.net"
+	device.ManagementIP = "2001:db8::10"
+	device.Owner = "Network Operations"
+	device.Location = DeviceLocation{
+		Site: "Vienna", Building: "DC1", Floor: "2", Room: "MDF", Rack: "A01", RackUnit: 24,
+	}
+	device.STPPriority = 4096
+	if err := device.Validate(vlanIDSet(topology.VLANs)); err != nil {
+		t.Fatalf("valid inventory metadata Validate() error = %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Device)
+	}{
+		{name: "hostname", mutate: func(device *Device) { device.Hostname = "-invalid-host" }},
+		{name: "management ip", mutate: func(device *Device) { device.ManagementIP = "192.0.2.999" }},
+		{name: "rack unit", mutate: func(device *Device) { device.Location.RackUnit = 49 }},
+		{name: "stp priority", mutate: func(device *Device) { device.STPPriority = 5000 }},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			next := device
+			test.mutate(&next)
+			if err := next.Validate(vlanIDSet(topology.VLANs)); err == nil {
+				t.Fatalf("Validate() error = nil, want invalid %s error", test.name)
+			}
+		})
+	}
+}
+
+func vlanIDSet(vlans []VLAN) map[int]struct{} {
+	ids := make(map[int]struct{}, len(vlans))
+	for _, vlan := range vlans {
+		ids[vlan.ID] = struct{}{}
+	}
+	return ids
+}
+
 func TestAnalyzeDoesNotTreatFirewallAsSTPBridge(t *testing.T) {
 	t.Parallel()
 	topology := mustDemo(t)

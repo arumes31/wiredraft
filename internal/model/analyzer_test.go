@@ -51,6 +51,31 @@ func TestAnalyzeValidMCLAGShapeHasNoTopologyWarning(t *testing.T) {
 	}
 }
 
+func TestAnalyzeLogicalSwitchSystemAvoidsFalseLACPPairWarning(t *testing.T) {
+	t.Parallel()
+	topology := mustDemo(t)
+	additional := newTestLink(t, topology.Devices[1].Ports[2], topology.Devices[3].Ports[1])
+	additional.CableType = topology.Links[1].CableType
+	topology.Links = append(topology.Links, additional)
+	systemID := mustID(t)
+	topology.SwitchSystems = []SwitchSystem{{
+		ID: systemID, Name: "CORE VSF", Mode: SwitchSystemModeVSF,
+		DeviceIDs: []string{topology.Devices[2].ID, topology.Devices[3].ID},
+	}}
+	groupID := mustID(t)
+	topology.LinkGroups = []LinkGroup{{
+		ID: groupID, Name: "VSF UPLINK", Mode: LinkGroupModeLACP,
+		LinkIDs: []string{topology.Links[1].ID, additional.ID},
+	}}
+
+	analysis := Analyze(topology)
+	if slices.ContainsFunc(analysis.Issues, func(issue Issue) bool {
+		return issue.Kind == "lacp_device_pair_mismatch" && issue.GroupID == groupID
+	}) {
+		t.Fatalf("Analyze() issues = %#v, VSF members must be compared as one logical device pair", analysis.Issues)
+	}
+}
+
 func TestAnalyzeTrunkVLANMismatchWarning(t *testing.T) {
 	t.Parallel()
 	topology := mustDemo(t)

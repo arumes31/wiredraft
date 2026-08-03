@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add deterministic per-VLAN STP simulation with root election, Root/Designated/Blocked physical-port roles, convergence-path tracing, logical Stack/VSF/MC-LAG bridge collapse, and bundle/failover-aware topology edges.
+- Add persistent device serial number, asset tag, hostname, management IP, structured site/building/floor/room/rack/U location, responsible team, and configurable STP bridge priority fields to the device inspector.
 - Make canvas arrows, rectangles, and text notes selectable on their visible geometry, editable in the inspector, removable with the Delete key or inspector action, and allow drawing tools to be exited with Escape or a second click.
 - Add a collapsible rack/device/VLAN navigator, interactive minimap, viewport-tiled infinite canvas, drag ghosts, rack collision zones, persistent arrows/boxes/text notes, skeleton loading, topology-size warnings, and queued notifications.
 - Add default-on configurable autosave, unsaved document-title state, revision-aware writes, live collaboration snapshots, anchored comment threads, embedded documentation links, and revocable read-only share tokens.

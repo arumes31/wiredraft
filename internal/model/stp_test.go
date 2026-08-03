@@ -139,6 +139,16 @@ func TestSimulateSTPUsesOnlyPrimaryFailoverMember(t *testing.T) {
 	}
 }
 
+func TestSimulateSTPIncludesIsolatedBridgeDomain(t *testing.T) {
+	t.Parallel()
+	switchDevice := stpTestSwitch(t, "ISOLATED", 1)
+	topology := stpTestTopology([]Device{switchDevice}, nil)
+	instances := SimulateSTP(topology, stpPortMap(topology))
+	if len(instances) != 1 || instances[0].RootBridgeID != switchDevice.ID || len(instances[0].Bridges) != 1 {
+		t.Fatalf("SimulateSTP() = %#v, want isolated switch as its own root domain", instances)
+	}
+}
+
 func stpTestSwitch(t *testing.T, name string, portCount int) Device {
 	t.Helper()
 	deviceID := mustID(t)

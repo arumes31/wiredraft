@@ -82,8 +82,32 @@ func SimulateSTP(topology Topology, ports map[string]Port) []STPInstance {
 	instances := []STPInstance{}
 	for _, vlan := range topology.VLANs {
 		edges := stpEdges(topology, ports, bridgeByDevice, vlan.ID)
-		for domain, component := range stpComponents(edges) {
+		components := stpComponents(edges)
+		connectedBridges := make(map[string]struct{})
+		for domain, component := range components {
 			instances = append(instances, simulateSTPComponent(vlan.ID, domain+1, component, bridges, bridgeByDevice))
+			for _, edge := range component {
+				connectedBridges[edge.Left] = struct{}{}
+				connectedBridges[edge.Right] = struct{}{}
+			}
+		}
+		isolated := stpActiveBridgeIDs(topology, bridgeByDevice, vlan.ID)
+		slices.Sort(isolated)
+		nextDomain := len(components) + 1
+		for _, bridgeID := range isolated {
+			if _, connected := connectedBridges[bridgeID]; connected {
+				continue
+			}
+			bridge := bridges[bridgeID]
+			instances = append(instances, STPInstance{
+				VLANID: vlan.ID, Domain: nextDomain, RootBridgeID: bridgeID, RootName: bridge.Name,
+				Bridges: []STPBridgeState{{
+					BridgeID: bridgeID, Name: bridge.Name, DeviceIDs: slices.Clone(bridge.DeviceIDs),
+					Priority: bridge.Priority, RootPathCost: 0, RootPortIDs: []string{},
+				}},
+				Ports: []STPPortState{}, Paths: []STPPath{{BridgeID: bridgeID, BridgeIDs: []string{bridgeID}, LinkIDs: []string{}}},
+			})
+			nextDomain++
 		}
 	}
 	slices.SortFunc(instances, func(left, right STPInstance) int {
@@ -93,6 +117,24 @@ func SimulateSTP(topology Topology, ports map[string]Port) []STPInstance {
 		return cmp.Compare(left.Domain, right.Domain)
 	})
 	return instances
+}
+
+func stpActiveBridgeIDs(topology Topology, bridgeByDevice map[string]string, vlanID int) []string {
+	active := make(map[string]struct{})
+	for _, device := range topology.Devices {
+		bridgeID, isBridge := bridgeByDevice[device.ID]
+		if !isBridge {
+			continue
+		}
+		if slices.ContainsFunc(device.Ports, func(port Port) bool { return portCarriesVLAN(port, vlanID) }) {
+			active[bridgeID] = struct{}{}
+		}
+	}
+	bridgeIDs := make([]string, 0, len(active))
+	for bridgeID := range active {
+		bridgeIDs = append(bridgeIDs, bridgeID)
+	}
+	return bridgeIDs
 }
 
 func stpLogicalBridges(topology Topology) (map[string]string, map[string]stpBridge) {

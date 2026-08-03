@@ -17,6 +17,45 @@ test("loads a topology and opens primary editing tools", async ({ page }) => {
   await expect(page.locator("#vlan-modal")).toBeVisible();
 });
 
+test("edits device inventory, management identity, location, and STP priority", async ({ page, request }) => {
+  const topologyID = await page.locator("#topology-select").inputValue();
+  const topology = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
+  const device = topology.devices.find((candidate) => candidate.category === "Switch");
+  expect(device).toBeTruthy();
+
+  await page.locator(`[data-tree-type="device"][data-tree-id="${device.id}"]`).click();
+  const form = page.locator("#device-inspector-form");
+  await expect(form).toBeVisible();
+  await form.locator('[name="hostname"]').fill("e2e-core-01.example.net");
+  await form.locator('[name="managementIp"]').fill("192.0.2.31");
+  await form.locator('[name="serialNumber"]').fill("E2E-SERIAL-531");
+  await form.locator('[name="assetTag"]').fill("E2E-ASSET-596");
+  await form.locator('[name="owner"]').fill("E2E Network Team");
+  await form.locator('[name="locationSite"]').fill("Vienna");
+  await form.locator('[name="locationBuilding"]').fill("DC1");
+  await form.locator('[name="locationFloor"]').fill("2");
+  await form.locator('[name="locationRoom"]').fill("MDF");
+  await form.locator('[name="locationRack"]').fill("A01");
+  await form.locator('[name="locationRackUnit"]').fill("24");
+  await form.locator('[name="stpPriority"]').selectOption("4096");
+  await form.locator('button[type="submit"], button:not([type])').first().click();
+
+  await expect.poll(async () => {
+    const updated = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
+    return updated.devices.find((candidate) => candidate.id === device.id);
+  }).toMatchObject({
+    hostname: "e2e-core-01.example.net",
+    managementIp: "192.0.2.31",
+    serialNumber: "E2E-SERIAL-531",
+    assetTag: "E2E-ASSET-596",
+    owner: "E2E Network Team",
+    stpPriority: 4096,
+    location: { site: "Vienna", building: "DC1", floor: "2", room: "MDF", rack: "A01", rackUnit: 24 },
+  });
+  await expect(page.locator("#stp-count")).not.toHaveText(/CALCULATING|NO DOMAINS/);
+  await expect(page.locator("#stp-list .stp-instance").first()).toContainText(/ROOT/);
+});
+
 test("places a configurable patch panel and persists it through v1 API", async ({ page, request }) => {
   const before = Number(await page.locator("#physical-device-count").textContent().then((value) => value?.match(/\d+/)?.[0] || 0));
   const topologyID = await page.locator("#topology-select").inputValue();
