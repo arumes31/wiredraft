@@ -2,9 +2,13 @@
 
 Netdiagram is a self-contained browser workstation for designing enterprise rack faceplates, physical port-to-port cabling, and VLAN forwarding maps. One static Go binary embeds the entire application and persists each topology as an atomically replaced JSON file.
 
+Its native dialogs, export popover, and status toasts share a responsive industrial control-panel design with sticky actions, accessible titles, visible focus states, and reduced-motion support.
+
+Hovering any cable redraws its complete source-to-target route above neighboring links with a restrained animated halo while preserving its real native/trunk VLAN colors.
+
 ## Demo
 
-On first launch, Netdiagram creates a working topology with a carrier handoff, firewall, two 24-port switches, four VLANs, and patched uplinks. Drag hardware on the canvas, click one port and then another to install a cable, or select any endpoint to edit its switchport configuration.
+On first launch, Netdiagram creates a working topology with a carrier handoff, firewall, two 24-port switches, four VLANs, and patched uplinks. Add movable racks, drag hardware into a free whole-U position or leave it free-floating, click one port and then another to install a cable, or select any endpoint to edit its switchport configuration.
 
 ## Getting started
 
@@ -46,19 +50,36 @@ The container has a built-in health probe; no shell or HTTP client is added to t
 ## Features
 
 - High-DPI Canvas 2D faceplates for switches, firewalls, routers, modems, patch panels, servers, and access points.
-- Offline hardware catalog with model-aware faceplate schematics for Fortinet, Cisco, HPE Aruba, Juniper, Ubiquiti, MikroTik, Dell, NETGEAR, TP-Link Omada, Arista, Extreme, Ruckus, Palo Alto, Sophos, and Check Point, plus JSON profile import.
-- Pan, 0.1×–5× zoom, grid-snapped device drag, selection box, exact port hit testing, animated LEDs, and port tooltips.
-- Magnetic port-to-port cable drafting, speed-weighted Bezier paths, multi-color VLAN trunks, traffic pulses, labels, and warning overlays.
+- Image-informed vector faceplates with sourced vendor-family chassis details, model-specific connector placement, and continuous cable curves drawn directly into every connected port.
+- Integrated multi-rack planning with movable 6U–48U frames, numbered rails, whole-U snapping, collision prevention, capacity reporting, and non-destructive rack removal.
+- Generic 1U–4U server rear builder with dynamically composed mixed card bays, live elevation preview, every supported connector family, and independent multi-device cabling.
+- Offline 522-profile hardware catalog spanning enterprise networking, security, compute, power, KVM/console, storage, wireless, and passive fiber/copper patching, with 24 connector types through 800G OSFP and JSON profile import.
+- Pan, 0.1×–5× zoom, viewport-tiled rendering, minimap navigation, collapsible rack/device/VLAN tree, grid-snapped drag ghosts, rack collision zones, selection box, persistent arrows/boxes/text notes, exact port hit testing, steady operational LEDs, and port tooltips.
+- Adaptive `Auto`, `Performance`, `Balanced`, and `Quality` graphics modes persist per browser; static Performance and unfocused Balanced views stop requesting frames, hidden canvases suspend, and cached geometry, bounded frame rates, scaled pixel density, and focused effects reduce GPU use on large maps.
+- Magnetic port-to-port cable drafting, speed-weighted Bezier paths, native-VLAN cable colors, animated multi-VLAN rainbow trunks, traffic pulses, warning overlays, and pointer-following speech bubbles for non-blocking port and cable hover details.
+- Newly patched cables atomically set both physical endpoint ports to `up`, so their faceplate link LEDs become active immediately after a successful connection.
+- Unpatching a cable atomically returns both now-unlinked endpoint ports to `down`, while rejected deletes leave the existing operational state untouched.
+- Persistent Trunk, LACP, MC-LAG, and Failover link groups: drag a cable onto another cable to create, extend, or merge a bundle. Failover groups identify one preferred primary cable and mark the remaining members as backups; unusual combinations remain saved and are flagged by the topology analyzer.
+- Group-scoped end-to-end VLAN editing applies one native/tagged profile atomically to every cable and every physical endpoint port in the selected Trunk, LACP, MC-LAG, or Failover group.
+- Persistent logical switch systems for generic stacks, Aruba VSF, Fortinet MC-LAG, Cisco StackWise/VSS, Juniper Virtual Chassis, HPE/H3C IRF, and custom fabrics. Members keep independent faceplates and cable endpoints while inventory totals count the system as one logical unit.
+- Persistent active/active and active/passive firewall clusters with explicit active-member selection, HA peer highlighting, physical member roles, safe failover reassignment after deletion, and one-unit logical inventory counting.
+- Peer-aware bundle visualization: each link group uses one shared two-line plate with mode-specific endpoint/member details, while deterministic label placement keeps every cable nameplate separated and adds a leader when it must move away from its cable.
+- Group-aware cable routing processes Trunk, LACP, MC-LAG, and Failover members together so they enter a compact parallel corridor as soon as their real port exits permit and stay bundled until target fan-out.
+- Obstacle-aware cabling uses cached multi-segment routes around unrelated equipment and ports; physical interface names are rendered last as high-contrast faceplate badges so they remain legible at connected sockets.
+- Shared cable corridors use deterministic closely spaced lanes instead of overlapping strokes or wide detours; unavoidable crossings use a compact jump-over bridge while the lower VLAN-colored cable remains visibly continuous through its opening in canvas and SVG exports.
+- Source-backed printed interface legends for common FortiGate families (`WAN1`, `WAN2`, `A`, `B`, `DMZ`, `HA`, `MGMT`, `X1`…), sequential physical switch labels, and vendor-family naming for other firewall profiles.
 - Access, trunk, hybrid, and unconfigured port models with native and tagged VLAN membership.
+- Independent port transceiver/media and cable-media editing for CAT5e/CAT6/CAT6A, SMF/MMF, generic fiber, DAC, AOC, and twinax.
 - VLAN manager with safe deletion and automatic fallback of affected native ports to VLAN 1.
-- Server-side native VLAN mismatch, tagged VLAN drop, switching-loop, and forwarding-path analysis.
-- REST synchronization plus per-topology Server-Sent Events with heartbeats and bounded subscribers.
-- PNG, standalone SVG, and JSON backup export; JSON restore; keyboard undo/redo and save.
+- Server-side native VLAN mismatch, tagged VLAN drop, switching-loop, and forwarding-path analysis; servers remain non-forwarding endpoints when multi-homed.
+- Default-on 30-second autosave with 1/5-minute options, manual save, dirty-title state, optimistic revision checks, and conflict-safe reload of newer shared revisions.
+- Revisioned Server-Sent Events, anchored comment threads, embedded/external HTTP(S) documentation, and cryptographically tokenized revocable read-only shares.
+- Direct A3 PDF, responsive standalone HTML with embedded SVG/source data and documentation links, PNG, standalone SVG, and JSON backup export; JSON restore; keyboard undo/redo and save. Heavy catalog, analysis, and export modules load on demand.
 - Strict JSON decoding, request-size limits, security headers, structured logs, graceful shutdown, and atomic file replacement.
 
 ## HTTP API
 
-The API is rooted at `/api/v1`. Important resources include `/topologies`, `/topologies/{id}/devices`, `/ports`, `/links`, `/vlans`, `/analysis`, `/trace`, and `/events`. Errors use `{ "error": "message", "code": 400 }`. The interactive client is the reference for request bodies; the domain schema is defined in `internal/model`.
+The API is rooted at `/api/v1`. Important resources include `/topologies`, `/topologies/{id}/racks`, `/topologies/{id}/devices`, `/ports`, `/links`, `/link-groups`, `/switch-systems`, `/firewall-clusters`, `/vlans`, `/comments`, `/documentation-links`, `/shares`, `/analysis`, `/trace`, and `/events`; read-only tokens use `/api/v1/shared/{topologyId}/{token}`. Mutations accept `If-Match: "rev-N"`. Errors use `{ "error": "message", "code": 400 }`. The interactive client is the reference for request bodies; the domain schema is defined in `internal/model`.
 
 ## Verification
 

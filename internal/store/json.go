@@ -60,7 +60,8 @@ func (s *JSONStore) List() []model.Summary {
 		summaries = append(summaries, model.Summary{
 			ID:          topology.ID,
 			Name:        topology.Name,
-			DeviceCount: len(topology.Devices),
+			RackCount:   len(topology.Racks),
+			DeviceCount: topology.LogicalDeviceCount(),
 			LinkCount:   len(topology.Links),
 			UpdatedAt:   topology.UpdatedAt,
 		})
@@ -116,6 +117,16 @@ func (s *JSONStore) Mutate(
 	id string,
 	mutation func(*model.Topology) error,
 ) (model.Topology, error) {
+	return s.MutateAtRevision(id, 0, mutation)
+}
+
+// MutateAtRevision applies a mutation only when the persisted revision matches.
+// An expected revision of zero disables the optimistic concurrency precondition.
+func (s *JSONStore) MutateAtRevision(
+	id string,
+	expectedRevision uint64,
+	mutation func(*model.Topology) error,
+) (model.Topology, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -125,6 +136,9 @@ func (s *JSONStore) Mutate(
 	if !exists {
 		return model.Topology{}, ErrNotFound
 	}
+	if expectedRevision != 0 && current.Revision != expectedRevision {
+		return model.Topology{}, &RevisionConflictError{Expected: expectedRevision, Actual: current.Revision}
+	}
 	next, err := current.Clone()
 	if err != nil {
 		return model.Topology{}, fmt.Errorf("copying topology for mutation: %w", err)
@@ -132,6 +146,7 @@ func (s *JSONStore) Mutate(
 	if err := mutation(&next); err != nil {
 		return model.Topology{}, err
 	}
+	next.Revision = current.Revision + 1
 	next.UpdatedAt = time.Now().UTC()
 	next.Normalize()
 	if err := next.Validate(); err != nil {

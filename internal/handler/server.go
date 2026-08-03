@@ -2,6 +2,11 @@
 package handler
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +15,7 @@ import (
 	"net/http"
 	"path"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -41,12 +47,26 @@ func New(
 	mux.HandleFunc("POST /api/v1/topologies", server.createTopology)
 	mux.HandleFunc("GET /api/v1/topologies/{id}", server.getTopology)
 	mux.HandleFunc("PUT /api/v1/topologies/{id}", server.replaceTopology)
+	mux.HandleFunc("POST /api/v1/topologies/{id}/racks", server.createRack)
+	mux.HandleFunc("PUT /api/v1/topologies/{id}/racks/{rackId}", server.updateRack)
+	mux.HandleFunc("DELETE /api/v1/topologies/{id}/racks/{rackId}", server.deleteRack)
 	mux.HandleFunc("POST /api/v1/topologies/{id}/devices", server.createDevice)
 	mux.HandleFunc("PUT /api/v1/topologies/{id}/devices/{deviceId}", server.updateDevice)
 	mux.HandleFunc("DELETE /api/v1/topologies/{id}/devices/{deviceId}", server.deleteDevice)
 	mux.HandleFunc("PUT /api/v1/topologies/{id}/ports/{portId}", server.updatePort)
 	mux.HandleFunc("POST /api/v1/topologies/{id}/links", server.createLink)
+	mux.HandleFunc("POST /api/v1/topologies/{id}/links/bulk", server.createLinks)
+	mux.HandleFunc("PUT /api/v1/topologies/{id}/links/{linkId}/configuration", server.configureLink)
 	mux.HandleFunc("DELETE /api/v1/topologies/{id}/links/{linkId}", server.deleteLink)
+	mux.HandleFunc("POST /api/v1/topologies/{id}/link-groups", server.createLinkGroup)
+	mux.HandleFunc("PUT /api/v1/topologies/{id}/link-groups/{groupId}", server.updateLinkGroup)
+	mux.HandleFunc("DELETE /api/v1/topologies/{id}/link-groups/{groupId}", server.deleteLinkGroup)
+	mux.HandleFunc("POST /api/v1/topologies/{id}/switch-systems", server.createSwitchSystem)
+	mux.HandleFunc("PUT /api/v1/topologies/{id}/switch-systems/{systemId}", server.updateSwitchSystem)
+	mux.HandleFunc("DELETE /api/v1/topologies/{id}/switch-systems/{systemId}", server.deleteSwitchSystem)
+	mux.HandleFunc("POST /api/v1/topologies/{id}/firewall-clusters", server.createFirewallCluster)
+	mux.HandleFunc("PUT /api/v1/topologies/{id}/firewall-clusters/{clusterId}", server.updateFirewallCluster)
+	mux.HandleFunc("DELETE /api/v1/topologies/{id}/firewall-clusters/{clusterId}", server.deleteFirewallCluster)
 	mux.HandleFunc("GET /api/v1/topologies/{id}/vlans", server.listVLANs)
 	mux.HandleFunc("POST /api/v1/topologies/{id}/vlans", server.createVLAN)
 	mux.HandleFunc("PUT /api/v1/topologies/{id}/vlans/{vlanId}", server.updateVLAN)
@@ -54,6 +74,18 @@ func New(
 	mux.HandleFunc("GET /api/v1/topologies/{id}/analysis", server.analysis)
 	mux.HandleFunc("GET /api/v1/topologies/{id}/trace", server.trace)
 	mux.HandleFunc("GET /api/v1/topologies/{id}/events", server.events)
+	mux.HandleFunc("GET /api/v1/topologies/{id}/comments", server.listCommentThreads)
+	mux.HandleFunc("POST /api/v1/topologies/{id}/comments", server.createCommentThread)
+	mux.HandleFunc("POST /api/v1/topologies/{id}/comments/{threadId}/replies", server.createCommentReply)
+	mux.HandleFunc("PUT /api/v1/topologies/{id}/comments/{threadId}", server.updateCommentThread)
+	mux.HandleFunc("DELETE /api/v1/topologies/{id}/comments/{threadId}", server.deleteCommentThread)
+	mux.HandleFunc("GET /api/v1/topologies/{id}/documentation-links", server.listDocumentationLinks)
+	mux.HandleFunc("POST /api/v1/topologies/{id}/documentation-links", server.createDocumentationLink)
+	mux.HandleFunc("DELETE /api/v1/topologies/{id}/documentation-links/{linkId}", server.deleteDocumentationLink)
+	mux.HandleFunc("GET /api/v1/topologies/{id}/shares", server.listShareGrants)
+	mux.HandleFunc("POST /api/v1/topologies/{id}/shares", server.createShareGrant)
+	mux.HandleFunc("DELETE /api/v1/topologies/{id}/shares/{shareId}", server.deleteShareGrant)
+	mux.HandleFunc("GET /api/v1/shared/{id}/{token}", server.getSharedTopology)
 	mux.HandleFunc("GET /{path...}", server.staticFile)
 	return middleware(mux, logger)
 }
@@ -105,6 +137,7 @@ func (s *Server) getTopology(w http.ResponseWriter, request *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	w.Header().Set("ETag", topologyRevisionETag(topology.Revision))
 	writeJSON(w, http.StatusOK, topology)
 }
 
@@ -115,7 +148,7 @@ func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	id := request.PathValue("id")
-	updated, err := s.store.Mutate(id, func(current *model.Topology) error {
+	updated, err := s.mutate(request, id, func(current *model.Topology) error {
 		if input.ID != id {
 			return fmt.Errorf("%w: topology id does not match request path", store.ErrInvalid)
 		}
@@ -132,6 +165,87 @@ func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+func (s *Server) createRack(w http.ResponseWriter, request *http.Request) {
+	var rack model.Rack
+	if err := decodeJSON(w, request, &rack); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid rack")
+		return
+	}
+	if rack.ID == "" {
+		id, err := model.NewID()
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		rack.ID = id
+	}
+	id := request.PathValue("id")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		topology.Racks = append(topology.Racks, rack)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "rack_created", updated)
+	writeJSON(w, http.StatusCreated, updated)
+}
+
+func (s *Server) updateRack(w http.ResponseWriter, request *http.Request) {
+	var rack model.Rack
+	if err := decodeJSON(w, request, &rack); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid rack")
+		return
+	}
+	rack.ID = request.PathValue("rackId")
+	id := request.PathValue("id")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		index := slicesIndex(topology.Racks, func(current model.Rack) bool { return current.ID == rack.ID })
+		if index < 0 {
+			return store.ErrNotFound
+		}
+		topology.Racks[index] = rack
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "rack_updated", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) deleteRack(w http.ResponseWriter, request *http.Request) {
+	id := request.PathValue("id")
+	rackID := request.PathValue("rackId")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		index := slicesIndex(topology.Racks, func(rack model.Rack) bool { return rack.ID == rackID })
+		if index < 0 {
+			return store.ErrNotFound
+		}
+		rack := topology.Racks[index]
+		for deviceIndex := range topology.Devices {
+			device := &topology.Devices[deviceIndex]
+			if device.RackID != rackID {
+				continue
+			}
+			device.PositionX, device.PositionY = mountedDevicePosition(rack, *device)
+			device.RackID = ""
+			device.RackUnit = 0
+		}
+		topology.Racks = append(topology.Racks[:index], topology.Racks[index+1:]...)
+		pruneCollaborationReferences(topology)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "rack_deleted", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (s *Server) createDevice(w http.ResponseWriter, request *http.Request) {
 	var device model.Device
 	if err := decodeJSON(w, request, &device); err != nil {
@@ -143,7 +257,7 @@ func (s *Server) createDevice(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	id := request.PathValue("id")
-	updated, err := s.store.Mutate(id, func(topology *model.Topology) error {
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
 		topology.Devices = append(topology.Devices, device)
 		return nil
 	})
@@ -163,7 +277,7 @@ func (s *Server) updateDevice(w http.ResponseWriter, request *http.Request) {
 	}
 	device.ID = request.PathValue("deviceId")
 	id := request.PathValue("id")
-	updated, err := s.store.Mutate(id, func(topology *model.Topology) error {
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
 		for index := range topology.Devices {
 			if topology.Devices[index].ID == device.ID {
 				if err := ensureDeviceIDs(&device); err != nil {
@@ -186,7 +300,7 @@ func (s *Server) updateDevice(w http.ResponseWriter, request *http.Request) {
 func (s *Server) deleteDevice(w http.ResponseWriter, request *http.Request) {
 	id := request.PathValue("id")
 	deviceID := request.PathValue("deviceId")
-	updated, err := s.store.Mutate(id, func(topology *model.Topology) error {
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
 		index := slicesIndex(topology.Devices, func(device model.Device) bool { return device.ID == deviceID })
 		if index < 0 {
 			return store.ErrNotFound
@@ -199,6 +313,10 @@ func (s *Server) deleteDevice(w http.ResponseWriter, request *http.Request) {
 			}
 		}
 		topology.Links = links
+		pruneLinkGroups(topology)
+		pruneSwitchSystems(topology)
+		pruneFirewallClusters(topology)
+		pruneCollaborationReferences(topology)
 		return nil
 	})
 	if err != nil {
@@ -218,7 +336,7 @@ func (s *Server) updatePort(w http.ResponseWriter, request *http.Request) {
 	portID := request.PathValue("portId")
 	input.ID = portID
 	id := request.PathValue("id")
-	updated, err := s.store.Mutate(id, func(topology *model.Topology) error {
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
 		for deviceIndex := range topology.Devices {
 			for portIndex := range topology.Devices[deviceIndex].Ports {
 				port := &topology.Devices[deviceIndex].Ports[portIndex]
@@ -255,8 +373,9 @@ func (s *Server) createLink(w http.ResponseWriter, request *http.Request) {
 		}
 	}
 	id := request.PathValue("id")
-	updated, err := s.store.Mutate(id, func(topology *model.Topology) error {
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
 		topology.Links = append(topology.Links, link)
+		activateLinkEndpointPorts(topology, link)
 		return nil
 	})
 	if err != nil {
@@ -267,15 +386,184 @@ func (s *Server) createLink(w http.ResponseWriter, request *http.Request) {
 	writeJSON(w, http.StatusCreated, updated)
 }
 
+const maximumBulkLinks = 96
+
+type createLinksRequest struct {
+	Links []model.Link `json:"links"`
+}
+
+// createLinks adds a physical range mapping as one topology mutation. If one
+// endpoint is invalid or occupied, validation rejects the complete batch.
+func (s *Server) createLinks(w http.ResponseWriter, request *http.Request) {
+	var input createLinksRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid link batch")
+		return
+	}
+	if len(input.Links) == 0 || len(input.Links) > maximumBulkLinks {
+		writeError(w, http.StatusBadRequest, "link batch must contain between 1 and 96 cables")
+		return
+	}
+	for index := range input.Links {
+		if input.Links[index].ID != "" {
+			continue
+		}
+		id, err := model.NewID()
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		input.Links[index].ID = id
+	}
+
+	id := request.PathValue("id")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		topology.Links = append(topology.Links, input.Links...)
+		for _, link := range input.Links {
+			activateLinkEndpointPorts(topology, link)
+		}
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "links_created", updated)
+	writeJSON(w, http.StatusCreated, updated)
+}
+
+func activateLinkEndpointPorts(topology *model.Topology, link model.Link) {
+	for deviceIndex := range topology.Devices {
+		for portIndex := range topology.Devices[deviceIndex].Ports {
+			port := &topology.Devices[deviceIndex].Ports[portIndex]
+			if port.ID == link.SourcePortID || port.ID == link.TargetPortID {
+				port.Status = model.PortStatusUp
+			}
+		}
+	}
+}
+
+type linkConfigurationRequest struct {
+	Mode         model.PortMode `json:"mode"`
+	NativeVLAN   int            `json:"nativeVlan"`
+	AllowedVLANs []int          `json:"allowedVlans"`
+	CableType    string         `json:"cableType,omitempty"`
+}
+
+func (s *Server) configureLink(w http.ResponseWriter, request *http.Request) {
+	var input linkConfigurationRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid link configuration")
+		return
+	}
+	id := request.PathValue("id")
+	linkID := request.PathValue("linkId")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		return applyLinkConfiguration(topology, linkID, input)
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "link_configured", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func applyLinkConfiguration(
+	topology *model.Topology,
+	linkID string,
+	input linkConfigurationRequest,
+) error {
+	selectedLinkIndex := slicesIndex(topology.Links, func(link model.Link) bool { return link.ID == linkID })
+	if selectedLinkIndex < 0 {
+		return store.ErrNotFound
+	}
+	if !slices.Contains([]model.PortMode{model.PortModeAccess, model.PortModeTrunk, model.PortModeHybrid}, input.Mode) {
+		return fmt.Errorf("%w: unsupported link port mode %q", store.ErrInvalid, input.Mode)
+	}
+
+	allowedVLANs := slices.Clone(input.AllowedVLANs)
+	slices.Sort(allowedVLANs)
+	allowedVLANs = slices.Compact(allowedVLANs)
+	allowedVLANs = slices.DeleteFunc(allowedVLANs, func(vlanID int) bool {
+		return vlanID == input.NativeVLAN
+	})
+	if input.Mode == model.PortModeAccess {
+		allowedVLANs = []int{}
+	}
+
+	targetLinkIDs := []string{linkID}
+	for _, group := range topology.LinkGroups {
+		if slices.Contains(group.LinkIDs, linkID) {
+			targetLinkIDs = slices.Clone(group.LinkIDs)
+			break
+		}
+	}
+
+	linksByID := make(map[string]int, len(topology.Links))
+	for index, link := range topology.Links {
+		linksByID[link.ID] = index
+	}
+	linkIndexes := make([]int, 0, len(targetLinkIDs))
+	portIDs := make(map[string]struct{}, len(targetLinkIDs)*2)
+	for _, targetLinkID := range targetLinkIDs {
+		index, exists := linksByID[targetLinkID]
+		if !exists {
+			return fmt.Errorf("%w: link group member %q does not exist", store.ErrInvalid, targetLinkID)
+		}
+		linkIndexes = append(linkIndexes, index)
+		link := topology.Links[index]
+		portIDs[link.SourcePortID] = struct{}{}
+		portIDs[link.TargetPortID] = struct{}{}
+	}
+
+	type portLocation struct {
+		deviceIndex int
+		portIndex   int
+	}
+	portLocations := make([]portLocation, 0, len(portIDs))
+	for deviceIndex := range topology.Devices {
+		for portIndex := range topology.Devices[deviceIndex].Ports {
+			portID := topology.Devices[deviceIndex].Ports[portIndex].ID
+			if _, exists := portIDs[portID]; exists {
+				portLocations = append(portLocations, portLocation{deviceIndex: deviceIndex, portIndex: portIndex})
+			}
+		}
+	}
+	if len(portLocations) != len(portIDs) {
+		return fmt.Errorf("%w: link group endpoints are incomplete", store.ErrInvalid)
+	}
+
+	for _, location := range portLocations {
+		port := &topology.Devices[location.deviceIndex].Ports[location.portIndex]
+		port.Mode = input.Mode
+		port.NativeVLAN = input.NativeVLAN
+		port.AllowedVLANs = slices.Clone(allowedVLANs)
+	}
+	for _, linkIndex := range linkIndexes {
+		link := &topology.Links[linkIndex]
+		if strings.TrimSpace(input.CableType) != "" {
+			link.CableType = strings.TrimSpace(input.CableType)
+		}
+		link.PrimaryVLAN = input.NativeVLAN
+		link.VLANIDs = append([]int{input.NativeVLAN}, allowedVLANs...)
+	}
+	return nil
+}
+
 func (s *Server) deleteLink(w http.ResponseWriter, request *http.Request) {
 	id := request.PathValue("id")
 	linkID := request.PathValue("linkId")
-	updated, err := s.store.Mutate(id, func(topology *model.Topology) error {
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
 		index := slicesIndex(topology.Links, func(link model.Link) bool { return link.ID == linkID })
 		if index < 0 {
 			return store.ErrNotFound
 		}
+		removedLink := topology.Links[index]
 		topology.Links = append(topology.Links[:index], topology.Links[index+1:]...)
+		deactivateUnlinkedEndpointPorts(topology, removedLink)
+		pruneLinkGroups(topology)
+		pruneCollaborationReferences(topology)
 		return nil
 	})
 	if err != nil {
@@ -283,6 +571,246 @@ func (s *Server) deleteLink(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	s.publish(id, "link_deleted", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func deactivateUnlinkedEndpointPorts(topology *model.Topology, removedLink model.Link) {
+	unlinkedPortIDs := map[string]struct{}{
+		removedLink.SourcePortID: {},
+		removedLink.TargetPortID: {},
+	}
+	for _, link := range topology.Links {
+		delete(unlinkedPortIDs, link.SourcePortID)
+		delete(unlinkedPortIDs, link.TargetPortID)
+	}
+	if len(unlinkedPortIDs) == 0 {
+		return
+	}
+	for deviceIndex := range topology.Devices {
+		for portIndex := range topology.Devices[deviceIndex].Ports {
+			port := &topology.Devices[deviceIndex].Ports[portIndex]
+			if _, isUnlinked := unlinkedPortIDs[port.ID]; isUnlinked {
+				port.Status = model.PortStatusDown
+			}
+		}
+	}
+}
+
+func (s *Server) createLinkGroup(w http.ResponseWriter, request *http.Request) {
+	var group model.LinkGroup
+	if err := decodeJSON(w, request, &group); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid link group")
+		return
+	}
+	if group.ID == "" {
+		var err error
+		group.ID, err = model.NewID()
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	id := request.PathValue("id")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		topology.LinkGroups = append(topology.LinkGroups, group)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "link_group_created", updated)
+	writeJSON(w, http.StatusCreated, updated)
+}
+
+func (s *Server) updateLinkGroup(w http.ResponseWriter, request *http.Request) {
+	var group model.LinkGroup
+	if err := decodeJSON(w, request, &group); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid link group")
+		return
+	}
+	group.ID = request.PathValue("groupId")
+	id := request.PathValue("id")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		index := slicesIndex(topology.LinkGroups, func(current model.LinkGroup) bool { return current.ID == group.ID })
+		if index < 0 {
+			return store.ErrNotFound
+		}
+		topology.LinkGroups[index] = group
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "link_group_updated", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) deleteLinkGroup(w http.ResponseWriter, request *http.Request) {
+	id := request.PathValue("id")
+	groupID := request.PathValue("groupId")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		index := slicesIndex(topology.LinkGroups, func(group model.LinkGroup) bool { return group.ID == groupID })
+		if index < 0 {
+			return store.ErrNotFound
+		}
+		topology.LinkGroups = append(topology.LinkGroups[:index], topology.LinkGroups[index+1:]...)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "link_group_deleted", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) createSwitchSystem(w http.ResponseWriter, request *http.Request) {
+	var system model.SwitchSystem
+	if err := decodeJSON(w, request, &system); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid switch system")
+		return
+	}
+	if system.ID == "" {
+		var err error
+		system.ID, err = model.NewID()
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	id := request.PathValue("id")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		topology.SwitchSystems = append(topology.SwitchSystems, system)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "switch_system_created", updated)
+	writeJSON(w, http.StatusCreated, updated)
+}
+
+func (s *Server) updateSwitchSystem(w http.ResponseWriter, request *http.Request) {
+	var system model.SwitchSystem
+	if err := decodeJSON(w, request, &system); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid switch system")
+		return
+	}
+	system.ID = request.PathValue("systemId")
+	id := request.PathValue("id")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		index := slicesIndex(topology.SwitchSystems, func(current model.SwitchSystem) bool {
+			return current.ID == system.ID
+		})
+		if index < 0 {
+			return store.ErrNotFound
+		}
+		topology.SwitchSystems[index] = system
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "switch_system_updated", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) deleteSwitchSystem(w http.ResponseWriter, request *http.Request) {
+	id := request.PathValue("id")
+	systemID := request.PathValue("systemId")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		index := slicesIndex(topology.SwitchSystems, func(system model.SwitchSystem) bool {
+			return system.ID == systemID
+		})
+		if index < 0 {
+			return store.ErrNotFound
+		}
+		topology.SwitchSystems = append(topology.SwitchSystems[:index], topology.SwitchSystems[index+1:]...)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "switch_system_deleted", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) createFirewallCluster(w http.ResponseWriter, request *http.Request) {
+	var cluster model.FirewallCluster
+	if err := decodeJSON(w, request, &cluster); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid firewall cluster")
+		return
+	}
+	if cluster.ID == "" {
+		var err error
+		cluster.ID, err = model.NewID()
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	id := request.PathValue("id")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		topology.FirewallClusters = append(topology.FirewallClusters, cluster)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "firewall_cluster_created", updated)
+	writeJSON(w, http.StatusCreated, updated)
+}
+
+func (s *Server) updateFirewallCluster(w http.ResponseWriter, request *http.Request) {
+	var cluster model.FirewallCluster
+	if err := decodeJSON(w, request, &cluster); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid firewall cluster")
+		return
+	}
+	cluster.ID = request.PathValue("clusterId")
+	id := request.PathValue("id")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		index := slicesIndex(topology.FirewallClusters, func(current model.FirewallCluster) bool {
+			return current.ID == cluster.ID
+		})
+		if index < 0 {
+			return store.ErrNotFound
+		}
+		topology.FirewallClusters[index] = cluster
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "firewall_cluster_updated", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) deleteFirewallCluster(w http.ResponseWriter, request *http.Request) {
+	id := request.PathValue("id")
+	clusterID := request.PathValue("clusterId")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		index := slicesIndex(topology.FirewallClusters, func(cluster model.FirewallCluster) bool {
+			return cluster.ID == clusterID
+		})
+		if index < 0 {
+			return store.ErrNotFound
+		}
+		topology.FirewallClusters = append(topology.FirewallClusters[:index], topology.FirewallClusters[index+1:]...)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "firewall_cluster_deleted", updated)
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -302,7 +830,7 @@ func (s *Server) createVLAN(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	id := request.PathValue("id")
-	updated, err := s.store.Mutate(id, func(topology *model.Topology) error {
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
 		topology.VLANs = append(topology.VLANs, vlan)
 		return nil
 	})
@@ -326,7 +854,7 @@ func (s *Server) updateVLAN(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	id := request.PathValue("id")
-	updated, err := s.store.Mutate(id, func(topology *model.Topology) error {
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
 		index := slicesIndex(topology.VLANs, func(current model.VLAN) bool { return current.ID == vlanID })
 		if index < 0 {
 			return store.ErrNotFound
@@ -349,7 +877,7 @@ func (s *Server) deleteVLAN(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	id := request.PathValue("id")
-	updated, err := s.store.Mutate(id, func(topology *model.Topology) error {
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
 		index := slicesIndex(topology.VLANs, func(vlan model.VLAN) bool { return vlan.ID == vlanID })
 		if index < 0 {
 			return store.ErrNotFound
@@ -412,6 +940,327 @@ func (s *Server) trace(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string][]string{"linkIds": links})
+}
+
+type createCommentThreadRequest struct {
+	Anchor model.CommentAnchor `json:"anchor"`
+	Author string              `json:"author"`
+	Body   string              `json:"body"`
+}
+
+type createCommentReplyRequest struct {
+	Author string `json:"author"`
+	Body   string `json:"body"`
+}
+
+type updateCommentThreadRequest struct {
+	Resolved bool `json:"resolved"`
+}
+
+func (s *Server) listCommentThreads(w http.ResponseWriter, request *http.Request) {
+	topology, err := s.store.Get(request.PathValue("id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, topology.CommentThreads)
+}
+
+func (s *Server) createCommentThread(w http.ResponseWriter, request *http.Request) {
+	var input createCommentThreadRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid comment thread")
+		return
+	}
+	threadID, err := model.NewID()
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	messageID, err := model.NewID()
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	now := time.Now().UTC()
+	thread := model.CommentThread{
+		ID: threadID, Anchor: input.Anchor, CreatedAt: now, UpdatedAt: now,
+		Messages: []model.CommentMessage{{
+			ID: messageID, Author: strings.TrimSpace(input.Author), Body: strings.TrimSpace(input.Body), CreatedAt: now, UpdatedAt: now,
+		}},
+	}
+	topologyID := request.PathValue("id")
+	updated, err := s.mutate(request, topologyID, func(topology *model.Topology) error {
+		topology.CommentThreads = append(topology.CommentThreads, thread)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(topologyID, "comment_created", updated)
+	writeJSON(w, http.StatusCreated, updated)
+}
+
+func (s *Server) createCommentReply(w http.ResponseWriter, request *http.Request) {
+	var input createCommentReplyRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid comment reply")
+		return
+	}
+	messageID, err := model.NewID()
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	now := time.Now().UTC()
+	message := model.CommentMessage{ID: messageID, Author: strings.TrimSpace(input.Author), Body: strings.TrimSpace(input.Body), CreatedAt: now, UpdatedAt: now}
+	topologyID := request.PathValue("id")
+	threadID := request.PathValue("threadId")
+	updated, err := s.mutate(request, topologyID, func(topology *model.Topology) error {
+		for index := range topology.CommentThreads {
+			if topology.CommentThreads[index].ID == threadID {
+				topology.CommentThreads[index].Messages = append(topology.CommentThreads[index].Messages, message)
+				topology.CommentThreads[index].UpdatedAt = now
+				return nil
+			}
+		}
+		return store.ErrNotFound
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(topologyID, "comment_replied", updated)
+	writeJSON(w, http.StatusCreated, updated)
+}
+
+func (s *Server) updateCommentThread(w http.ResponseWriter, request *http.Request) {
+	var input updateCommentThreadRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid comment thread update")
+		return
+	}
+	topologyID := request.PathValue("id")
+	threadID := request.PathValue("threadId")
+	updated, err := s.mutate(request, topologyID, func(topology *model.Topology) error {
+		for index := range topology.CommentThreads {
+			if topology.CommentThreads[index].ID == threadID {
+				topology.CommentThreads[index].Resolved = input.Resolved
+				topology.CommentThreads[index].UpdatedAt = time.Now().UTC()
+				return nil
+			}
+		}
+		return store.ErrNotFound
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(topologyID, "comment_updated", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) deleteCommentThread(w http.ResponseWriter, request *http.Request) {
+	topologyID := request.PathValue("id")
+	threadID := request.PathValue("threadId")
+	updated, err := s.mutate(request, topologyID, func(topology *model.Topology) error {
+		for index, thread := range topology.CommentThreads {
+			if thread.ID == threadID {
+				topology.CommentThreads = slices.Delete(topology.CommentThreads, index, index+1)
+				return nil
+			}
+		}
+		return store.ErrNotFound
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(topologyID, "comment_deleted", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) listDocumentationLinks(w http.ResponseWriter, request *http.Request) {
+	topology, err := s.store.Get(request.PathValue("id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, topology.DocumentationLinks)
+}
+
+func (s *Server) createDocumentationLink(w http.ResponseWriter, request *http.Request) {
+	var documentationLink model.DocumentationLink
+	if err := decodeJSON(w, request, &documentationLink); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid documentation link")
+		return
+	}
+	if documentationLink.ID == "" {
+		id, err := model.NewID()
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		documentationLink.ID = id
+	}
+	documentationLink.Label = strings.TrimSpace(documentationLink.Label)
+	documentationLink.URL = strings.TrimSpace(documentationLink.URL)
+	documentationLink.CreatedAt = time.Now().UTC()
+	topologyID := request.PathValue("id")
+	updated, err := s.mutate(request, topologyID, func(topology *model.Topology) error {
+		topology.DocumentationLinks = append(topology.DocumentationLinks, documentationLink)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(topologyID, "documentation_link_created", updated)
+	writeJSON(w, http.StatusCreated, updated)
+}
+
+func (s *Server) deleteDocumentationLink(w http.ResponseWriter, request *http.Request) {
+	topologyID := request.PathValue("id")
+	documentationLinkID := request.PathValue("linkId")
+	updated, err := s.mutate(request, topologyID, func(topology *model.Topology) error {
+		for index, documentationLink := range topology.DocumentationLinks {
+			if documentationLink.ID == documentationLinkID {
+				topology.DocumentationLinks = slices.Delete(topology.DocumentationLinks, index, index+1)
+				return nil
+			}
+		}
+		return store.ErrNotFound
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(topologyID, "documentation_link_deleted", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+type createShareGrantRequest struct {
+	Name      string     `json:"name"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+}
+
+type shareGrantResponse struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Revision  uint64     `json:"revision,omitempty"`
+	Path      string     `json:"path,omitempty"`
+	Token     string     `json:"token,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+}
+
+func (s *Server) listShareGrants(w http.ResponseWriter, request *http.Request) {
+	topology, err := s.store.Get(request.PathValue("id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	shares := make([]shareGrantResponse, 0, len(topology.ShareGrants))
+	for _, share := range topology.ShareGrants {
+		shares = append(shares, shareGrantResponse{ID: share.ID, Name: share.Name, CreatedAt: share.CreatedAt, ExpiresAt: share.ExpiresAt})
+	}
+	writeJSON(w, http.StatusOK, shares)
+}
+
+func (s *Server) createShareGrant(w http.ResponseWriter, request *http.Request) {
+	var input createShareGrantRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid share settings")
+		return
+	}
+	shareID, err := model.NewID()
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		s.fail(w, fmt.Errorf("generating share token: %w", err))
+		return
+	}
+	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
+	digest := sha256.Sum256([]byte(token))
+	now := time.Now().UTC()
+	grant := model.ShareGrant{
+		ID: shareID, Name: strings.TrimSpace(input.Name), TokenHash: hex.EncodeToString(digest[:]), CreatedAt: now, ExpiresAt: input.ExpiresAt,
+	}
+	if grant.Name == "" {
+		grant.Name = "Read-only share"
+	}
+	topologyID := request.PathValue("id")
+	updated, err := s.mutate(request, topologyID, func(topology *model.Topology) error {
+		topology.ShareGrants = append(topology.ShareGrants, grant)
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(topologyID, "share_created", updated)
+	writeJSON(w, http.StatusCreated, shareGrantResponse{
+		ID: grant.ID, Name: grant.Name, Token: token,
+		Path:      "/api/v1/shared/" + topologyID + "/" + token,
+		Revision:  updated.Revision,
+		CreatedAt: grant.CreatedAt, ExpiresAt: grant.ExpiresAt,
+	})
+}
+
+func (s *Server) deleteShareGrant(w http.ResponseWriter, request *http.Request) {
+	topologyID := request.PathValue("id")
+	shareID := request.PathValue("shareId")
+	updated, err := s.mutate(request, topologyID, func(topology *model.Topology) error {
+		for index, share := range topology.ShareGrants {
+			if share.ID == shareID {
+				topology.ShareGrants = slices.Delete(topology.ShareGrants, index, index+1)
+				return nil
+			}
+		}
+		return store.ErrNotFound
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(topologyID, "share_deleted", updated)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) getSharedTopology(w http.ResponseWriter, request *http.Request) {
+	token := request.PathValue("token")
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil || len(decoded) != 32 {
+		writeError(w, http.StatusNotFound, "share link not found")
+		return
+	}
+	topology, err := s.store.Get(request.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "share link not found")
+		return
+	}
+	digest := sha256.Sum256([]byte(token))
+	now := time.Now().UTC()
+	granted := false
+	for _, share := range topology.ShareGrants {
+		expected, decodeErr := hex.DecodeString(share.TokenHash)
+		matches := decodeErr == nil && len(expected) == len(digest) && subtle.ConstantTimeCompare(expected, digest[:]) == 1
+		if matches && (share.ExpiresAt == nil || share.ExpiresAt.After(now)) {
+			granted = true
+		}
+	}
+	if !granted {
+		writeError(w, http.StatusNotFound, "share link not found")
+		return
+	}
+	topology.ShareGrants = []model.ShareGrant{}
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	writeJSON(w, http.StatusOK, topology)
 }
 
 func (s *Server) events(w http.ResponseWriter, request *http.Request) {
@@ -483,6 +1332,33 @@ func (s *Server) publish(id, eventType string, topology model.Topology) {
 	}
 }
 
+func (s *Server) mutate(request *http.Request, id string, mutation func(*model.Topology) error) (model.Topology, error) {
+	expectedRevision, err := parseExpectedRevision(request.Header.Get("If-Match"))
+	if err != nil {
+		return model.Topology{}, fmt.Errorf("%w: %v", store.ErrInvalid, err)
+	}
+	return s.store.MutateAtRevision(id, expectedRevision, mutation)
+}
+
+func parseExpectedRevision(value string) (uint64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	value = strings.TrimPrefix(value, "W/")
+	value = strings.Trim(value, "\"")
+	value = strings.TrimPrefix(value, "rev-")
+	revision, err := strconv.ParseUint(value, 10, 64)
+	if err != nil || revision == 0 {
+		return 0, errors.New("If-Match must contain a positive topology revision")
+	}
+	return revision, nil
+}
+
+func topologyRevisionETag(revision uint64) string {
+	return fmt.Sprintf("\"rev-%d\"", revision)
+}
+
 func (s *Server) fail(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	message := "internal server error"
@@ -496,6 +1372,15 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrInvalid):
 		status = http.StatusBadRequest
 		message = "request violates topology rules"
+	}
+	var revisionConflict *store.RevisionConflictError
+	if errors.As(err, &revisionConflict) {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":            "topology changed since it was loaded",
+			"expectedRevision": revisionConflict.Expected,
+			"currentRevision":  revisionConflict.Actual,
+		})
+		return
 	}
 	if status >= 500 {
 		s.logger.Error("http handler error", "error", err)
@@ -513,14 +1398,151 @@ func newBlankTopology(name string) (model.Topology, error) {
 	}
 	now := time.Now().UTC()
 	return model.Topology{
-		ID:        id,
-		Name:      strings.TrimSpace(name),
-		Devices:   []model.Device{},
-		Links:     []model.Link{},
-		VLANs:     []model.VLAN{{ID: 1, Name: "Native", ColorHex: "#8a9ba8", Description: "Default untagged network"}},
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:               id,
+		Name:             strings.TrimSpace(name),
+		Racks:            []model.Rack{},
+		Devices:          []model.Device{},
+		Links:            []model.Link{},
+		LinkGroups:       []model.LinkGroup{},
+		SwitchSystems:    []model.SwitchSystem{},
+		FirewallClusters: []model.FirewallCluster{},
+		VLANs:            []model.VLAN{{ID: 1, Name: "Native", ColorHex: "#8a9ba8", Description: "Default untagged network"}},
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}, nil
+}
+
+func pruneLinkGroups(topology *model.Topology) {
+	linkIDs := make(map[string]struct{}, len(topology.Links))
+	for _, link := range topology.Links {
+		linkIDs[link.ID] = struct{}{}
+	}
+	groups := topology.LinkGroups[:0]
+	for _, group := range topology.LinkGroups {
+		members := group.LinkIDs[:0]
+		for _, linkID := range group.LinkIDs {
+			if _, exists := linkIDs[linkID]; exists {
+				members = append(members, linkID)
+			}
+		}
+		group.LinkIDs = members
+		if len(group.LinkIDs) >= 2 {
+			if group.Mode == model.LinkGroupModeFailover && !slices.Contains(group.LinkIDs, group.PrimaryLinkID) {
+				group.PrimaryLinkID = group.LinkIDs[0]
+			}
+			groups = append(groups, group)
+		}
+	}
+	topology.LinkGroups = groups
+}
+
+func pruneSwitchSystems(topology *model.Topology) {
+	deviceIDs := make(map[string]struct{}, len(topology.Devices))
+	for _, device := range topology.Devices {
+		deviceIDs[device.ID] = struct{}{}
+	}
+	systems := topology.SwitchSystems[:0]
+	for _, system := range topology.SwitchSystems {
+		members := system.DeviceIDs[:0]
+		for _, deviceID := range system.DeviceIDs {
+			if _, exists := deviceIDs[deviceID]; exists {
+				members = append(members, deviceID)
+			}
+		}
+		system.DeviceIDs = members
+		if len(system.DeviceIDs) >= 2 {
+			systems = append(systems, system)
+		}
+	}
+	topology.SwitchSystems = systems
+}
+
+func pruneFirewallClusters(topology *model.Topology) {
+	deviceIDs := make(map[string]struct{}, len(topology.Devices))
+	for _, device := range topology.Devices {
+		deviceIDs[device.ID] = struct{}{}
+	}
+	clusters := topology.FirewallClusters[:0]
+	for _, cluster := range topology.FirewallClusters {
+		members := cluster.DeviceIDs[:0]
+		for _, deviceID := range cluster.DeviceIDs {
+			if _, exists := deviceIDs[deviceID]; exists {
+				members = append(members, deviceID)
+			}
+		}
+		cluster.DeviceIDs = members
+		if len(cluster.DeviceIDs) < 2 {
+			continue
+		}
+		if cluster.Mode == model.FirewallClusterModeActivePassive && !slices.Contains(cluster.DeviceIDs, cluster.ActiveDeviceID) {
+			cluster.ActiveDeviceID = cluster.DeviceIDs[0]
+		}
+		clusters = append(clusters, cluster)
+	}
+	topology.FirewallClusters = clusters
+}
+
+func pruneCollaborationReferences(topology *model.Topology) {
+	racks := make(map[string]struct{}, len(topology.Racks))
+	devices := make(map[string]struct{}, len(topology.Devices))
+	ports := make(map[string]struct{})
+	links := make(map[string]struct{}, len(topology.Links))
+	for _, rack := range topology.Racks {
+		racks[rack.ID] = struct{}{}
+	}
+	for _, device := range topology.Devices {
+		devices[device.ID] = struct{}{}
+		for _, port := range device.Ports {
+			ports[port.ID] = struct{}{}
+		}
+	}
+	for _, link := range topology.Links {
+		links[link.ID] = struct{}{}
+	}
+	threads := topology.CommentThreads[:0]
+	for _, thread := range topology.CommentThreads {
+		keep := thread.Anchor.Kind == model.CommentAnchorCanvas
+		if thread.Anchor.Kind == model.CommentAnchorDevice {
+			_, keep = devices[thread.Anchor.TargetID]
+		}
+		if thread.Anchor.Kind == model.CommentAnchorLink {
+			_, keep = links[thread.Anchor.TargetID]
+		}
+		if keep {
+			threads = append(threads, thread)
+		}
+	}
+	topology.CommentThreads = threads
+	documentationLinks := topology.DocumentationLinks[:0]
+	for _, documentationLink := range topology.DocumentationLinks {
+		keep := documentationLink.TargetKind == model.DocumentationTargetTopology && documentationLink.TargetID == topology.ID
+		switch documentationLink.TargetKind {
+		case model.DocumentationTargetRack:
+			_, keep = racks[documentationLink.TargetID]
+		case model.DocumentationTargetDevice:
+			_, keep = devices[documentationLink.TargetID]
+		case model.DocumentationTargetPort:
+			_, keep = ports[documentationLink.TargetID]
+		case model.DocumentationTargetLink:
+			_, keep = links[documentationLink.TargetID]
+		}
+		if keep {
+			documentationLinks = append(documentationLinks, documentationLink)
+		}
+	}
+	topology.DocumentationLinks = documentationLinks
+}
+
+func mountedDevicePosition(rack model.Rack, device model.Device) (float64, float64) {
+	const (
+		rackDeviceInset  = 30
+		rackHeaderHeight = 64
+		rackUnitHeight   = 100
+	)
+	x := rack.PositionX + rackDeviceInset
+	topUnit := device.RackUnit + device.Faceplate.UnitsU - 1
+	y := rack.PositionY + rackHeaderHeight + float64(rack.HeightU-topUnit)*rackUnitHeight
+	return x, y
 }
 
 func ensureDeviceIDs(device *model.Device) error {

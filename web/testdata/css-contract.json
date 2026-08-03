@@ -1,0 +1,18 @@
+{
+  "variables": ["--rack-bg", "--panel", "--ink", "--muted", "--cyan", "--amber", "--red", "--port-hover", "--modal-surface", "--modal-line", "--modal-radius"],
+  "values": {
+    "--rack-bg": "#0b1012",
+    "--panel": "#131b1e",
+    "--ink": "#dce7e6",
+    "--muted": "#74888b",
+    "--cyan": "#42d9c8",
+    "--amber": "#f0b35a",
+    "--red": "#f36c63",
+    "--port-hover": "#7affee",
+    "--modal-surface": "#121b1e",
+    "--modal-line": "#3b5056",
+    "--modal-radius": "18px"
+  },
+  "requiredSelectors": [".topbar", ".workspace", ".diagram-stage", ".rail", ".panel-dialog", ".export-popover", ".toast"],
+  "minimumContrastTokens": ["--rack-bg", "--ink", "--cyan", "--amber", "--red"]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "netdiagram-quality",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test web/*_test.mjs",
+    "test:coverage": "c8 --all --include=web/static/js/*.js --exclude=web/static/js/app.js --reporter=text --reporter=lcov --check-coverage --lines=65 --functions=55 --branches=70 node --test web/*_test.mjs",
+    "test:e2e": "playwright test --project=chromium --project=firefox --project=webkit",
+    "test:edge": "playwright test --project=edge",
+    "test:visual": "playwright test --config=playwright.visual.config.mjs --project=chromium",
+    "test:visual:update": "playwright test --config=playwright.visual.config.mjs --project=chromium --update-snapshots",
+    "test:a11y": "playwright test e2e/accessibility.spec.mjs --project=chromium"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.54.2",
+    "c8": "^10.1.3"
+  }
+}

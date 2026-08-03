@@ -16,11 +16,26 @@ var (
 	ErrInvalid = errors.New("store: invalid topology")
 )
 
+// RevisionConflictError reports an optimistic concurrency precondition failure.
+type RevisionConflictError struct {
+	Expected uint64
+	Actual   uint64
+}
+
+func (e *RevisionConflictError) Error() string {
+	return "store: topology revision conflict"
+}
+
+func (e *RevisionConflictError) Unwrap() error {
+	return ErrConflict
+}
+
 // Store defines durable operations on complete topology aggregates.
 type Store interface {
 	List() []model.Summary
 	Get(id string) (model.Topology, error)
 	Create(topology model.Topology) (model.Topology, error)
 	Mutate(id string, mutation func(*model.Topology) error) (model.Topology, error)
+	MutateAtRevision(id string, expectedRevision uint64, mutation func(*model.Topology) error) (model.Topology, error)
 	SaveToDisk(id string) error
 }

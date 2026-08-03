@@ -74,9 +74,11 @@ export class AppState extends EventTarget {
     if (!this.selection || !this.topology) return;
     const { type, id } = this.selection;
     let exists = false;
+    if (type === "rack") exists = (this.topology.racks || []).some((item) => item.id === id);
     if (type === "device") exists = this.topology.devices.some((item) => item.id === id);
     if (type === "link") exists = this.topology.links.some((item) => item.id === id);
     if (type === "port") exists = this.topology.devices.some((device) => device.ports.some((item) => item.id === id));
+    if (type === "annotation") exists = (this.topology.annotations || []).some((item) => item.id === id);
     if (!exists) this.selection = null;
   }
 }

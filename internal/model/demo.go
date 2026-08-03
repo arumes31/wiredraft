@@ -21,10 +21,11 @@ func NewDemo() (Topology, error) {
 			{ID: 20, Name: "Users", ColorHex: "#55a7ff", Description: "Corporate clients"},
 			{ID: 30, Name: "Guest", ColorHex: "#f0b35a", Description: "Isolated guest access"},
 		},
-		Devices:   []Device{},
-		Links:     []Link{},
-		CreatedAt: now,
-		UpdatedAt: now,
+		Devices:    []Device{},
+		Links:      []Link{},
+		LinkGroups: []LinkGroup{},
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	devices := []struct {

@@ -8,7 +8,8 @@ import (
 // Issue describes a link-level configuration problem.
 type Issue struct {
 	Kind     string `json:"kind"`
-	LinkID   string `json:"linkId"`
+	LinkID   string `json:"linkId,omitempty"`
+	GroupID  string `json:"groupId,omitempty"`
 	Message  string `json:"message"`
 	Severity string `json:"severity"`
 }
@@ -22,8 +23,9 @@ type Loop struct {
 
 // Analysis contains validation findings computed from a topology snapshot.
 type Analysis struct {
-	Issues []Issue `json:"issues"`
-	Loops  []Loop  `json:"loops"`
+	Issues []Issue       `json:"issues"`
+	Loops  []Loop        `json:"loops"`
+	STP    []STPInstance `json:"stp"`
 }
 
 // Analyze compares port VLAN configuration and detects VLAN-specific cycles.
@@ -63,13 +65,190 @@ func Analyze(topology Topology) Analysis {
 			})
 		}
 	}
-	return Analysis{Issues: issues, Loops: detectLoops(topology, ports)}
+	issues = append(issues, analyzeLinkGroups(topology, ports)...)
+	stp := SimulateSTP(topology, ports)
+	return Analysis{Issues: issues, Loops: loopsFromSTP(stp), STP: stp}
+}
+
+func loopsFromSTP(instances []STPInstance) []Loop {
+	loops := []Loop{}
+	for _, instance := range instances {
+		linkIDs := []string{}
+		deviceIDs := []string{}
+		for _, port := range instance.Ports {
+			if port.Role == STPRoleBlocked {
+				linkIDs = append(linkIDs, port.LinkID)
+			}
+		}
+		if len(linkIDs) == 0 {
+			continue
+		}
+		for _, bridge := range instance.Bridges {
+			deviceIDs = append(deviceIDs, bridge.DeviceIDs...)
+		}
+		slices.Sort(linkIDs)
+		linkIDs = slices.Compact(linkIDs)
+		slices.Sort(deviceIDs)
+		deviceIDs = slices.Compact(deviceIDs)
+		loops = append(loops, Loop{VLANID: instance.VLANID, DeviceIDs: deviceIDs, LinkIDs: linkIDs})
+	}
+	return loops
+}
+
+func analyzeLinkGroups(topology Topology, ports map[string]Port) []Issue {
+	links := make(map[string]Link, len(topology.Links))
+	for _, link := range topology.Links {
+		links[link.ID] = link
+	}
+	issues := []Issue{}
+	for _, group := range topology.LinkGroups {
+		members := make([]Link, 0, len(group.LinkIDs))
+		for _, linkID := range group.LinkIDs {
+			members = append(members, links[linkID])
+		}
+		firstLinkID := group.LinkIDs[0]
+		switch group.Mode {
+		case LinkGroupModeTrunk:
+			baseline := members[0].VLANIDs
+			for _, link := range members[1:] {
+				if !slices.Equal(baseline, link.VLANIDs) {
+					issues = append(issues, linkGroupIssue(
+						group,
+						firstLinkID,
+						"trunk_vlan_mismatch",
+						"trunk members carry different VLAN sets",
+					))
+					break
+				}
+			}
+		case LinkGroupModeLACP:
+			if !sameDevicePair(members) {
+				issues = append(issues, linkGroupIssue(
+					group,
+					firstLinkID,
+					"lacp_device_pair_mismatch",
+					"LACP members do not connect the same device pair",
+				))
+			}
+			issues = append(issues, aggregationMediaIssues(group, firstLinkID, members, ports)...)
+		case LinkGroupModeMCLAG:
+			if !hasMCLAGShape(members) {
+				issues = append(issues, linkGroupIssue(
+					group,
+					firstLinkID,
+					"mclag_topology_mismatch",
+					"MC-LAG members must share one device while the peer side spans multiple devices",
+				))
+			}
+			issues = append(issues, aggregationMediaIssues(group, firstLinkID, members, ports)...)
+		case LinkGroupModeFailover:
+			baseline := members[0].VLANIDs
+			for _, link := range members[1:] {
+				if !slices.Equal(baseline, link.VLANIDs) {
+					issues = append(issues, linkGroupIssue(
+						group,
+						firstLinkID,
+						"failover_vlan_mismatch",
+						"failover primary and backup links carry different VLAN sets",
+					))
+					break
+				}
+			}
+		}
+	}
+	return issues
+}
+
+func sameDevicePair(links []Link) bool {
+	left, right := orderedDevicePair(links[0])
+	for _, link := range links[1:] {
+		currentLeft, currentRight := orderedDevicePair(link)
+		if currentLeft != left || currentRight != right {
+			return false
+		}
+	}
+	return true
+}
+
+func orderedDevicePair(link Link) (string, string) {
+	if link.SourceDeviceID < link.TargetDeviceID {
+		return link.SourceDeviceID, link.TargetDeviceID
+	}
+	return link.TargetDeviceID, link.SourceDeviceID
+}
+
+func hasMCLAGShape(links []Link) bool {
+	first := links[0]
+	candidates := []string{first.SourceDeviceID, first.TargetDeviceID}
+	for _, commonDeviceID := range candidates {
+		peers := make(map[string]struct{}, len(links))
+		valid := true
+		for _, link := range links {
+			switch commonDeviceID {
+			case link.SourceDeviceID:
+				peers[link.TargetDeviceID] = struct{}{}
+			case link.TargetDeviceID:
+				peers[link.SourceDeviceID] = struct{}{}
+			default:
+				valid = false
+			}
+		}
+		if valid && len(peers) >= 2 {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregationMediaIssues(group LinkGroup, linkID string, links []Link, ports map[string]Port) []Issue {
+	issues := []Issue{}
+	baselineCable := links[0].CableType
+	baselineSpeed := linkSpeed(links[0], ports)
+	for _, link := range links[1:] {
+		if link.CableType != baselineCable {
+			issues = append(issues, linkGroupIssue(
+				group,
+				linkID,
+				"aggregation_media_mismatch",
+				fmt.Sprintf("%s members use different cable media", group.Mode),
+			))
+			break
+		}
+	}
+	for _, link := range links[1:] {
+		if linkSpeed(link, ports) != baselineSpeed {
+			issues = append(issues, linkGroupIssue(
+				group,
+				linkID,
+				"aggregation_speed_mismatch",
+				fmt.Sprintf("%s members have different port speeds", group.Mode),
+			))
+			break
+		}
+	}
+	return issues
+}
+
+func linkSpeed(link Link, ports map[string]Port) int {
+	return min(ports[link.SourcePortID].SpeedMbps, ports[link.TargetPortID].SpeedMbps)
+}
+
+func linkGroupIssue(group LinkGroup, linkID, kind, message string) Issue {
+	return Issue{
+		Kind:     kind,
+		LinkID:   linkID,
+		GroupID:  group.ID,
+		Message:  message,
+		Severity: "warning",
+	}
 }
 
 // TracePath returns link IDs in the shortest VLAN-valid path between two ports.
 func TracePath(topology Topology, sourcePortID, targetPortID string, vlanID int) ([]string, error) {
 	ports := make(map[string]Port)
+	categories := make(map[string]DeviceCategory)
 	for _, device := range topology.Devices {
+		categories[device.ID] = device.Category
 		for _, port := range device.Ports {
 			ports[port.ID] = port
 		}
@@ -85,13 +264,20 @@ func TracePath(topology Topology, sourcePortID, targetPortID string, vlanID int)
 	if !portCarriesVLAN(source, vlanID) || !portCarriesVLAN(target, vlanID) {
 		return nil, fmt.Errorf("endpoint does not carry vlan %d", vlanID)
 	}
+	sourceIsServer := categories[source.DeviceID] == DeviceCategoryServer
+	targetIsServer := categories[target.DeviceID] == DeviceCategoryServer
 	if source.DeviceID == target.DeviceID {
+		if sourceIsServer && sourcePortID != targetPortID {
+			return nil, fmt.Errorf("server ports do not forward vlan %d", vlanID)
+		}
 		return []string{}, nil
 	}
 
 	type edge struct {
-		deviceID string
-		linkID   string
+		deviceID   string
+		linkID     string
+		fromPortID string
+		toPortID   string
 	}
 	adjacency := make(map[string][]edge)
 	for _, link := range topology.Links {
@@ -100,8 +286,12 @@ func TracePath(topology Topology, sourcePortID, targetPortID string, vlanID int)
 		if !portCarriesVLAN(left, vlanID) || !portCarriesVLAN(right, vlanID) {
 			continue
 		}
-		adjacency[left.DeviceID] = append(adjacency[left.DeviceID], edge{deviceID: right.DeviceID, linkID: link.ID})
-		adjacency[right.DeviceID] = append(adjacency[right.DeviceID], edge{deviceID: left.DeviceID, linkID: link.ID})
+		adjacency[left.DeviceID] = append(adjacency[left.DeviceID], edge{
+			deviceID: right.DeviceID, linkID: link.ID, fromPortID: left.ID, toPortID: right.ID,
+		})
+		adjacency[right.DeviceID] = append(adjacency[right.DeviceID], edge{
+			deviceID: left.DeviceID, linkID: link.ID, fromPortID: right.ID, toPortID: left.ID,
+		})
 	}
 	type visit struct {
 		deviceID string
@@ -112,7 +302,18 @@ func TracePath(topology Topology, sourcePortID, targetPortID string, vlanID int)
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
+		if current.deviceID != source.DeviceID && categories[current.deviceID] == DeviceCategoryServer {
+			continue
+		}
 		for _, next := range adjacency[current.deviceID] {
+			leavesSourceServer := current.deviceID == source.DeviceID && sourceIsServer
+			if leavesSourceServer && next.fromPortID != sourcePortID {
+				continue
+			}
+			entersTargetServer := next.deviceID == target.DeviceID && targetIsServer
+			if entersTargetServer && next.toPortID != targetPortID {
+				continue
+			}
 			if _, visited := seen[next.deviceID]; visited {
 				continue
 			}
@@ -145,6 +346,10 @@ func portCarriesVLAN(port Port, vlanID int) bool {
 }
 
 func detectLoops(topology Topology, ports map[string]Port) []Loop {
+	categories := make(map[string]DeviceCategory, len(topology.Devices))
+	for _, device := range topology.Devices {
+		categories[device.ID] = device.Category
+	}
 	loops := []Loop{}
 	for _, vlan := range topology.VLANs {
 		type edge struct {
@@ -155,6 +360,9 @@ func detectLoops(topology Topology, ports map[string]Port) []Loop {
 		for _, link := range topology.Links {
 			left := ports[link.SourcePortID]
 			right := ports[link.TargetPortID]
+			if categories[left.DeviceID] == DeviceCategoryServer || categories[right.DeviceID] == DeviceCategoryServer {
+				continue
+			}
 			if !portCarriesVLAN(left, vlan.ID) || !portCarriesVLAN(right, vlan.ID) {
 				continue
 			}

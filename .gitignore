@@ -7,3 +7,8 @@
 *.tmp
 .DS_Store
 graphify-out/
+/node_modules/
+/.quality-data/
+/coverage/
+/playwright-report/
+/test-results/

@@ -1,15 +1,12 @@
+import { fortinetProfiles } from "./catalog-fortinet.js";
+import { expandedCatalogProfiles } from "./catalog-expanded.js";
+import { portLayoutMetadata, resolvePhysicalPortGroups } from "./catalog-port-layouts.js";
+
 // The built-in catalog is an offline front-panel schematic library. Profiles are
 // data, not renderer branches, so new SKUs can be added without changing Canvas.
 const profiles = [
-  p("Fortinet", "FortiGate 40F", "Firewall", 1, "#8f2525", [r(5, "RJ45_1G", 1000, false, "PORT"), m(1)]),
-  p("Fortinet", "FortiGate 60F / 61F", "Firewall", 1, "#8f2525", [r(10, "RJ45_1G", 1000, false, "PORT"), m(1)]),
-  p("Fortinet", "FortiGate 70F / 71F", "Firewall", 1, "#8f2525", [r(10, "RJ45_1G", 1000, false, "PORT"), u(2, "SFP_1G", 1000, "SFP"), m(1)]),
-  p("Fortinet", "FortiGate 80F / 81F", "Firewall", 1, "#8f2525", [r(10, "RJ45_1G", 1000, false, "PORT"), u(2, "SFP_1G", 1000, "SFP"), m(1)]),
-  p("Fortinet", "FortiGate 90G / 91G", "Firewall", 1, "#8f2525", [r(8, "RJ45_1G", 1000, false, "PORT"), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("Fortinet", "FortiGate 100F / 101F", "Firewall", 1, "#8f2525", [r(10, "RJ45_1G", 1000, false, "GE"), u(8, "SFP_1G", 1000, "SFP"), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("Fortinet", "FortiGate 200F / 201F", "Firewall", 1, "#8f2525", [r(18, "RJ45_1G", 1000, false, "GE"), u(8, "SFP_1G", 1000, "SFP"), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("Fortinet", "FortiGate 400F / 401F", "Firewall", 1, "#8f2525", [r(8, "RJ45_1G", 1000, false, "GE"), u(8, "SFP_PLUS_10G", 10000, "SFP+"), u(4, "SFP28_25G", 25000, "SFP28"), m(2)]),
-  p("Fortinet", "FortiGate 6000F Series", "Firewall", 3, "#8f2525", [u(24, "SFP28_25G", 25000, "SFP28"), u(4, "QSFP28_100G", 100000, "QSFP"), m(2)]),
+  ...fortinetProfiles,
+  ...expandedCatalogProfiles,
 
   p("Cisco", "Catalyst C9200L-24T-4G", "Switch", 1, "#263b4b", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_1G", 1000, "SFP"), m(1)]),
   p("Cisco", "Catalyst C9200L-24P-4X", "Switch", 1, "#263b4b", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
@@ -82,6 +79,7 @@ const profiles = [
   p("Check Point", "Quantum 6200 / 6600", "Firewall", 1, "#442839", [r(8, "RJ45_1G", 1000, false, "GE"), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(2)]),
 ];
 
+for (const profile of profiles) profile.portLayout ||= portLayoutMetadata(profile);
 export const hardwareCatalog = profiles.sort((left, right) => left.vendor.localeCompare(right.vendor) || left.model.localeCompare(right.model));
 
 export function catalogVendors() {
@@ -92,6 +90,49 @@ export function modelsForVendor(vendor) {
   return hardwareCatalog.filter((profile) => profile.vendor === vendor);
 }
 
+export function upgradeInstalledPhysicalPorts(topology) {
+  let changed = false;
+  for (const device of topology?.devices || []) {
+    const profile = hardwareCatalog.find((candidate) =>
+      candidate.vendor === device.faceplate?.vendor && candidate.model === device.model);
+    if (!profile) continue;
+    const expected = instantiateProfile(profile, device.name, { x: device.positionX, y: device.positionY }).ports;
+    if (expected.length === device.ports.length) {
+      for (let index = 0; index < expected.length; index += 1) {
+        const current = device.ports[index];
+        if (isGeneratedPortLabel(current.label) && current.label !== expected[index].label) {
+          current.label = expected[index].label;
+          changed = true;
+        }
+      }
+      continue;
+    }
+    const canRebuildExactPanel = profile.portLayout?.fidelity === "exact" &&
+      device.ports.length < expected.length && device.ports.every((port) => isGeneratedPortLabel(port.label));
+    if (!canRebuildExactPanel) continue;
+    const unmatched = [...device.ports];
+    device.ports = expected.map((template, index) => {
+      const matchIndex = unmatched.findIndex((port) => port.type === template.type);
+      if (matchIndex < 0) {
+        return { ...template, id: crypto.randomUUID(), deviceId: device.id, portIndex: index + 1 };
+      }
+      const [existing] = unmatched.splice(matchIndex, 1);
+      return {
+        ...existing,
+        label: template.label,
+        group: template.group,
+        faceplateX: template.faceplateX,
+        faceplateY: template.faceplateY,
+        portIndex: index + 1,
+      };
+    });
+    device.faceplate.totalPorts = device.ports.length;
+    changed = true;
+  }
+  if (changed) topology.linkGroups ||= [];
+  return changed;
+}
+
 export function registerProfiles(input) {
   if (!Array.isArray(input)) throw new Error("Catalog import must be an array of profiles");
   for (const profile of input) {
@@ -100,10 +141,12 @@ export function registerProfiles(input) {
       Number.isInteger(profile.units) && profile.units >= 1 && profile.units <= 12 && /^#[0-9a-f]{6}$/i.test(profile.color) &&
       Array.isArray(profile.groups) && profile.groups.every((group) => Number.isInteger(group.count) && group.count > 0 &&
         ["access", "uplink", "management"].includes(group.zone) &&
-        ["RJ45_1G", "RJ45_10G", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP28_100G", "Console", "Power"].includes(group.type) &&
-        Number.isFinite(group.speed) && group.speed >= 0 && group.speed <= 400000);
+        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
+        Number.isFinite(group.speed) && group.speed >= 0 && group.speed <= 800000 &&
+        (group.labels === undefined || (Array.isArray(group.labels) && group.labels.length === group.count && group.labels.every((label) => typeof label === "string" && label.trim()))));
     if (!isValid) throw new Error(`Invalid hardware profile: ${profile?.vendor || "unknown"} ${profile?.model || "model"}`);
     profile.layout ||= profile.vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    profile.portLayout ||= portLayoutMetadata(profile);
     hardwareCatalog.push(profile);
   }
   hardwareCatalog.sort((left, right) => left.vendor.localeCompare(right.vendor) || left.model.localeCompare(right.model));
@@ -111,20 +154,23 @@ export function registerProfiles(input) {
 }
 
 export function instantiateProfile(profile, name, position) {
-  const groups = profile.groups;
+  const groups = resolvePhysicalPortGroups(profile);
   const accessGroups = groups.filter((group) => group.zone === "access");
   const uplinkGroups = groups.filter((group) => group.zone === "uplink");
   const managementGroups = groups.filter((group) => group.zone === "management");
   const ports = [
     ...layoutGroups(accessGroups, .29, .79),
     ...layoutGroups(uplinkGroups, .83, .955),
-    ...layoutGroups(managementGroups, .225, .265),
-  ].map((port, index) => ({
-    id: "", deviceId: "", portIndex: index + 1, label: port.label, type: port.type,
-    mode: port.type === "Console" ? "Unconfigured" : "Access", nativeVlan: port.type === "Console" ? 0 : 1,
-    allowedVlans: [], speedMbps: port.speed, isPoe: port.poe, status: "down", group: port.group,
-    faceplateX: port.x, faceplateY: port.y,
-  }));
+    ...layoutGroups(managementGroups, .18, .275),
+  ].map((port, index) => {
+    const passive = profile.category === "PatchPanel" || ["Console", "Power", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack"].includes(port.type);
+    return {
+      id: "", deviceId: "", portIndex: index + 1, label: port.label, type: port.type,
+      mode: passive ? "Unconfigured" : "Access", nativeVlan: passive ? 0 : 1,
+      allowedVlans: [], speedMbps: port.speed, isPoe: port.poe, status: "down", group: port.group,
+      faceplateX: port.x, faceplateY: port.y,
+    };
+  });
   return {
     id: "", name: name || profile.model, category: profile.category, model: profile.model,
     positionX: position.x, positionY: position.y,
@@ -135,6 +181,44 @@ export function instantiateProfile(profile, name, position) {
     },
     ports,
   };
+}
+
+const staticServerMedia = {
+  "1g-rj45": { type: "RJ45_1G", speed: 1000, group: "1G BASE-T" },
+  "2.5g-rj45": { type: "RJ45_MGIG", speed: 2500, group: "2.5G BASE-T" },
+  "10g-rj45": { type: "RJ45_10G", speed: 10000, group: "10G BASE-T" },
+  "10g-sfp": { type: "SFP_PLUS_10G", speed: 10000, group: "10G SFP+" },
+  "25g-sfp": { type: "SFP28_25G", speed: 25000, group: "25G SFP28" },
+  "100g-qsfp": { type: "QSFP28_100G", speed: 100000, group: "100G QSFP28" },
+};
+
+export function instantiateStaticServer(input, position) {
+  const nicCount = Number(input.nicCount);
+  const units = Number(input.units);
+  const media = staticServerMedia[input.media];
+  if (!Number.isInteger(nicCount) || nicCount < 1 || nicCount > 16) {
+    throw new Error("Server NIC count must be between 1 and 16");
+  }
+  if (!Number.isInteger(units) || units < 1 || units > 4) {
+    throw new Error("Server rack height must be between 1U and 4U");
+  }
+  if (!media) throw new Error("Select a supported server NIC medium");
+
+  const groups = [{
+    zone: "access", count: nicCount, type: media.type, speed: media.speed,
+    poe: false, prefix: "NIC", group: media.group,
+  }];
+  if (input.includeBMC) {
+    groups.push({
+      zone: "management", count: 1, type: "RJ45_1G", speed: 1000,
+      poe: false, prefix: "BMC", group: "OUT-OF-BAND",
+    });
+  }
+  return instantiateProfile({
+    vendor: "Static", model: String(input.model || "Generic rack server"),
+    category: "Server", units, color: String(input.color || "#30383b"),
+    layout: "static-server", groups,
+  }, String(input.name || "SERVER"), position);
 }
 
 function layoutGroups(groups, x1, x2) {
@@ -149,7 +233,7 @@ function layoutGroups(groups, x1, x2) {
       const row = globalIndex % rows;
       const column = Math.floor(globalIndex / rows);
       result.push({
-        label: `${group.prefix || ""}${index + 1}`,
+        label: group.labels?.[index] || `${group.prefix || ""}${index + 1}`,
         type: group.type,
         speed: group.speed,
         poe: group.poe,
@@ -164,8 +248,14 @@ function layoutGroups(groups, x1, x2) {
 }
 
 function p(vendor, model, category, units, color, groups) {
-  return { vendor, model, category, units, color, groups, layout: vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-") };
+  const profile = { vendor, model, category, units, color, groups, layout: vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-") };
+  Object.assign(profile, { portLayout: portLayoutMetadata(profile) });
+  return profile;
 }
 function r(count, type, speed, poe, prefix = "") { return { zone: "access", count, type, speed, poe, prefix }; }
 function u(count, type, speed, prefix = "") { return { zone: "uplink", count, type, speed, poe: false, prefix }; }
-function m(count) { return { zone: "management", count, type: "Console", speed: 0, poe: false, prefix: "MGMT" }; }
+function m(count) { return { zone: "management", count, type: "Console", speed: 0, poe: false, prefix: "CONSOLE" }; }
+
+function isGeneratedPortLabel(label) {
+  return /^(?:\d+|(?:GE|PORT|SFP\+?|SFP28|SFP56|QSFP\+?|QSFP28|QSFP56|QSFP-DD|MGMT|CONSOLE|SHARED|ETH|10GE|MGIG|2\.5GE|5GE)\d+)$/i.test(String(label || ""));
+}

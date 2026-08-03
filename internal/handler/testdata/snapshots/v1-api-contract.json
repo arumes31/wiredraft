@@ -1,0 +1,20 @@
+{
+  "error": {
+    "code": 404,
+    "error": "resource not found"
+  },
+  "health": {
+    "go_version": "$dynamic",
+    "status": "ok"
+  },
+  "list": [
+    {
+      "deviceCount": 4,
+      "id": "$dynamic",
+      "linkCount": 3,
+      "name": "Vienna Core Rack",
+      "rackCount": 0,
+      "updatedAt": "$dynamic"
+    }
+  ]
+}

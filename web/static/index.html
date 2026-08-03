@@ -23,32 +23,68 @@
       <button id="redo-button" class="icon-button" title="Redo (Ctrl+Y)">↷</button>
       <span class="tool-divider"></span>
       <button id="fit-button">FIT MAP</button>
+      <button id="add-rack-button">+ RACK</button>
       <button id="add-device-button">+ DEVICE</button>
+      <button id="add-server-button">+ SERVER</button>
+      <button id="add-patch-panel-button">+ PANEL</button>
+      <button id="patch-panel-map-button">PANEL MAP</button>
       <button id="vlan-button">VLAN MATRIX</button>
       <button id="trace-button">TRACE PATH</button>
-      <details class="export-menu">
-        <summary>EXPORT</summary>
-        <button id="png-button">PNG image</button>
-        <button id="svg-button">SVG vector</button>
-        <button id="json-button">JSON backup</button>
-        <button id="import-button">Restore JSON</button>
+      <button id="collaboration-button">COLLAB</button>
+      <details id="export-menu" class="export-menu">
+        <summary aria-haspopup="menu">EXPORT</summary>
+        <div class="export-popover" role="menu" aria-label="Export and restore options">
+          <p><span>OUTPUT BAY</span><b>EXPORT / RESTORE</b></p>
+          <button id="pdf-button" role="menuitem"><b>PDF SHEET</b><small>Print-ready A3 document</small></button>
+          <button id="html-button" role="menuitem"><b>HTML REPORT</b><small>Standalone SVG + source data</small></button>
+          <button id="png-button" role="menuitem"><b>PNG IMAGE</b><small>High-resolution raster</small></button>
+          <button id="svg-button" role="menuitem"><b>SVG VECTOR</b><small>Scalable diagram</small></button>
+          <button id="json-button" role="menuitem"><b>JSON BACKUP</b><small>Restorable topology data</small></button>
+          <button id="import-button" class="restore-option" role="menuitem"><b>RESTORE JSON</b><small>Load a saved topology</small></button>
+        </div>
       </details>
     </nav>
+    <details id="autosave-menu" class="autosave-menu">
+      <summary><i></i><span><b id="save-state-label">SAVED</b><small>AUTOSAVE ON</small></span></summary>
+      <div class="autosave-popover">
+        <p><span>PERSISTENCE CONTROL</span><b>AUTOSAVE</b></p>
+        <label class="autosave-toggle"><input id="autosave-enabled" type="checkbox" checked><span>ENABLED BY DEFAULT</span></label>
+        <label><span>SAVE INTERVAL</span><select id="autosave-interval"><option value="30">EVERY 30 SECONDS</option><option value="60">EVERY 1 MINUTE</option><option value="300">EVERY 5 MINUTES</option></select></label>
+        <button id="save-now-button" type="button">SAVE NOW <kbd>CTRL S</kbd></button>
+      </div>
+    </details>
     <div id="connection-status" class="connection-status" data-state="connecting">
       <span></span><b>SYNCING</b>
     </div>
   </header>
 
-  <main class="workspace">
+  <main id="workspace" class="workspace inspector-collapsed">
     <aside class="rail rail-left" aria-label="Diagram overview">
+      <button id="navigator-toggle" class="navigator-toggle" type="button" aria-expanded="true" title="Collapse navigator">‹</button>
       <section class="rail-section overview-panel">
         <p class="eyebrow">LIVE TOPOLOGY</p>
         <h1 id="topology-name">Loading map…</h1>
         <div class="overview-stats">
-          <span><b id="device-count">0</b>DEVICES</span>
+          <span><b id="rack-count">0</b>RACKS</span>
+          <span id="device-count-stat"><b id="device-count">0</b>UNITS<small id="physical-device-count"></small></span>
           <span><b id="link-count">0</b>CABLES</span>
           <span><b id="vlan-count">0</b>VLANS</span>
         </div>
+        <div class="graphics-control">
+          <label for="graphics-quality"><span>GRAPHICS MODE</span><b>GPU BUDGET</b></label>
+          <select id="graphics-quality" aria-describedby="graphics-quality-detail">
+            <option value="auto">AUTO</option>
+            <option value="performance">PERFORMANCE</option>
+            <option value="balanced">BALANCED</option>
+            <option value="quality">QUALITY</option>
+          </select>
+          <small id="graphics-quality-detail">AUTO · MEASURING TOPOLOGY</small>
+        </div>
+        <p id="topology-size-warning" class="topology-size-warning" hidden></p>
+      </section>
+      <section class="rail-section topology-tree-section">
+        <div class="section-heading"><h2>TOPOLOGY NAVIGATOR</h2><span>RACK / DEVICE / VLAN</span></div>
+        <div id="topology-tree" class="topology-tree"></div>
       </section>
       <section class="rail-section">
         <div class="section-heading"><h2>VLAN PALETTE</h2><span>TAG / COLOR</span></div>
@@ -59,21 +95,30 @@
         <div id="analysis-list" class="analysis-list" aria-live="polite"></div>
       </section>
       <footer class="rail-foot">
-        <kbd>SPACE</kbd> PAN <kbd>WHEEL</kbd> ZOOM<br>
-        PORT → PORT TO PATCH
+        <kbd>DRAG</kbd> EMPTY SPACE PAN <kbd>WHEEL</kbd> ZOOM<br>
+        <kbd>SHIFT</kbd> + DRAG BOX SELECT · RACK HEADER TO MOVE<br>
+        PORT → PORT TO PATCH · CABLE → CABLE TO GROUP
       </footer>
     </aside>
 
     <section class="diagram-stage" aria-label="Network diagram canvas">
       <canvas id="diagram-canvas" tabindex="0" aria-label="Interactive network rack diagram"></canvas>
+      <div id="loading-skeleton" class="loading-skeleton" aria-live="polite"><i></i><i></i><i></i><p>LOADING TOPOLOGY</p></div>
+      <div class="canvas-tools" role="toolbar" aria-label="Canvas annotation tools">
+        <button type="button" data-canvas-tool="select" class="is-active" aria-pressed="true" title="Selection and cabling (Esc)">↖<span>SELECT</span></button>
+        <button type="button" data-canvas-tool="annotation-arrow" aria-pressed="false" title="Draw arrow; click again or press Esc to finish">↗<span>ARROW</span></button>
+        <button type="button" data-canvas-tool="annotation-rectangle" aria-pressed="false" title="Draw rectangle; click again or press Esc to finish">□<span>BOX</span></button>
+        <button type="button" data-canvas-tool="annotation-text" aria-pressed="false" title="Place text note; click again or press Esc to finish">T<span>NOTE</span></button>
+      </div>
+      <aside class="minimap-panel" aria-label="Topology minimap"><div><span>OVERVIEW</span><b>DRAG TO NAVIGATE</b></div><canvas id="topology-minimap" width="220" height="132"></canvas></aside>
       <div class="canvas-readout">
         <span id="zoom-readout">100%</span>
         <span id="pointer-readout">X 0000 · Y 0000</span>
       </div>
-      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <div id="toast" class="toast-queue" aria-live="polite"></div>
     </section>
 
-    <aside class="rail rail-right" aria-label="Selection inspector">
+    <aside id="selection-inspector" class="rail rail-right" aria-label="Selection inspector" hidden>
       <div class="inspector-header">
         <p class="eyebrow">CONFIGURATION BUS</p>
         <h2>INSPECTOR</h2>
@@ -81,29 +126,155 @@
       <div id="inspector-empty" class="empty-state">
         <div class="empty-jack" aria-hidden="true"></div>
         <h3>NO ENDPOINT SELECTED</h3>
-        <p>Select a device, port, or cable to inspect its physical and logical configuration.</p>
+        <p>Select a rack, device, port, or cable to inspect its physical and logical configuration.</p>
       </div>
       <div id="inspector-content" class="inspector-content" hidden></div>
     </aside>
   </main>
 
-  <dialog id="device-dialog" class="panel-dialog">
+  <dialog id="annotation-dialog" class="panel-dialog" aria-labelledby="annotation-dialog-title">
+    <form id="annotation-form" method="dialog">
+      <header><div><p class="eyebrow">CANVAS MARKUP</p><h2 id="annotation-dialog-title">PLACE TEXT NOTE</h2></div><button type="button" class="dialog-close" data-close="annotation-dialog" aria-label="Close annotation dialog">×</button></header>
+      <p class="dialog-note">Text annotations are stored with the topology and remain anchored at the selected canvas coordinate.</p>
+      <label><span>NOTE TEXT</span><textarea name="text" maxlength="500" rows="4" required placeholder="Document the physical or logical intent…"></textarea></label>
+      <label><span>MARKUP COLOR</span><input name="color" type="color" value="#f0b35a"></label>
+      <footer><button type="button" class="secondary" data-close="annotation-dialog">CANCEL</button><button value="place" class="primary">PLACE NOTE</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="collaboration-dialog" class="panel-dialog wide-dialog collaboration-dialog" aria-labelledby="collaboration-dialog-title">
+    <div class="dialog-shell">
+      <header><div><p class="eyebrow">SHARED OPERATIONS</p><h2 id="collaboration-dialog-title">COMMENTS · DOCS · READ-ONLY SHARES</h2></div><button type="button" class="dialog-close" data-close="collaboration-dialog" aria-label="Close collaboration dialog">×</button></header>
+      <p class="dialog-note">Changes use revision checks and live topology events. The active anchor is <b id="collaboration-target">TOPOLOGY</b>.</p>
+      <div class="collaboration-grid">
+        <section class="collaboration-pane">
+          <div class="section-heading"><h3>ANCHORED COMMENTS</h3><span>THREADS</span></div>
+          <div id="comments-list" class="collaboration-list"></div>
+          <form id="comment-form" class="compact-form">
+            <label><span>AUTHOR</span><input name="author" maxlength="80" value="Operator" required></label>
+            <label><span>COMMENT</span><textarea name="body" maxlength="4000" rows="3" required></textarea></label>
+            <button class="primary">ADD COMMENT AT ACTIVE ANCHOR</button>
+          </form>
+        </section>
+        <section class="collaboration-pane">
+          <div class="section-heading"><h3>DOCUMENTATION</h3><span>EMBED + OPEN</span></div>
+          <div id="documentation-list" class="collaboration-list"></div>
+          <iframe id="documentation-preview" class="documentation-preview" title="Embedded documentation preview" loading="lazy" hidden></iframe>
+          <form id="documentation-form" class="compact-form">
+            <label><span>LABEL</span><input name="label" maxlength="120" required placeholder="Vendor guide / runbook"></label>
+            <label><span>HTTP(S) URL</span><input name="url" type="url" maxlength="2048" required placeholder="https://…"></label>
+            <button class="primary">ATTACH DOCUMENT</button>
+          </form>
+        </section>
+        <section class="collaboration-pane">
+          <div class="section-heading"><h3>READ-ONLY SHARES</h3><span>TOKENIZED</span></div>
+          <div id="share-list" class="collaboration-list"></div>
+          <form id="share-form" class="compact-form">
+            <label><span>SHARE NAME</span><input name="name" maxlength="80" placeholder="NOC review"></label>
+            <label><span>EXPIRES AT (OPTIONAL)</span><input name="expiresAt" type="datetime-local"></label>
+            <button class="primary">CREATE READ-ONLY LINK</button>
+          </form>
+        </section>
+      </div>
+      <footer><button type="button" class="secondary" data-close="collaboration-dialog">DONE</button></footer>
+    </div>
+  </dialog>
+
+  <dialog id="device-dialog" class="panel-dialog" aria-labelledby="device-dialog-title">
     <form id="device-form" method="dialog">
-      <header><div><p class="eyebrow">HARDWARE CATALOG</p><h2>INSTALL DEVICE</h2></div><button type="button" class="dialog-close" data-close="device-dialog">×</button></header>
+      <header><div><p class="eyebrow">HARDWARE CATALOG</p><h2 id="device-dialog-title">INSTALL DEVICE</h2></div><button type="button" class="dialog-close" data-close="device-dialog" aria-label="Close install device dialog">×</button></header>
       <div class="form-grid">
         <label><span>PROVIDER</span><select name="vendor" id="device-vendor"></select></label>
+        <label class="catalog-search"><span>FILTER MODELS / SKU</span><input name="filter" id="device-model-filter" type="search" autocomplete="off" placeholder="e.g. FG-200G or FortiSwitch 124"></label>
         <label><span>HARDWARE MODEL</span><select name="model" id="device-model"></select></label>
         <label><span>DEVICE NAME</span><input name="name" required maxlength="120" value="ACCESS SWITCH"></label>
         <label><span>CHASSIS COLOR</span><input type="color" name="color" value="#243b3d"></label>
       </div>
-	  <div id="catalog-profile-summary" class="catalog-profile-summary"></div>
-      <footer><button type="button" id="catalog-import-button" class="secondary">IMPORT PROFILE</button><button type="button" class="secondary" data-close="device-dialog">CANCEL</button><button value="install" class="primary">INSTALL IN RACK</button></footer>
+      <div id="catalog-profile-summary" class="catalog-profile-summary"></div>
+      <footer><button type="button" id="catalog-import-button" class="secondary">IMPORT PROFILE</button><button type="button" class="secondary" data-close="device-dialog">CANCEL</button><button value="install" class="primary">PLACE DEVICE</button></footer>
     </form>
   </dialog>
 
-  <dialog id="vlan-modal" class="panel-dialog wide-dialog">
+  <dialog id="rack-dialog" class="panel-dialog" aria-labelledby="rack-dialog-title">
+    <form id="rack-form" method="dialog">
+      <header><div><p class="eyebrow">PHYSICAL ENCLOSURE</p><h2 id="rack-dialog-title">PLACE RACK</h2></div><button type="button" class="dialog-close" data-close="rack-dialog" aria-label="Close place rack dialog">×</button></header>
+      <p class="dialog-note">Racks live on the topology canvas. Drag equipment over numbered rails to mount it at a whole-U position.</p>
+      <div class="form-grid">
+        <label><span>RACK NAME</span><input name="name" required maxlength="120" value="RACK A01"></label>
+        <label><span>CAPACITY</span><select name="heightU"><option value="6">6U WALL</option><option value="12">12U</option><option value="18">18U</option><option value="24">24U</option><option value="42" selected>42U STANDARD</option><option value="45">45U</option><option value="48">48U</option></select></label>
+        <label><span>FRAME COLOR</span><input type="color" name="color" value="#2c4b4e"></label>
+      </div>
+      <footer><button type="button" class="secondary" data-close="rack-dialog">CANCEL</button><button value="place" class="primary">PLACE RACK</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="static-server-dialog" class="panel-dialog wide-dialog server-builder-dialog" aria-labelledby="static-server-dialog-title">
+    <form id="static-server-form" method="dialog">
+      <header><div><p class="eyebrow">GENERIC REAR ELEVATION</p><h2 id="static-server-dialog-title">BUILD SERVER BACK</h2></div><button type="button" class="dialog-close" data-close="static-server-dialog" aria-label="Close server builder dialog">×</button></header>
+      <p class="dialog-note">Assemble a 1U–4U rear chassis from physical cards. Every connector becomes an independent cable endpoint and remains visible in its installed slot.</p>
+      <div class="form-grid server-builder-basics">
+        <label><span>SERVER NAME</span><input name="name" required maxlength="120" value="APP SERVER 01"></label>
+        <label><span>MODEL / ROLE</span><input name="model" required maxlength="120" value="Generic server back"></label>
+        <label><span>RACK HEIGHT</span><select name="units"><option value="1">1U</option><option value="2" selected>2U</option><option value="3">3U</option><option value="4">4U</option></select></label>
+        <label><span>CHASSIS COLOR</span><input type="color" name="color" value="#30383b"></label>
+      </div>
+      <div class="server-card-workbench">
+        <section class="server-card-editor">
+          <div class="server-card-heading"><span>INSTALLED REAR CARDS</span><b id="server-card-count">0 / 8 SLOTS</b></div>
+          <div id="server-card-list" class="server-card-list"></div>
+          <button id="add-server-card" type="button" class="secondary server-add-card">+ ADD EXPANSION CARD</button>
+        </section>
+        <aside class="server-preview-panel">
+          <div class="server-card-heading"><span>LIVE REAR ELEVATION</span><b>4 BAYS / U</b></div>
+          <div id="server-back-preview" class="server-back-preview" aria-label="Generic server rear preview"></div>
+          <p>Cards install left-to-right by slot. Port names and positions are preserved on the rack faceplate.</p>
+        </aside>
+      </div>
+      <footer><button type="button" class="secondary" data-close="static-server-dialog">CANCEL</button><button id="install-server-button" value="install" class="primary">INSTALL SERVER BACK</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="patch-panel-dialog" class="panel-dialog" aria-labelledby="patch-panel-dialog-title">
+    <form id="patch-panel-form" method="dialog">
+      <header><div><p class="eyebrow">PASSIVE COPPER TERMINATION</p><h2 id="patch-panel-dialog-title">PLACE PATCH PANEL</h2></div><button type="button" class="dialog-close" data-close="patch-panel-dialog" aria-label="Close patch panel dialog">×</button></header>
+      <p class="dialog-note">Every numbered jack is an independent physical endpoint. Install panels first, then use Panel Map to create an entire one-to-one cable range atomically.</p>
+      <div class="form-grid">
+        <label><span>PANEL NAME</span><input name="name" required maxlength="120" value="PATCH PANEL 01"></label>
+        <label><span>PORT CAPACITY</span><select name="portCount"><option value="12">12 PORT · 1U</option><option value="24" selected>24 PORT · 1U</option><option value="48">48 PORT · 1U</option><option value="96">96 PORT · 2U</option></select></label>
+        <label><span>FACEPLATE COLOR</span><input type="color" name="color" value="#262d2f"></label>
+      </div>
+      <div class="patch-panel-miniature" aria-hidden="true"><b>CAT6A PATCH</b><span id="patch-panel-jack-preview"></span></div>
+      <footer><button type="button" class="secondary" data-close="patch-panel-dialog">CANCEL</button><button value="install" class="primary">PLACE PANEL</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="patch-panel-map-dialog" class="panel-dialog wide-dialog" aria-labelledby="patch-panel-map-dialog-title">
+    <form id="patch-panel-map-form" method="dialog">
+      <header><div><p class="eyebrow">ATOMIC RANGE PATCHING</p><h2 id="patch-panel-map-dialog-title">CONNECT PANEL RANGES</h2></div><button type="button" class="dialog-close" data-close="patch-panel-map-dialog" aria-label="Close panel mapping dialog">×</button></header>
+      <p class="dialog-note">The source range defines the cable count. The matching target end is calculated automatically; occupied endpoints block the complete operation.</p>
+      <div class="patch-map-grid">
+        <fieldset><legend>SOURCE PANEL</legend>
+          <label><span>PATCH PANEL</span><select name="sourceDeviceId" required></select></label>
+          <div><label><span>FROM PORT</span><input name="sourceStart" type="number" min="1" value="1" required></label><label><span>THROUGH PORT</span><input name="sourceEnd" type="number" min="1" value="6" required></label></div>
+        </fieldset>
+        <div class="patch-map-direction" aria-hidden="true"><i></i><b>1 : 1</b><i></i></div>
+        <fieldset><legend>TARGET PANEL</legend>
+          <label><span>PATCH PANEL</span><select name="targetDeviceId" required></select></label>
+          <div><label><span>START PORT</span><input name="targetStart" type="number" min="1" value="1" required></label><label><span>CALCULATED END</span><output id="patch-map-target-end">6</output></label></div>
+        </fieldset>
+      </div>
+      <section class="patch-map-preview" aria-live="polite">
+        <div class="section-heading"><h3>PHYSICAL PAIR PREVIEW</h3><span id="patch-map-count">0 CABLES</span></div>
+        <div id="patch-map-pairs" class="patch-map-pairs"></div>
+        <p id="patch-map-error" class="patch-map-error"></p>
+      </section>
+      <footer><button type="button" class="secondary" data-close="patch-panel-map-dialog">CANCEL</button><button id="create-patch-map-button" value="connect" class="primary">CREATE CABLE RANGE</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="vlan-modal" class="panel-dialog wide-dialog" aria-labelledby="vlan-modal-title">
     <div class="dialog-shell">
-      <header><div><p class="eyebrow">LAYER 2 CONTROL</p><h2>VLAN MATRIX</h2></div><button type="button" class="dialog-close" data-close="vlan-modal">×</button></header>
+      <header><div><p class="eyebrow">LAYER 2 CONTROL</p><h2 id="vlan-modal-title">VLAN MATRIX</h2></div><button type="button" class="dialog-close" data-close="vlan-modal" aria-label="Close VLAN matrix dialog">×</button></header>
       <div class="vlan-manager">
         <div><div class="section-heading"><h3>ACTIVE NETWORKS</h3><span>1—4094</span></div><div id="vlan-manager-list" class="vlan-manager-list"></div></div>
         <form id="vlan-form">
@@ -119,14 +290,72 @@
     </div>
   </dialog>
 
-  <dialog id="trace-dialog" class="panel-dialog">
+  <dialog id="trace-dialog" class="panel-dialog" aria-labelledby="trace-dialog-title">
     <form id="trace-form" method="dialog">
-      <header><div><p class="eyebrow">FORWARDING ANALYSIS</p><h2>TRACE VLAN PATH</h2></div><button type="button" class="dialog-close" data-close="trace-dialog">×</button></header>
+      <header><div><p class="eyebrow">FORWARDING ANALYSIS</p><h2 id="trace-dialog-title">TRACE VLAN PATH</h2></div><button type="button" class="dialog-close" data-close="trace-dialog" aria-label="Close trace path dialog">×</button></header>
       <p class="dialog-note">Choose two physical interfaces. The backend highlights the shortest path on which every endpoint carries the selected VLAN.</p>
       <label><span>SOURCE PORT</span><select name="source" required></select></label>
       <label><span>DESTINATION PORT</span><select name="target" required></select></label>
       <label><span>VLAN</span><select name="vlan" required></select></label>
       <footer><button type="button" class="secondary" data-close="trace-dialog">CANCEL</button><button value="trace" class="primary">TRACE SIGNAL</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="link-group-dialog" class="panel-dialog" aria-labelledby="link-group-dialog-title">
+    <form id="link-group-form" method="dialog">
+      <header><div><p class="eyebrow">PHYSICAL LINK BUNDLE</p><h2 id="link-group-dialog-title">GROUP CABLES</h2></div><button type="button" class="dialog-close" data-close="link-group-dialog" aria-label="Close cable group dialog">×</button></header>
+      <p id="link-group-summary" class="dialog-note"></p>
+      <div class="link-group-mode">
+        <span>BUNDLE TYPE</span>
+        <div class="radio-row link-group-mode-options">
+          <label><input type="radio" name="mode" value="Trunk" checked><span>TRUNK</span></label>
+          <label><input type="radio" name="mode" value="LACP"><span>LACP</span></label>
+          <label><input type="radio" name="mode" value="MCLAG"><span>MC-LAG</span></label>
+          <label><input type="radio" name="mode" value="Failover"><span>FAILOVER</span></label>
+        </div>
+      </div>
+      <label id="failover-primary-field" hidden><span>PREFERRED / PRIMARY CABLE</span><select name="primaryLinkId"></select></label>
+      <label><span>GROUP NAME</span><input name="name" maxlength="120" required></label>
+      <label><span>NOTES</span><textarea name="notes" maxlength="1000" rows="3"></textarea></label>
+      <p class="topology-advisory"><b>ADVISORY VALIDATION</b>Unusual LACP, MC-LAG, and failover combinations are saved. The rule engine marks topology, speed, media, and VLAN inconsistencies as warnings.</p>
+      <footer><button type="button" class="secondary" data-close="link-group-dialog">CANCEL</button><button value="group" class="primary">SAVE GROUP</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="switch-system-dialog" class="panel-dialog wide-dialog" aria-labelledby="switch-system-dialog-title">
+    <form id="switch-system-form" method="dialog">
+      <header><div><p class="eyebrow">LOGICAL SWITCH FABRIC</p><h2 id="switch-system-dialog-title">STACK / PEER SYSTEM</h2></div><button type="button" class="dialog-close" data-close="switch-system-dialog" aria-label="Close switch system dialog">×</button></header>
+      <p class="dialog-note">Members remain separate physical faceplates and cable endpoints. Inventory and topology totals count the saved system as one logical unit.</p>
+      <div class="switch-system-form-grid">
+        <label><span>LOGICAL SYSTEM NAME</span><input name="name" maxlength="120" required></label>
+        <label><span>TECHNOLOGY</span><select name="mode" required></select></label>
+      </div>
+      <div class="switch-member-field">
+        <div class="section-heading"><h3>PHYSICAL SWITCH MEMBERS</h3><span id="switch-system-member-count">0 SELECTED</span></div>
+        <div id="switch-system-members" class="switch-system-member-picker"></div>
+      </div>
+      <label><span>NOTES</span><textarea name="notes" maxlength="1000" rows="3"></textarea></label>
+      <p class="topology-advisory"><b>ADVISORY MODEL</b>Vendor and model combinations are recorded without hard blocking. Use the saved technology to document Aruba VSF, Fortinet MC-LAG, Cisco StackWise/VSS, Juniper Virtual Chassis, IRF, or a custom system.</p>
+      <footer><button type="button" class="secondary" data-close="switch-system-dialog">CANCEL</button><button value="save" class="primary">SAVE LOGICAL SYSTEM</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="firewall-cluster-dialog" class="panel-dialog wide-dialog" aria-labelledby="firewall-cluster-dialog-title">
+    <form id="firewall-cluster-form" method="dialog">
+      <header><div><p class="eyebrow">FIREWALL HIGH AVAILABILITY</p><h2 id="firewall-cluster-dialog-title">CLUSTER MEMBERSHIP</h2></div><button type="button" class="dialog-close" data-close="firewall-cluster-dialog" aria-label="Close firewall cluster dialog">×</button></header>
+      <p class="dialog-note">Members remain separate physical appliances, HA interfaces, and cable endpoints. The saved cluster is counted as one logical firewall unit.</p>
+      <div class="switch-system-form-grid">
+        <label><span>CLUSTER NAME</span><input name="name" maxlength="120" required></label>
+        <label><span>FORWARDING MODE</span><select name="mode" required></select></label>
+      </div>
+      <div class="switch-member-field">
+        <div class="section-heading"><h3>PHYSICAL FIREWALL MEMBERS</h3><span id="firewall-cluster-member-count">0 SELECTED</span></div>
+        <div id="firewall-cluster-members" class="switch-system-member-picker"></div>
+      </div>
+      <label id="firewall-active-device-field"><span>PREFERRED ACTIVE FIREWALL</span><select name="activeDeviceId"></select></label>
+      <label><span>NOTES</span><textarea name="notes" maxlength="1000" rows="3"></textarea></label>
+      <p class="topology-advisory"><b>HA ROLE MODEL</b>Active/passive requires one preferred active member; remaining members are passive. Active/active marks every selected firewall active. Vendor and model compatibility is recorded without hard blocking.</p>
+      <footer><button type="button" class="secondary" data-close="firewall-cluster-dialog">CANCEL</button><button value="save" class="primary">SAVE FIREWALL CLUSTER</button></footer>
     </form>
   </dialog>
 
