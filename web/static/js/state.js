@@ -7,7 +7,7 @@ export class AppState extends EventTarget {
     super();
     this.topology = null;
     this.selection = null;
-    this.analysis = { issues: [], loops: [] };
+    this.analysis = { issues: [], loops: [], stp: [] };
     this.traceLinkIDs = new Set();
     this.history = [];
     this.future = [];
@@ -39,7 +39,7 @@ export class AppState extends EventTarget {
   }
 
   setAnalysis(analysis) {
-    this.analysis = analysis || { issues: [], loops: [] };
+    this.analysis = analysis || { issues: [], loops: [], stp: [] };
     this.emit("analysis");
   }
 

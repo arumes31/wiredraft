@@ -39,7 +39,7 @@ api.setRevisionProvider(() => state.topology?.revision);
 const cableMediaTypes = ["CAT5E", "CAT6", "CAT6A", "FIBER", "SMF", "MMF", "DAC", "AOC", "TWINAX"];
 const elements = Object.fromEntries([
   "topology-select", "connection-status", "topology-name", "rack-count", "device-count", "physical-device-count", "link-count", "vlan-count",
-  "workspace", "selection-inspector", "vlan-palette", "analysis-count", "analysis-list", "inspector-empty", "inspector-content", "zoom-readout",
+  "workspace", "selection-inspector", "vlan-palette", "analysis-count", "analysis-list", "stp-count", "stp-list", "inspector-empty", "inspector-content", "zoom-readout",
   "pointer-readout", "toast", "device-dialog", "device-form", "vlan-modal", "vlan-form", "vlan-manager-list",
   "trace-dialog", "trace-form", "rack-dialog", "rack-form", "static-server-dialog", "static-server-form",
   "server-card-list", "server-card-count", "server-back-preview", "install-server-button",
@@ -253,6 +253,15 @@ async function renderAnalysis() {
   const view = analysisView(state.analysis);
   elements["analysis-count"].textContent = view.countText;
   elements["analysis-list"].innerHTML = view.markup;
+  elements["stp-count"].textContent = view.stpCountText;
+  elements["stp-list"].innerHTML = view.stpMarkup;
+  elements["stp-list"].querySelectorAll("[data-stp-links]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const linkIDs = button.dataset.stpLinks.split(",").filter(Boolean);
+      state.setTrace(linkIDs);
+      toast(linkIDs.length ? `STP convergence path highlighted · ${linkIDs.length} physical link${linkIDs.length === 1 ? "" : "s"}` : "This bridge is the STP root");
+    });
+  });
 }
 
 function renderInspector() {

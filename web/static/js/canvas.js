@@ -39,6 +39,7 @@ export class CanvasEngine {
     this.portBoxes = [];
     this.linkCurves = [];
     this.routeCache = new Map();
+    this.stpPortStateCache = new Map();
     this.graphicsMode = normalizeGraphicsMode(options.graphicsMode);
     this.reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || false;
     this.activeGraphicsProfile = null;
@@ -70,6 +71,7 @@ export class CanvasEngine {
     this.graphicsProfileKey = "";
     this.onStateChange = ({ detail }) => {
       const layoutChanged = detail?.kind === "topology";
+      if (detail?.kind === "analysis") this.rebuildSTPPortStateCache();
       this.invalidate(layoutChanged);
       if (!layoutChanged) return;
       const profile = this.graphicsProfile();
@@ -84,6 +86,7 @@ export class CanvasEngine {
       if (this.isDocumentVisible) this.invalidate();
     };
     this.state.addEventListener("change", this.onStateChange);
+    this.rebuildSTPPortStateCache();
     document.addEventListener("visibilitychange", this.onVisibilityChange);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas.parentElement);
@@ -1145,7 +1148,43 @@ export class CanvasEngine {
     ctx.fillStyle = portLinkLEDColor(port.status);
     if (active && profile.glows) { ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 5; }
     ctx.beginPath(); ctx.arc(box.x + box.width - 2, box.y - 3, 1.8, 0, Math.PI * 2); ctx.fill();
+    const stpRole = this.stpPortRole(port.id);
+    if (stpRole) {
+      const roleColor = stpRole === "Blocked" ? "#f0b35a" : stpRole === "Root" ? "#42d9c8" : "#79c99b";
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = stpRole === "Designated" && !hovered && !selected ? .68 : 1;
+      ctx.fillStyle = "#071012";
+      ctx.strokeStyle = roleColor;
+      ctx.lineWidth = .8;
+      ctx.beginPath(); ctx.arc(box.x + 2, box.y + box.height - 2, 3.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = roleColor; ctx.font = "700 4.5px Bahnschrift Condensed, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(stpRole[0], box.x + 2, box.y + box.height - 1.8);
+    }
     ctx.restore();
+  }
+
+  stpPortStates(portID) {
+    return this.stpPortStateCache.get(portID) || [];
+  }
+
+  rebuildSTPPortStateCache() {
+    const cache = new Map();
+    for (const instance of this.state.analysis?.stp || []) {
+      for (const port of instance.ports || []) {
+        const states = cache.get(port.portId) || [];
+        states.push({ ...port, vlanId: instance.vlanId });
+        cache.set(port.portId, states);
+      }
+    }
+    this.stpPortStateCache = cache;
+  }
+
+  stpPortRole(portID) {
+    const roles = this.stpPortStates(portID).map((port) => port.role);
+    if (roles.includes("Blocked")) return "Blocked";
+    if (roles.includes("Root")) return "Root";
+    if (roles.includes("Designated")) return "Designated";
+    return "";
   }
 
   drawPortDescriptions(ctx) {
@@ -1207,11 +1246,14 @@ export class CanvasEngine {
         const peer = findPort(topology, peerID);
         endpoint = peer ? `${peer.device.name} / ${peer.port.label}` : "UNKNOWN PEER";
       }
+      const stpStates = this.stpPortStates(port.id);
+      const stpSummary = stpStates.length ? stpStates.slice(0, 4).map((state) => `VLAN ${state.vlanId} ${state.role.toUpperCase()}`).join(" · ") + (stpStates.length > 4 ? ` · +${stpStates.length - 4}` : "") : "STP NOT PARTICIPATING";
       lines = [
         `${box.device.name} · PORT ${port.label}`,
         `${port.type}  /  ${port.speedMbps} Mbps`,
         `${port.mode.toUpperCase()} · NATIVE ${port.nativeVlan || "—"}`,
         `TAGGED ${port.allowedVlans?.join(", ") || "NONE"}`,
+        stpSummary,
         endpoint,
       ];
       highlightLast = true;
