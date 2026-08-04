@@ -366,6 +366,10 @@ function renderTopologySize() {
 function renderSaveStatus(status = autosave) {
   const stateName = status.isSaving ? "saving" : status.isDirty ? "dirty" : "saved";
   elements["autosave-menu"].dataset.state = stateName;
+  elements["autosave-menu"].querySelector("summary").setAttribute(
+    "aria-label",
+    `${stateName}. Autosave ${status.enabled ? "on" : "off"}. Open autosave settings`,
+  );
   elements["save-state-label"].textContent = stateName.toUpperCase();
   elements["autosave-menu"].querySelector("small").textContent = status.enabled ? `AUTO · ${status.intervalSeconds}s` : "AUTOSAVE OFF";
   elements["autosave-enabled"].checked = status.enabled;

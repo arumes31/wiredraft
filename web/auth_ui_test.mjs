@@ -40,5 +40,6 @@ test("workspace exposes admin account management and csrf-aware api calls", () =
   assert.match(apiJS, /\/api\/v1\/auth\/logout/);
   assert.match(indexHTML, /<title>WireDraft · Rack Operations Bench<\/title>/);
   assert.match(indexHTML, /aria-label="WireDraft"/);
+  assert.match(indexHTML, /<summary aria-label="Saved\. Autosave on\. Open autosave settings">/);
   assert.doesNotMatch(indexHTML, /Netdiagram/i);
 });

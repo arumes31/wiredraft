@@ -85,6 +85,27 @@ jobs:
         browser: [chromium, firefox, webkit]
     env:
       BROWSER: ${{ matrix.browser }}
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGDATABASE: wiredraft
+      PGUSER: wiredraft
+      PGPASSWORD: wiredraft-playwright
+      PGSSLMODE: disable
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_DB: wiredraft
+          POSTGRES_USER: wiredraft
+          POSTGRES_PASSWORD: wiredraft-playwright
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wiredraft -d wiredraft"
+          --health-interval 5s
+          --health-timeout 4s
+          --health-start-period 5s
+          --health-retries 12
     steps:
       - name: Check out source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -102,6 +123,8 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
+      - name: Initialize PostgreSQL schema
+        run: docker exec --interactive "${{ job.services.postgres.id }}" psql --username wiredraft --dbname wiredraft --set ON_ERROR_STOP=1 < db/migrations/0001_initial.sql
       - name: Install browser runtime
         run: npx playwright install --with-deps "$BROWSER"
       - name: Run browser tests
@@ -124,6 +147,13 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGDATABASE: wiredraft
+      PGUSER: wiredraft
+      PGPASSWORD: wiredraft-playwright
+      PGSSLMODE: disable
     steps:
       - name: Check out source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -141,6 +171,17 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
+      - name: Initialize PostgreSQL
+        env:
+          PGPASSWORD: root
+        run: |
+          Set-Service -Name postgresql-x64-17 -StartupType Manual
+          Start-Service -Name postgresql-x64-17
+          $psql = Join-Path $env:PGBIN "psql.exe"
+          & $psql --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE ROLE wiredraft LOGIN PASSWORD 'wiredraft-playwright'"
+          & $psql --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE wiredraft OWNER wiredraft"
+          $env:PGPASSWORD = "wiredraft-playwright"
+          & $psql --host 127.0.0.1 --username wiredraft --dbname wiredraft --set ON_ERROR_STOP=1 --file db/migrations/0001_initial.sql
       - name: Run Edge tests
         run: npm run test:edge
 
@@ -182,9 +223,32 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Verify container health
         run: |
-          docker run --detach --name wiredraft-ci --publish 127.0.0.1:18080:8080 \
+          docker network create wiredraft-ci
+          docker run --detach --name wiredraft-ci-postgres --network wiredraft-ci \
+            --env POSTGRES_DB=wiredraft \
+            --env POSTGRES_USER=wiredraft \
+            --env POSTGRES_PASSWORD=wiredraft-ci-postgres \
+            --volume "$PWD/db/migrations:/docker-entrypoint-initdb.d:ro" \
+            --health-cmd "pg_isready -U wiredraft -d wiredraft" \
+            --health-interval 2s \
+            --health-timeout 2s \
+            --health-start-period 5s \
+            --health-retries 15 \
+            postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+          for _ in {1..20}; do
+            if [[ "$(docker inspect --format '{{.State.Health.Status}}' wiredraft-ci-postgres)" == "healthy" ]]; then
+              break
+            fi
+            sleep 1
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' wiredraft-ci-postgres)" = "healthy"
+          docker run --detach --name wiredraft-ci --network wiredraft-ci --publish 127.0.0.1:18080:8080 \
+            --env PGHOST=wiredraft-ci-postgres \
+            --env PGDATABASE=wiredraft \
+            --env PGUSER=wiredraft \
+            --env PGPASSWORD=wiredraft-ci-postgres \
             --env WIREDRAFT_ADMIN_PASSWORD='WireDraft-Smoke-Only-2026!' wiredraft:ci
-          for attempt in {1..20}; do
+          for _ in {1..20}; do
             if docker exec wiredraft-ci /wiredraft -healthcheck; then
               exit 0
             fi
@@ -209,4 +273,6 @@ jobs:
           fi
       - name: Remove smoke-test container
         if: always()
-        run: docker rm --force --volumes wiredraft-ci 2>/dev/null || true
+        run: |
+          docker rm --force --volumes wiredraft-ci wiredraft-ci-postgres 2>/dev/null || true
+          docker network rm wiredraft-ci 2>/dev/null || true
