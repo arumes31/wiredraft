@@ -6,6 +6,7 @@ export const ServerCardTypes = Object.freeze([
   card("rj45-mgig", "Multi-Gig BASE-T NIC", "RJ45_MGIG", 5000, [1, 2, 4], "MGIG"),
   card("rj45-10g", "10G BASE-T NIC", "RJ45_10G", 10000, [1, 2, 4], "10G"),
   card("dsl-rj11", "RJ11 WAN / DSL card", "DSL_RJ11", 1000, [1, 2], "WAN"),
+  card("coax-f", "F-type coax modem card", "COAX_F", 2500, [1, 2], "COAX"),
   card("sfp-1g", "1G SFP NIC / HBA", "SFP_1G", 1000, [1, 2, 4], "SFP"),
   card("sfp-plus", "10G SFP+ NIC / HBA", "SFP_PLUS_10G", 10000, [1, 2, 4], "SFP+"),
   card("sfp28", "25G SFP28 NIC / HBA", "SFP28_25G", 25000, [1, 2, 4], "SFP28"),

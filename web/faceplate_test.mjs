@@ -4,7 +4,7 @@ import { cableBezier } from "./static/js/cabling.js";
 import { hardwareCatalog, instantiateProfile, upgradeInstalledPhysicalPorts } from "./static/js/catalog.js";
 import { buildSVGDocument } from "./static/js/export.js";
 import { faceplateResearchCoverage, resolveFaceplateTemplate } from "./static/js/faceplate.js";
-import { connectorKind, connectorSize, endpointCurveSegment, portLinkLEDColor } from "./static/js/termination.js";
+import { connectorKind, connectorSize, endpointRouteSegment, portLinkLEDColor } from "./static/js/termination.js";
 
 assert.equal(connectorKind("RJ45_1G"), "rj45");
 assert.equal(connectorKind("DSL_RJ11"), "dsl");
@@ -15,12 +15,12 @@ assert.equal(portLinkLEDColor("up"), "#42d98b", "an up link LED must remain soli
 assert.equal(portLinkLEDColor("down"), "#2d393b", "a down link LED must remain inactive");
 
 const curve = cableBezier({ x: 100, y: 100 }, { x: 500, y: 400 });
-const sourceSegment = endpointCurveSegment(curve, "source", { x: 50, y: 50, width: 100, height: 100 });
-const targetSegment = endpointCurveSegment(curve, "target", { x: 450, y: 350, width: 100, height: 100 });
+const sourceSegment = endpointRouteSegment(curve, "source", { x: 50, y: 50, width: 100, height: 100 });
+const targetSegment = endpointRouteSegment(curve, "target", { x: 450, y: 350, width: 100, height: 100 });
 assert.deepEqual(sourceSegment.source, curve.source, "source overlay must begin at the real source port");
 assert.deepEqual(targetSegment.target, curve.target, "target overlay must end at the real target port");
-assert.ok(sourceSegment.target.y > 156, "source overlay should join the cable beyond the device edge");
-assert.ok(targetSegment.source.y < 344, "target overlay should join the cable beyond the device edge");
+assert.ok(sourceSegment.target.x > 156, "source overlay should join the cable beyond the device edge");
+assert.ok(targetSegment.source.x < 444, "target overlay should join the cable beyond the device edge");
 
 const coverage = faceplateResearchCoverage(hardwareCatalog);
 assert.equal(coverage.total, hardwareCatalog.length);
@@ -112,7 +112,8 @@ assert.ok(faceplateIndex >= 0 && faceplateIndex < cableIndex, "the complete cabl
 assert.ok(cableIndex < portDescriptionIndex, "physical port names must render above cables");
 assert.equal(svg.includes('data-layer="cable-termination"'), false, "the cable must not use a duplicated endpoint overlay");
 assert.equal(svg.includes('data-layer="cable-plug"'), false, "the cable itself should enter the port without a separate plug graphic");
-assert.match(svg.slice(cableIndex), /d="M[^\"]+ C[^\"]+"/, "the foreground cable must preserve the complete routed curve");
+assert.match(svg.slice(cableIndex), /d="M[^\"]+ [HV][^\"]+"/, "the foreground cable must preserve the complete orthogonal route");
+assert.doesNotMatch(svg.slice(cableIndex), /d="M[^\"]+ C[^\"]+"/, "cable exports must not contain Bézier segments");
 assert.match(svg, /class="name"[^>]+fill="#202426"[^>]*>SOURCE<\/text>/, "light faceplate labels need dark ink");
 assert.match(svg, /width="18" height="14" rx="2"/, "RJ45 SVG geometry should match the canvas connector size");
 assert.match(svg, /width="17" height="12" rx="2"/, "SFP SVG geometry should match the canvas connector size");

@@ -33,6 +33,57 @@ func TestTopologyValidateOccupiedPort(t *testing.T) {
 	}
 }
 
+func TestTopologyAllowsIndependentFrontAndRearPanelTerminations(t *testing.T) {
+	t.Parallel()
+	topology := mustDemo(t)
+	front := topology.Links[0]
+	for index := range topology.Devices {
+		if topology.Devices[index].ID == front.SourceDeviceID || topology.Devices[index].ID == front.TargetDeviceID {
+			topology.Devices[index].Category = DeviceCategoryPatchPanel
+		}
+	}
+	rear := front
+	rear.ID = mustID(t)
+	rear.SourceSide = LinkEndpointSideRear
+	rear.TargetSide = LinkEndpointSideRear
+	topology.Links = append(topology.Links, rear)
+	if err := topology.Validate(); err != nil {
+		t.Fatalf("Validate() front + rear error = %v", err)
+	}
+
+	duplicateRear := rear
+	duplicateRear.ID = mustID(t)
+	topology.Links = append(topology.Links, duplicateRear)
+	if err := topology.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want occupied rear termination error")
+	}
+}
+
+func TestTopologyRejectsRearTerminationOnActiveDevice(t *testing.T) {
+	t.Parallel()
+	topology := mustDemo(t)
+	topology.Links[0].SourceSide = LinkEndpointSideRear
+	if err := topology.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want non-panel rear termination error")
+	}
+}
+
+func TestNormalizeMigratesGeneratedLegacyPanelMaps(t *testing.T) {
+	t.Parallel()
+	topology := mustDemo(t)
+	link := &topology.Links[0]
+	for index := range topology.Devices {
+		if topology.Devices[index].ID == link.SourceDeviceID || topology.Devices[index].ID == link.TargetDeviceID {
+			topology.Devices[index].Category = DeviceCategoryPatchPanel
+		}
+	}
+	link.Notes = "Patch range PANEL A 1 ↔ PANEL B 1"
+	topology.Normalize()
+	if !link.IsRearPanelConnection() {
+		t.Fatalf("legacy panel map sides = %q/%q, want rear/rear", link.SourceSide, link.TargetSide)
+	}
+}
+
 func TestTopologyValidateAnnotationsAndPortMedia(t *testing.T) {
 	t.Parallel()
 	topology := mustDemo(t)

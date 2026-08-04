@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,7 @@ type CommentAnchorKind string
 const (
 	CommentAnchorCanvas CommentAnchorKind = "canvas"
 	CommentAnchorDevice CommentAnchorKind = "device"
+	CommentAnchorPort   CommentAnchorKind = "port"
 	CommentAnchorLink   CommentAnchorKind = "link"
 )
 
@@ -56,6 +58,7 @@ const (
 	PortTypeRJ45MGIG    PortType = "RJ45_MGIG"
 	PortTypeRJ4510G     PortType = "RJ45_10G"
 	PortTypeDSLRJ11     PortType = "DSL_RJ11"
+	PortTypeCoaxF       PortType = "COAX_F"
 	PortTypeSFP1G       PortType = "SFP_1G"
 	PortTypeSFPPlus10G  PortType = "SFP_PLUS_10G"
 	PortTypeSFP2825G    PortType = "SFP28_25G"
@@ -205,17 +208,52 @@ type Device struct {
 	Ports        []Port         `json:"ports"`
 }
 
-// Link connects exactly two physical ports.
+// LinkEndpointSide identifies the termination plane used by a cable endpoint.
+// Ordinary equipment and patch cords use the front side. Patch-panel permanent
+// links use the rear side, allowing one front and one rear connection per jack.
+type LinkEndpointSide string
+
+// Supported link endpoint termination planes.
+const (
+	LinkEndpointSideFront LinkEndpointSide = "front"
+	LinkEndpointSideRear  LinkEndpointSide = "rear"
+)
+
+// Link connects exactly two physical port termination planes.
 type Link struct {
-	ID             string `json:"id"`
-	SourceDeviceID string `json:"sourceDeviceId"`
-	SourcePortID   string `json:"sourcePortId"`
-	TargetDeviceID string `json:"targetDeviceId"`
-	TargetPortID   string `json:"targetPortId"`
-	CableType      string `json:"cableType"`
-	VLANIDs        []int  `json:"vlanIds"`
-	PrimaryVLAN    int    `json:"primaryVlan"`
-	Notes          string `json:"notes"`
+	ID             string           `json:"id"`
+	SourceDeviceID string           `json:"sourceDeviceId"`
+	SourcePortID   string           `json:"sourcePortId"`
+	SourceSide     LinkEndpointSide `json:"sourceSide,omitempty"`
+	TargetDeviceID string           `json:"targetDeviceId"`
+	TargetPortID   string           `json:"targetPortId"`
+	TargetSide     LinkEndpointSide `json:"targetSide,omitempty"`
+	CableType      string           `json:"cableType"`
+	VLANIDs        []int            `json:"vlanIds"`
+	PrimaryVLAN    int              `json:"primaryVlan"`
+	Notes          string           `json:"notes"`
+}
+
+// EffectiveSourceSide returns front for legacy links that predate termination planes.
+func (l Link) EffectiveSourceSide() LinkEndpointSide {
+	if l.SourceSide == "" {
+		return LinkEndpointSideFront
+	}
+	return l.SourceSide
+}
+
+// EffectiveTargetSide returns front for legacy links that predate termination planes.
+func (l Link) EffectiveTargetSide() LinkEndpointSide {
+	if l.TargetSide == "" {
+		return LinkEndpointSideFront
+	}
+	return l.TargetSide
+}
+
+// IsRearPanelConnection reports whether both endpoints terminate on panel backs.
+func (l Link) IsRearPanelConnection() bool {
+	return l.EffectiveSourceSide() == LinkEndpointSideRear &&
+		l.EffectiveTargetSide() == LinkEndpointSideRear
 }
 
 // Annotation is a lightweight canvas note which remains independent from
@@ -430,6 +468,14 @@ func (t *Topology) Normalize() {
 	}
 	for linkIndex := range t.Links {
 		link := &t.Links[linkIndex]
+		// Panel Map links created before endpoint planes existed used this stable
+		// note prefix. Upgrade only those generated links; an intentional front
+		// patch cord between panels remains a front connection.
+		if link.SourceSide == "" && link.TargetSide == "" && strings.HasPrefix(link.Notes, "Patch range ") &&
+			isPatchPanelDevice(t.Devices, link.SourceDeviceID) && isPatchPanelDevice(t.Devices, link.TargetDeviceID) {
+			link.SourceSide = LinkEndpointSideRear
+			link.TargetSide = LinkEndpointSideRear
+		}
 		if link.VLANIDs == nil {
 			link.VLANIDs = []int{}
 		}
@@ -460,6 +506,12 @@ func (t *Topology) Normalize() {
 		slices.Sort(cluster.DeviceIDs)
 		cluster.DeviceIDs = slices.Compact(cluster.DeviceIDs)
 	}
+}
+
+func isPatchPanelDevice(devices []Device, deviceID string) bool {
+	return slices.ContainsFunc(devices, func(device Device) bool {
+		return device.ID == deviceID && device.Category == DeviceCategoryPatchPanel
+	})
 }
 
 // LogicalDeviceCount returns the number of independently counted units. Each

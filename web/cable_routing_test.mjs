@@ -2,143 +2,225 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
-  distanceToRoute, obstacleAwareCableRoute, orderedCableLinks, pointOnRoute, routeSegments, routeWithCrossingBridges,
-  segmentIntersectsRectangle,
+  assignCableTracks, cableDashPattern, CABLE_JUMPER_RADIUS, cableRole, CABLE_TRACK_SPACING,
+  FACEPLATE_MICRO_LANE_SPACING, distanceToRoute, orderedCableLinks, pointOnRoute,
+  routeFromPoints, routeSegments, routesWithCrossingBridges, routeWithCrossingBridges, segmentIntersectsRectangle,
 } from "./static/js/cabling.js";
 import { endpointRouteSegment, portDescriptionPlacement } from "./static/js/termination.js";
 
-const source = { x: 150, y: 165 };
-const target = { x: 650, y: 135 };
-const sourceBounds = { x: 50, y: 100, width: 200, height: 100 };
-const targetBounds = { x: 600, y: 100, width: 200, height: 100 };
-const blocker = { x: 330, y: 40, width: 150, height: 230 };
-const options = { sourceBounds, targetBounds, obstacles: [sourceBounds, targetBounds, blocker] };
-const route = obstacleAwareCableRoute(source, target, options);
-
-assert.deepEqual(route.source, source, "route must begin at the real source port");
-assert.deepEqual(route.target, target, "route must end at the real target port");
-assert.ok(route.segments.length >= 3, "an obstructed cable should use multiple route segments");
-for (let index = 0; index <= 200; index += 1) {
-  const point = pointOnRoute(route, index / 200);
-  const insideBlocker = point.x > blocker.x - 11 && point.x < blocker.x + blocker.width + 11 &&
-    point.y > blocker.y - 11 && point.y < blocker.y + blocker.height + 11;
-  assert.equal(insideBlocker, false, `route entered the unrelated device near ${JSON.stringify(point)}`);
-}
-assert.deepEqual(obstacleAwareCableRoute(source, target, options), route, "route selection must be deterministic");
-assert.ok(distanceToRoute(pointOnRoute(route, .5), route) < .5, "route hit testing should follow every segment");
-
-const nearbySource = { x: source.x + 15, y: source.y };
-const nearbyTarget = { x: target.x + 15, y: target.y };
-const overlappingRoute = obstacleAwareCableRoute(nearbySource, nearbyTarget, options);
-const separatedRoute = obstacleAwareCableRoute(nearbySource, nearbyTarget, { ...options, occupiedRoutes: [route] });
-const averageClearance = (candidate) => {
-  let total = 0;
-  for (let index = 2; index < 19; index += 1) total += distanceToRoute(pointOnRoute(candidate, index / 20), route);
-  return total / 17;
+const rack = (id, x) => ({ rack: { id, name: id.toUpperCase(), positionX: x }, x, y: 0, width: 750, height: 1000 });
+const device = (id, rackBox, y, category = "Switch") => ({
+  device: { id, name: id.toUpperCase(), rackId: rackBox?.rack.id || "", category, ports: [] },
+  rack: rackBox?.rack || null,
+  x: (rackBox?.x || 0) + 30,
+  y,
+  width: 690,
+  height: 100,
+});
+const port = (deviceBox, id, x, y, label = id, speedMbps = 10000, group = "access") => {
+  const box = {
+    port: { id, label, speedMbps, group, type: "RJ45_10G" },
+    device: deviceBox.device,
+    x: x - 9,
+    y: y - 7,
+    width: 18,
+    height: 14,
+    centerX: x,
+    centerY: y,
+  };
+  deviceBox.device.ports.push(box.port);
+  return box;
 };
-const laneClearance = averageClearance(separatedRoute);
-assert.ok(laneClearance > averageClearance(overlappingRoute) + 4,
-  "a later cable should leave enough separation to remain individually visible");
-assert.ok(laneClearance < 16,
-  "cables following the same corridor should use adjacent lanes instead of distant detours");
+const link = (id, source, target) => ({
+  id,
+  sourcePortId: source.port.id,
+  targetPortId: target.port.id,
+  cableType: "CAT6A",
+  primaryVlan: 1,
+  vlanIds: [1],
+});
+
+const rackA = rack("rack-a", 0);
+const rackB = rack("rack-b", 900);
+const sourceDevice = device("source", rackA, 100);
+const sameRackDevice = device("same-rack", rackA, 500);
+const crossRackDevice = device("cross-rack", rackB, 300);
+const deviceBoxes = [sourceDevice, sameRackDevice, crossRackDevice];
+const portBoxes = [];
+const sameRackLinks = [];
+const crossRackLinks = [];
+for (let index = 0; index < 3; index += 1) {
+  const sourcePort = port(sourceDevice, `source-same-${index}`, 600 - index * 35, 130 + index * 4);
+  const targetPort = port(sameRackDevice, `target-same-${index}`, 610 - index * 35, 530 + index * 4);
+  portBoxes.push(sourcePort, targetPort);
+  sameRackLinks.push(link(`same-${index}`, sourcePort, targetPort));
+}
+for (let index = 0; index < 2; index += 1) {
+  const sourcePort = port(sourceDevice, `source-cross-${index}`, 470 - index * 35, 170 - index * 4, `QSFP${index + 1}`, 50000, "uplink");
+  const targetPort = port(crossRackDevice, `target-cross-${index}`, 1000 + index * 35, 330 + index * 4, `QSFP${index + 1}`, 50000, "uplink");
+  portBoxes.push(sourcePort, targetPort);
+  crossRackLinks.push(link(`cross-${index}`, sourcePort, targetPort));
+}
+const links = [...sameRackLinks, ...crossRackLinks];
+const tracks = assignCableTracks({ links, portBoxes, deviceBoxes, rackBoxes: [rackA, rackB] });
+
+assert.equal(tracks.size, links.length);
+for (const track of tracks.values()) {
+  assert.deepEqual(track.source, routeSegments(track)[0].source, "track must begin at the physical source port");
+  assert.deepEqual(track.target, routeSegments(track).at(-1).target, "track must end at the physical target port");
+  for (const segment of routeSegments(track)) {
+    assert.ok(segment.source.x === segment.target.x || segment.source.y === segment.target.y,
+      `every cable segment must be orthogonal: ${JSON.stringify(segment)}`);
+  }
+  const first = routeSegments(track)[0];
+  const last = routeSegments(track).at(-1);
+  assert.equal(first.source.y, first.target.y, "the source cable must turn horizontally at the connector without an outer stub");
+  assert.equal(last.source.y, last.target.y, "the target cable must enter horizontally at the connector without an outer stub");
+  assert.ok(distanceToRoute(pointOnRoute(track, .5), track) < .001, "hit testing must follow the complete orthogonal route");
+}
+
+const sameTracks = sameRackLinks.map(({ id }) => tracks.get(id));
+assert.deepEqual(sameTracks.map(({ bundleIndex }) => bundleIndex), [0, 1, 2], "device-pair members need stable bundle indices");
+assert.equal(new Set(sameTracks.map(({ bundleKey }) => bundleKey)).size, 1, "same device pairs must form one trunk bundle");
+assert.deepEqual(sameTracks.map(({ trackOffset }) => trackOffset), [0, CABLE_TRACK_SPACING, CABLE_TRACK_SPACING * 2]);
+assert.equal(sameTracks.every(({ routeKind }) => routeKind === "intra-rack"), true);
+assert.equal(sameTracks.every(({ gutterX }) => gutterX > rackA.x + rackA.width), true,
+  "same-rack vertical travel must stay outside the rack frame");
+const gutterXs = sameTracks.map(({ gutterX }) => gutterX).sort((a, b) => a - b);
+assert.deepEqual(gutterXs.slice(1).map((x, index) => x - gutterXs[index]), [CABLE_TRACK_SPACING, CABLE_TRACK_SPACING]);
+assert.equal(new Set(sameTracks.map(({ sourceMicroLaneY }) => sourceMicroLaneY)).size, sameTracks.length);
+const sourceMicroYs = sameTracks.map(({ sourceMicroLaneY }) => sourceMicroLaneY).sort((left, right) => left - right);
+assert.deepEqual(sourceMicroYs.slice(1).map((value, index) => value - sourceMicroYs[index]),
+  [FACEPLATE_MICRO_LANE_SPACING, FACEPLATE_MICRO_LANE_SPACING],
+  "normal faceplate tracks need the full 8px micro-lane pitch");
+assert.equal(sameTracks.every(({ sourceMicroLaneY }) =>
+  sourceMicroLaneY >= sourceDevice.y && sourceMicroLaneY <= sourceDevice.y + sourceDevice.height), true,
+"source faceplate travel must remain inside the host device height");
+
+const crossTracks = crossRackLinks.map(({ id }) => tracks.get(id));
+assert.equal(crossTracks.every(({ routeKind }) => routeKind === "inter-rack"), true);
+assert.equal(crossTracks.every(({ gutterX }) => gutterX > rackA.x + rackA.width && gutterX < rackB.x), true,
+  "cross-rack channels must stay inside the gap between racks");
+assert.equal(Math.abs(crossTracks[1].gutterX - crossTracks[0].gutterX), CABLE_TRACK_SPACING,
+  "cross-rack bundle lanes need the fixed track pitch");
+
+for (const track of tracks.values()) {
+  for (const segment of routeSegments(track)) {
+    if (segment.source.x !== segment.target.x) continue;
+    for (const blocker of deviceBoxes) {
+      const isEndpointDevice = blocker.device.id === track.bundleKey.split("::")[0] || blocker.device.id === track.bundleKey.split("::")[1];
+      if (!isEndpointDevice) assert.equal(segmentIntersectsRectangle(segment.source, segment.target, blocker), false,
+        "vertical gutter traversal must not cross an intermediate device");
+    }
+  }
+}
+
+const denseSource = device("dense-source", rackA, 700);
+const denseTarget = device("dense-target", rackA, 850);
+const densePorts = [];
+const denseLinks = [];
+for (let index = 0; index < 48; index += 1) {
+  const rowY = index % 2 === 0 ? denseSource.y + 30 : denseSource.y + 70;
+  const targetY = index % 2 === 0 ? denseTarget.y + 30 : denseTarget.y + 70;
+  const sourcePort = port(denseSource, `dense-source-${index}`, denseSource.x + 175 + Math.floor(index / 2) * 20, rowY);
+  const targetPort = port(denseTarget, `dense-target-${index}`, denseTarget.x + 175 + Math.floor(index / 2) * 20, targetY);
+  densePorts.push(sourcePort, targetPort);
+  denseLinks.push(link(`dense-${index}`, sourcePort, targetPort));
+}
+const denseTracks = assignCableTracks({
+  links: denseLinks,
+  portBoxes: densePorts,
+  deviceBoxes: [denseSource, denseTarget],
+  rackBoxes: [rackA],
+});
+assert.equal(denseTracks.size, 48, "a fully populated 48-port switch must receive one route per cable");
+assert.equal(new Set([...denseTracks.values()].map(({ sourceSide, sourceMicroLaneY }) => `${sourceSide}:${sourceMicroLaneY}`)).size, 48,
+  "high-density source micro-lanes must remain individually addressable");
+assert.equal([...denseTracks.values()].every(({ sourceRow, sourceMicroLaneY }) => sourceRow === "top"
+  ? sourceMicroLaneY < denseSource.y + denseSource.height / 2
+  : sourceMicroLaneY > denseSource.y + denseSource.height / 2), true,
+"top and bottom port rows must retain separate faceplate routing bands at 48-port density");
+assert.equal([...denseTracks.values()].every((track) => routeSegments(track).every((segment) =>
+  segment.source.x === segment.target.x || segment.source.y === segment.target.y)), true);
+const denseTrackList = [...denseTracks.values()];
+for (let leftIndex = 0; leftIndex < denseTrackList.length; leftIndex += 1) {
+  for (let rightIndex = leftIndex + 1; rightIndex < denseTrackList.length; rightIndex += 1) {
+    for (const leftSegment of routeSegments(denseTrackList[leftIndex])) {
+      for (const rightSegment of routeSegments(denseTrackList[rightIndex])) {
+        assert.equal(collinearOverlap(leftSegment, rightSegment), false,
+          `dense tracks ${leftIndex} and ${rightIndex} must not share an exact routed span`);
+      }
+    }
+  }
+}
 
 const groupedLinks = [{ id: "bundle-a" }, { id: "unrelated" }, { id: "bundle-b" }];
 assert.deepEqual(
   orderedCableLinks({ links: groupedLinks, linkGroups: [{ id: "group-1", linkIds: ["bundle-a", "bundle-b"] }] }).map(({ id }) => id),
   ["bundle-a", "bundle-b", "unrelated"],
-  "link-group members must be routed together before unrelated cables can claim their corridor",
 );
-const reverseBundleRoute = obstacleAwareCableRoute(
-  { x: nearbyTarget.x, y: nearbyTarget.y },
-  { x: nearbySource.x, y: nearbySource.y },
-  {
-    sourceBounds: targetBounds,
-    targetBounds: sourceBounds,
-    obstacles: [sourceBounds, targetBounds, blocker],
-    occupiedRoutes: [route],
-    preferredRoutes: [route],
-  },
-);
-assert.ok(distanceToRoute(pointOnRoute(reverseBundleRoute, .1), route) <= 16,
-  "a reversed bundle member should join its reference corridor immediately after leaving the source device");
-assert.ok(distanceToRoute(pointOnRoute(reverseBundleRoute, .9), route) <= 16,
-  "a bundle member should remain beside its reference until it must enter the target device");
-const canvasSource = readFileSync(new URL("./static/js/canvas.js", import.meta.url), "utf8");
-const exportSource = readFileSync(new URL("./static/js/export.js", import.meta.url), "utf8");
-for (const [name, sourceText] of [["canvas", canvasSource], ["SVG export", exportSource]]) {
-  assert.match(sourceText, /orderedCableLinks\(topology\)/, `${name} routing must process group members contiguously`);
-  assert.match(sourceText, /preferredRoutes/, `${name} routing must pass the group's existing corridor to later members`);
-}
 
-const lineRoute = (start, end) => ({
-  source: start,
-  target: end,
-  segments: [{
-    source: start,
-    cp1: { x: start.x + (end.x - start.x) / 3, y: start.y + (end.y - start.y) / 3 },
-    cp2: { x: start.x + (end.x - start.x) * 2 / 3, y: start.y + (end.y - start.y) * 2 / 3 },
-    target: end,
-  }],
-});
-const horizontal = lineRoute({ x: 0, y: 50 }, { x: 100, y: 50 });
-const vertical = lineRoute({ x: 50, y: 0 }, { x: 50, y: 100 });
-const bridged = routeWithCrossingBridges(horizontal, [vertical], { key: "upper-cable" });
-assert.equal(bridged.bridges.length, 1, "an unavoidable right-angle crossing should create one jump-over bridge");
-assert.equal(bridged.bridges[0].underRouteIndex, 0, "a bridge must identify the cable that remains visible underneath");
-assert.ok(bridged.bridges[0].openingRadius >= 5, "a bridge must reserve a visible opening for the underlying cable");
-assert.deepEqual(bridged.source, horizontal.source, "a bridge must preserve the real source endpoint");
-assert.deepEqual(bridged.target, horizontal.target, "a bridge must preserve the real target endpoint");
-assert.ok(Math.hypot(bridged.bridges[0].apex.x - 50, bridged.bridges[0].apex.y - 50) >= 8,
-  "the bridge apex should visibly lift away from the crossing");
-assert.ok(distanceToRoute({ x: 50, y: 50 }, bridged) >= 4,
-  "the bridged cable should no longer run through the underlying cable");
-const parallel = lineRoute({ x: 0, y: 60 }, { x: 100, y: 60 });
-assert.equal(routeWithCrossingBridges(horizontal, [parallel]), horizontal,
-  "parallel adjacent lanes should not receive crossing bridges");
+const horizontal = routeFromPoints([{ x: 0, y: 50 }, { x: 100, y: 50 }]);
+const vertical = routeFromPoints([{ x: 50, y: 0 }, { x: 50, y: 100 }]);
+const bridged = routeWithCrossingBridges(horizontal, [vertical]);
+assert.equal(bridged.bridges.length, 1, "right-angle crossings should create jumper metadata");
+assert.equal(bridged.bridges[0].jumperArc, true);
+assert.equal(bridged.bridges[0].radius, CABLE_JUMPER_RADIUS, "the jumper bow needs a compact 5px radius");
+assert.deepEqual(bridged.bridges[0].apex, { x: 50, y: 50 - CABLE_JUMPER_RADIUS });
+assert.deepEqual(bridged.points, horizontal.points, "a bridge must preserve the reserved Manhattan track geometry");
+const [verticalFirst, horizontalSecond] = routesWithCrossingBridges([vertical, horizontal]);
+assert.equal(verticalFirst.bridges.length, 0, "vertical tracks must never own a jumper bow");
+assert.equal(horizontalSecond.bridges.length, 1, "horizontal tracks must own the bow even when routed later");
+assert.equal(horizontalSecond.bridges[0].underRouteIndex, 0);
 
-const sourceTermination = endpointRouteSegment(route, "source", sourceBounds);
-const targetTermination = endpointRouteSegment(route, "target", targetBounds);
-assert.deepEqual(sourceTermination.source, source);
-assert.deepEqual(targetTermination.target, target);
+const managementRole = cableRole({}, { label: "MGMT", speedMbps: 1000 }, { label: "1", speedMbps: 1000 });
+assert.equal(managementRole.color, "#f0b35a");
+const interRackRole = cableRole({}, { label: "49", speedMbps: 50000 }, { label: "49", speedMbps: 50000 }, { crossRack: true });
+assert.equal(interRackRole.color, "#3de5e5");
+const accessRole = cableRole({}, { label: "1", speedMbps: 1000 }, { label: "2", speedMbps: 1000 });
+assert.equal(accessRole.color, "#4e9cf5");
+assert.deepEqual(cableDashPattern({ id: "mgmt" }, { label: "MGMT" }, { label: "1" }, { role: managementRole }), [4, 4],
+  "management links should remain identifiable without color");
+assert.deepEqual(cableDashPattern({ id: "backup" }, { label: "1" }, { label: "2" }, {
+  role: accessRole, group: { mode: "Failover", primaryLinkId: "primary" },
+}), [10, 5], "backup links should use a separate documentation dash pattern");
 
-const topPort = { x: 140, y: 128, width: 20, height: 14 };
-const portInExitLane = { x: 140, y: 102, width: 20, height: 14 };
-const portAwareRoute = obstacleAwareCableRoute({ x: 150, y: 135 }, target, {
-  sourceBounds, targetBounds, obstacles: [sourceBounds, targetBounds, blocker],
-  portObstacles: [topPort, portInExitLane],
-});
-const firstSegment = routeSegments(portAwareRoute)[0];
-assert.equal(firstSegment.source.x, firstSegment.target.x,
-  "the endpoint lead must leave the faceplate straight instead of bending sideways inside it");
-assert.equal(firstSegment.cp1.x, firstSegment.source.x,
-  "the source control point must preserve the port-normal faceplate exit");
-assert.equal(firstSegment.cp2.x, firstSegment.source.x,
-  "the outer control point must preserve the port-normal faceplate exit");
-assert.ok(firstSegment.target.y > sourceBounds.y + sourceBounds.height,
-  "an occupied nearest exit should use the clear opposite faceplate edge without a lateral detour");
-assert.equal(segmentIntersectsRectangle(firstSegment.source, firstSegment.target, portInExitLane), false,
-  "the straight endpoint lead should choose a faceplate edge that avoids unrelated ports");
-
-const clearTopRoute = obstacleAwareCableRoute({ x: 180, y: 125 }, target, {
-  sourceBounds, targetBounds, obstacles: [sourceBounds, targetBounds, blocker], portObstacles: [],
-});
-const clearTopLead = routeSegments(clearTopRoute)[0];
-assert.equal(clearTopLead.source.x, clearTopLead.target.x,
-  "a clear top-row port must leave directly above its faceplate position");
-assert.ok(clearTopLead.target.y < sourceBounds.y,
-  "a clear top-row port should use the nearest faceplate edge");
-const clearTargetLead = routeSegments(clearTopRoute).at(-1);
-assert.equal(clearTargetLead.source.x, clearTargetLead.target.x,
-  "the target lead must enter the faceplate straight above its exact port position");
-assert.equal(clearTargetLead.cp1.x, clearTargetLead.target.x,
-  "the target outer control point must preserve the port-normal faceplate entry");
-assert.equal(clearTargetLead.cp2.x, clearTargetLead.target.x,
-  "the target control point must preserve the port-normal faceplate entry");
+const sourceTermination = endpointRouteSegment(sameTracks[0], "source", sourceDevice);
+const targetTermination = endpointRouteSegment(sameTracks[0], "target", sameRackDevice);
+assert.deepEqual(sourceTermination.source, sameTracks[0].source);
+assert.deepEqual(targetTermination.target, sameTracks[0].target);
 
 const upperPort = { port: { label: "WAN1" }, x: 100, y: 118, width: 18, height: 14, centerX: 109, centerY: 125 };
 const lowerPort = { port: { label: "ethernet1/12" }, x: 100, y: 168, width: 18, height: 14, centerX: 109, centerY: 175 };
-assert.equal(portDescriptionPlacement(upperPort, sourceBounds).side, "above");
-assert.equal(portDescriptionPlacement(lowerPort, sourceBounds).side, "below");
-assert.ok(portDescriptionPlacement(lowerPort, sourceBounds).fontSize < portDescriptionPlacement(upperPort, sourceBounds).fontSize);
+const bounds = { x: 50, y: 100, width: 200, height: 100 };
+assert.equal(portDescriptionPlacement(upperPort, bounds).side, "above");
+assert.equal(portDescriptionPlacement(lowerPort, bounds).side, "below");
+assert.ok(portDescriptionPlacement(lowerPort, bounds).fontSize < portDescriptionPlacement(upperPort, bounds).fontSize);
 
-console.log("obstacle-aware cable routing checks passed");
+const canvasSource = readFileSync(new URL("./static/js/canvas.js", import.meta.url), "utf8");
+const exportSource = readFileSync(new URL("./static/js/export.js", import.meta.url), "utf8");
+assert.match(canvasSource, /assignCableTracks\(\{/);
+assert.match(canvasSource, /ctx\.lineTo\(segment\.target\.x, segment\.target\.y\)/);
+assert.match(exportSource, /`H\$\{segment\.target\.x\}`/);
+assert.match(exportSource, /`V\$\{segment\.target\.y\}`/);
+
+console.log("individual-track orthogonal cable routing checks passed");
+
+function collinearOverlap(left, right) {
+  const leftHorizontal = left.source.y === left.target.y;
+  const rightHorizontal = right.source.y === right.target.y;
+  if (leftHorizontal && rightHorizontal && left.source.y === right.source.y) {
+    return overlapLength(left.source.x, left.target.x, right.source.x, right.target.x) > .01;
+  }
+  const leftVertical = left.source.x === left.target.x;
+  const rightVertical = right.source.x === right.target.x;
+  if (leftVertical && rightVertical && left.source.x === right.source.x) {
+    return overlapLength(left.source.y, left.target.y, right.source.y, right.target.y) > .01;
+  }
+  return false;
+}
+
+function overlapLength(leftStart, leftEnd, rightStart, rightEnd) {
+  return Math.min(Math.max(leftStart, leftEnd), Math.max(rightStart, rightEnd)) -
+    Math.max(Math.min(leftStart, leftEnd), Math.min(rightStart, rightEnd));
+}

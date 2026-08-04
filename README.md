@@ -53,10 +53,12 @@ The container has a built-in health probe; no shell or HTTP client is added to t
 - Image-informed vector faceplates with sourced vendor-family chassis details, model-specific connector placement, and continuous cable curves drawn directly into every connected port.
 - Integrated multi-rack planning with movable 6U–48U frames, numbered rails, whole-U snapping, collision prevention, capacity reporting, and non-destructive rack removal.
 - Generic 1U–4U server rear builder with dynamically composed mixed card bays, live elevation preview, every supported connector family, and independent multi-device cabling.
-- Offline 522-profile hardware catalog spanning enterprise networking, security, compute, power, KVM/console, storage, wireless, and passive fiber/copper patching, with 24 connector types through 800G OSFP and JSON profile import.
+- Dedicated copper/fiber patch-panel installer for every Generic Patch profile, with independent front-jack and rear-termination occupancy plus atomic one-to-one backport range mapping between panels.
+- Offline 541-profile hardware catalog spanning enterprise networking, security, compute, power, KVM/console, storage, wireless, carrier handoffs, broadband/cellular edge, and passive fiber/copper patching, with 25 connector types through 800G OSFP and JSON profile import.
+- Family-first hardware browsing for access points, carrier handoffs, modems/ONTs, LTE/5G routers, switches, firewalls, routers, and infrastructure, with sourced Cisco, Aruba, Fortinet, Ubiquiti, ADTRAN, Teltonika, and generic edge profiles.
 - Pan, 0.1×–5× zoom, viewport-tiled rendering, minimap navigation, collapsible rack/device/VLAN tree, grid-snapped drag ghosts, rack collision zones, selection box, persistent arrows/boxes/text notes, exact port hit testing, steady operational LEDs, and port tooltips.
 - Adaptive `Auto`, `Performance`, `Balanced`, and `Quality` graphics modes persist per browser; static Performance and unfocused Balanced views stop requesting frames, hidden canvases suspend, and cached geometry, bounded frame rates, scaled pixel density, and focused effects reduce GPU use on large maps.
-- Magnetic port-to-port cable drafting, speed-weighted Bezier paths, native-VLAN cable colors, animated multi-VLAN rainbow trunks, traffic pulses, warning overlays, and pointer-following speech bubbles for non-blocking port and cable hover details.
+- Magnetic port-to-port cable drafting, speed-weighted orthogonal tracks, native-VLAN cable colors, animated multi-VLAN rainbow trunks, traffic pulses, warning overlays, and pointer-following speech bubbles with exact rack/device/port endpoints.
 - Newly patched cables atomically set both physical endpoint ports to `up`, so their faceplate link LEDs become active immediately after a successful connection.
 - Unpatching a cable atomically returns both now-unlinked endpoint ports to `down`, while rejected deletes leave the existing operational state untouched.
 - Persistent Trunk, LACP, MC-LAG, and Failover link groups: drag a cable onto another cable to create, extend, or merge a bundle. Failover groups identify one preferred primary cable and mark the remaining members as backups; unusual combinations remain saved and are flagged by the topology analyzer.
@@ -66,17 +68,17 @@ The container has a built-in health probe; no shell or HTTP client is added to t
 - Device inventory records distinguish display name from hostname and include management IP, serial number, asset tag, owner/team, structured site/building/floor/room/rack/U placement, and configurable STP bridge priority.
 - Persistent active/active and active/passive firewall clusters with explicit active-member selection, HA peer highlighting, physical member roles, safe failover reassignment after deletion, and one-unit logical inventory counting.
 - Peer-aware bundle visualization: each link group uses one shared two-line plate with mode-specific endpoint/member details, while deterministic label placement keeps every cable nameplate separated and adds a leader when it must move away from its cable.
-- Group-aware cable routing processes Trunk, LACP, MC-LAG, and Failover members together so they enter a compact parallel corridor as soon as their real port exits permit and stay bundled until target fan-out.
-- Obstacle-aware cabling uses cached multi-segment routes around unrelated equipment and ports; physical interface names are rendered last as high-contrast faceplate badges so they remain legible at connected sockets.
-- Shared cable corridors use deterministic closely spaced lanes instead of overlapping strokes or wide detours; unavoidable crossings use a compact jump-over bridge while the lower VLAN-colored cable remains visibly continuous through its opening in canvas and SVG exports.
+- Individual-track routing groups every common device pair into a deterministic trunk bundle, assigns five-pixel side-by-side gutter channels, and keeps members together until their real endpoint fan-out.
+- Zero-extension faceplate exits turn horizontally at the connector, stagger top/bottom-row micro-lanes inside the host chassis, and confine all inter-device vertical travel to rack-side or inter-rack gutters so no cable crosses an intermediate faceplate.
+- Canvas and SVG exports share strict Manhattan geometry (`H`/`V` only), semantic speed/role accents, native/tagged VLAN conductors, orthogonal crossing underpasses, and cached batch route plans suitable for high-density switches.
 - Source-backed printed interface legends for common FortiGate families (`WAN1`, `WAN2`, `A`, `B`, `DMZ`, `HA`, `MGMT`, `X1`…), sequential physical switch labels, and vendor-family naming for other firewall profiles.
 - Access, trunk, hybrid, and unconfigured port models with native and tagged VLAN membership.
-- Independent port transceiver/media and cable-media editing for CAT5e/CAT6/CAT6A, SMF/MMF, generic fiber, DAC, AOC, and twinax.
+- Independent port transceiver/media and cable-media editing for CAT5e/CAT6/CAT6A, coax, SMF/MMF, generic fiber, DAC, AOC, and twinax.
 - VLAN manager with safe deletion and automatic fallback of affected native ports to VLAN 1.
 - Server-side native VLAN mismatch, tagged VLAN drop, switching-loop, and forwarding-path analysis; servers remain non-forwarding endpoints when multi-homed.
 - Default-on 30-second autosave with 1/5-minute options, manual save, dirty-title state, optimistic revision checks, and conflict-safe reload of newer shared revisions.
 - Revisioned Server-Sent Events, anchored comment threads, embedded/external HTTP(S) documentation, and cryptographically tokenized revocable read-only shares.
-- Direct A3 PDF, responsive standalone HTML with embedded SVG/source data and documentation links, PNG, standalone SVG, and JSON backup export; JSON restore; keyboard undo/redo and save. Heavy catalog, analysis, and export modules load on demand.
+- Direct A3 PDF, responsive standalone HTML with embedded SVG/source data and documentation links, filterable offline configuration workbook (inventory, ports, VLANs, physical paths, trunks, switch systems, and firewall HA), PNG, standalone SVG, and JSON backup export; JSON restore; keyboard undo/redo and save. Heavy catalog, analysis, and export modules load on demand.
 - Strict JSON decoding, request-size limits, security headers, structured logs, graceful shutdown, and atomic file replacement.
 
 ## HTTP API

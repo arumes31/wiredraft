@@ -7,7 +7,7 @@ import {
 import { buildSVGDocument } from "./static/js/export.js";
 
 const supportedPortTypes = new Set([
-  "RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "SFP_1G", "SFP_PLUS_10G",
+  "RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G",
   "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G",
   "QSFP_DD_400G", "Console", "Power",
 ]);

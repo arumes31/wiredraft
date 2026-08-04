@@ -1,4 +1,5 @@
 import { fortinetProfiles } from "./catalog-fortinet.js";
+import { edgeCatalogProfiles } from "./catalog-edge.js";
 import { expandedCatalogProfiles } from "./catalog-expanded.js";
 import { portLayoutMetadata, resolvePhysicalPortGroups } from "./catalog-port-layouts.js";
 
@@ -6,6 +7,7 @@ import { portLayoutMetadata, resolvePhysicalPortGroups } from "./catalog-port-la
 // data, not renderer branches, so new SKUs can be added without changing Canvas.
 const profiles = [
   ...fortinetProfiles,
+  ...edgeCatalogProfiles,
   ...expandedCatalogProfiles,
 
   p("Cisco", "Catalyst C9200L-24T-4G", "Switch", 1, "#263b4b", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_1G", 1000, "SFP"), m(1)]),
@@ -79,15 +81,69 @@ const profiles = [
   p("Check Point", "Quantum 6200 / 6600", "Firewall", 1, "#442839", [r(8, "RJ45_1G", 1000, false, "GE"), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(2)]),
 ];
 
-for (const profile of profiles) profile.portLayout ||= portLayoutMetadata(profile);
+for (const profile of profiles) {
+  profile.family ||= defaultCatalogFamily(profile.category);
+  profile.portLayout ||= portLayoutMetadata(profile);
+}
 export const hardwareCatalog = profiles.sort((left, right) => left.vendor.localeCompare(right.vendor) || left.model.localeCompare(right.model));
 
-export function catalogVendors() {
-  return [...new Set(hardwareCatalog.map((profile) => profile.vendor))];
+const isDedicatedPatchPanelProfile = (profile) =>
+  profile.vendor === "Generic Patch" && profile.category === "PatchPanel";
+
+const catalogFamilyLabels = Object.freeze({
+  "Access Points": "ACCESS POINTS",
+  "Carrier Handoffs": "CARRIER HANDOFFS",
+  "Modems & ONTs": "MODEMS & ONTS",
+  "Cellular Routers": "LTE / 5G ROUTERS",
+  Switches: "SWITCHES",
+  Firewalls: "FIREWALLS",
+  Routers: "ROUTERS",
+  "Servers & Infrastructure": "SERVERS & INFRASTRUCTURE",
+});
+
+const catalogFamilyOrder = Object.freeze([
+  "Access Points", "Carrier Handoffs", "Modems & ONTs", "Cellular Routers",
+  "Switches", "Firewalls", "Routers", "Servers & Infrastructure",
+]);
+
+export function catalogFamilies() {
+  const profiles = installableProfiles();
+  return [
+    { id: "all", label: "ALL NETWORK DEVICES", count: profiles.length },
+    ...catalogFamilyOrder.filter((family) => profiles.some((profile) => profile.family === family)).map((family) => ({
+      id: family,
+      label: catalogFamilyLabels[family] || family.toUpperCase(),
+      count: profiles.filter((profile) => profile.family === family).length,
+    })),
+  ];
 }
 
-export function modelsForVendor(vendor) {
-  return hardwareCatalog.filter((profile) => profile.vendor === vendor);
+export function catalogVendors(family = "all") {
+  return [...new Set(installableProfiles(family).map((profile) => profile.vendor))];
+}
+
+export function modelsForVendor(vendor, family = "all") {
+  return installableProfiles(family).filter((profile) => profile.vendor === vendor);
+}
+
+export function patchPanelProfiles() {
+  return hardwareCatalog.filter(isDedicatedPatchPanelProfile);
+}
+
+function installableProfiles(family = "all") {
+  return hardwareCatalog.filter((profile) => !isDedicatedPatchPanelProfile(profile) && (family === "all" || profile.family === family));
+}
+
+function defaultCatalogFamily(category) {
+  return {
+    AccessPoint: "Access Points",
+    Modem: "Modems & ONTs",
+    Router: "Routers",
+    Switch: "Switches",
+    Firewall: "Firewalls",
+    Server: "Servers & Infrastructure",
+    PatchPanel: "Servers & Infrastructure",
+  }[category] || "Servers & Infrastructure";
 }
 
 export function upgradeInstalledPhysicalPorts(topology) {
@@ -138,13 +194,15 @@ export function registerProfiles(input) {
   for (const profile of input) {
     const isValid = profile && typeof profile.vendor === "string" && typeof profile.model === "string" &&
       ["Switch", "Firewall", "Router", "PatchPanel", "Server", "Modem", "AccessPoint"].includes(profile.category) &&
+      (profile.family === undefined || (typeof profile.family === "string" && profile.family.trim().length >= 1 && profile.family.trim().length <= 60)) &&
       Number.isInteger(profile.units) && profile.units >= 1 && profile.units <= 12 && /^#[0-9a-f]{6}$/i.test(profile.color) &&
       Array.isArray(profile.groups) && profile.groups.every((group) => Number.isInteger(group.count) && group.count > 0 &&
         ["access", "uplink", "management"].includes(group.zone) &&
-        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
+        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
         Number.isFinite(group.speed) && group.speed >= 0 && group.speed <= 800000 &&
         (group.labels === undefined || (Array.isArray(group.labels) && group.labels.length === group.count && group.labels.every((label) => typeof label === "string" && label.trim()))));
     if (!isValid) throw new Error(`Invalid hardware profile: ${profile?.vendor || "unknown"} ${profile?.model || "model"}`);
+    profile.family = String(profile.family || defaultCatalogFamily(profile.category)).trim();
     profile.layout ||= profile.vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     profile.portLayout ||= portLayoutMetadata(profile);
     hardwareCatalog.push(profile);

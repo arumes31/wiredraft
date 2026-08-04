@@ -14,10 +14,13 @@
       <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
       <span><strong>NETDIAGRAM</strong><small>RACK OPERATIONS BENCH</small></span>
     </div>
-    <label class="topology-picker">
-      <span>ACTIVE MAP</span>
-      <select id="topology-select" aria-label="Active topology"></select>
-    </label>
+    <div class="topology-picker">
+      <span>ACTIVE MAP <b id="topology-count">0 MAPS</b></span>
+      <div class="topology-picker-control">
+        <select id="topology-select" aria-label="Active topology"></select>
+        <button id="add-topology-button" type="button" aria-label="Create another map" title="Create another map">+</button>
+      </div>
+    </div>
     <nav class="toolbar" aria-label="Diagram tools">
       <button id="undo-button" class="icon-button" title="Undo (Ctrl+Z)">↶</button>
       <button id="redo-button" class="icon-button" title="Redo (Ctrl+Y)">↷</button>
@@ -27,7 +30,7 @@
       <button id="add-device-button">+ DEVICE</button>
       <button id="add-server-button">+ SERVER</button>
       <button id="add-patch-panel-button">+ PANEL</button>
-      <button id="patch-panel-map-button">PANEL MAP</button>
+      <button id="patch-panel-map-button">REAR MAP</button>
       <button id="vlan-button">VLAN MATRIX</button>
       <button id="trace-button">TRACE PATH</button>
       <button id="collaboration-button">COLLAB</button>
@@ -37,6 +40,7 @@
           <p><span>OUTPUT BAY</span><b>EXPORT / RESTORE</b></p>
           <button id="pdf-button" role="menuitem"><b>PDF SHEET</b><small>Print-ready A3 document</small></button>
           <button id="html-button" role="menuitem"><b>HTML REPORT</b><small>Standalone SVG + source data</small></button>
+          <button id="configuration-button" role="menuitem"><b>CONFIG WORKBOOK</b><small>Inventory · ports · VLANs · physical paths</small></button>
           <button id="png-button" role="menuitem"><b>PNG IMAGE</b><small>High-resolution raster</small></button>
           <button id="svg-button" role="menuitem"><b>SVG VECTOR</b><small>Scalable diagram</small></button>
           <button id="json-button" role="menuitem"><b>JSON BACKUP</b><small>Restorable topology data</small></button>
@@ -136,6 +140,22 @@
     </aside>
   </main>
 
+  <dialog id="topology-dialog" class="panel-dialog topology-dialog" aria-labelledby="topology-dialog-title">
+    <form id="topology-form" method="dialog">
+      <header><div><p class="eyebrow">MAP CONTROL</p><h2 id="topology-dialog-title">CREATE NETWORK MAP</h2></div><button type="button" class="dialog-close" data-close="topology-dialog" aria-label="Close create map dialog">×</button></header>
+      <p class="dialog-note">Create an independent topology. Each map keeps its own racks, devices, cables, VLANs, comments, and documentation.</p>
+      <label><span>MAP NAME</span><input name="name" maxlength="120" required autocomplete="off"></label>
+      <fieldset class="map-template-field">
+        <legend>STARTING POINT</legend>
+        <div class="map-template-grid">
+          <label><input type="radio" name="template" value="blank" checked><span><i>EMPTY RAILS</i><b>BLANK WORKSPACE</b><small>Default VLAN with an empty canvas ready for your own racks and devices.</small></span></label>
+          <label><input type="radio" name="template" value="demo"><span><i>REFERENCE BUILD</i><b>STARTER TOPOLOGY</b><small>Preloaded racks, devices, cables, VLANs, and link-group examples.</small></span></label>
+        </div>
+      </fieldset>
+      <footer><button type="button" class="secondary" data-close="topology-dialog">CANCEL</button><button value="create" class="primary">CREATE + OPEN MAP</button></footer>
+    </form>
+  </dialog>
+
   <dialog id="annotation-dialog" class="panel-dialog" aria-labelledby="annotation-dialog-title">
     <form id="annotation-form" method="dialog">
       <header><div><p class="eyebrow">CANVAS MARKUP</p><h2 id="annotation-dialog-title">PLACE TEXT NOTE</h2></div><button type="button" class="dialog-close" data-close="annotation-dialog" aria-label="Close annotation dialog">×</button></header>
@@ -187,9 +207,11 @@
   <dialog id="device-dialog" class="panel-dialog" aria-labelledby="device-dialog-title">
     <form id="device-form" method="dialog">
       <header><div><p class="eyebrow">HARDWARE CATALOG</p><h2 id="device-dialog-title">INSTALL DEVICE</h2></div><button type="button" class="dialog-close" data-close="device-dialog" aria-label="Close install device dialog">×</button></header>
+      <p class="dialog-note">Choose a physical family first. Edge and wireless equipment can remain free-floating on the map or be placed in a rack when it is installed on a shelf.</p>
       <div class="form-grid">
+        <label class="catalog-family"><span>DEVICE FAMILY</span><select name="family" id="device-family"></select></label>
         <label><span>PROVIDER</span><select name="vendor" id="device-vendor"></select></label>
-        <label class="catalog-search"><span>FILTER MODELS / SKU</span><input name="filter" id="device-model-filter" type="search" autocomplete="off" placeholder="e.g. FG-200G or FortiSwitch 124"></label>
+        <label class="catalog-search"><span>FILTER MODELS / SKU</span><input name="filter" id="device-model-filter" type="search" autocomplete="off" placeholder="e.g. FortiAP, carrier handoff, RUTX50, FG-200G"></label>
         <label><span>HARDWARE MODEL</span><select name="model" id="device-model"></select></label>
         <label><span>DEVICE NAME</span><input name="name" required maxlength="120" value="ACCESS SWITCH"></label>
         <label><span>CHASSIS COLOR</span><input type="color" name="color" value="#243b3d"></label>
@@ -240,39 +262,40 @@
 
   <dialog id="patch-panel-dialog" class="panel-dialog" aria-labelledby="patch-panel-dialog-title">
     <form id="patch-panel-form" method="dialog">
-      <header><div><p class="eyebrow">PASSIVE COPPER TERMINATION</p><h2 id="patch-panel-dialog-title">PLACE PATCH PANEL</h2></div><button type="button" class="dialog-close" data-close="patch-panel-dialog" aria-label="Close patch panel dialog">×</button></header>
-      <p class="dialog-note">Every numbered jack is an independent physical endpoint. Install panels first, then use Panel Map to create an entire one-to-one cable range atomically.</p>
+      <header><div><p class="eyebrow">PASSIVE TERMINATION HARDWARE</p><h2 id="patch-panel-dialog-title">PLACE PATCH PANEL</h2></div><button type="button" class="dialog-close" data-close="patch-panel-dialog" aria-label="Close patch panel dialog">×</button></header>
+      <p class="dialog-note">Generic Patch hardware now lives here. Each jack has an independent front patch point and rear permanent-link termination, so both sides can be connected at the same time.</p>
       <div class="form-grid">
         <label><span>PANEL NAME</span><input name="name" required maxlength="120" value="PATCH PANEL 01"></label>
-        <label><span>PORT CAPACITY</span><select name="portCount"><option value="12">12 PORT · 1U</option><option value="24" selected>24 PORT · 1U</option><option value="48">48 PORT · 1U</option><option value="96">96 PORT · 2U</option></select></label>
         <label><span>FACEPLATE COLOR</span><input type="color" name="color" value="#262d2f"></label>
+        <label class="catalog-search"><span>PANEL MODEL / MEDIA</span><select name="model" id="patch-panel-model" required></select></label>
       </div>
-      <div class="patch-panel-miniature" aria-hidden="true"><b>CAT6A PATCH</b><span id="patch-panel-jack-preview"></span></div>
+      <div id="patch-panel-profile-summary" class="catalog-profile-summary"></div>
+      <div class="patch-panel-miniature" aria-hidden="true"><b id="patch-panel-preview-label">PATCH PANEL · FRONT / REAR READY</b><span id="patch-panel-jack-preview"></span></div>
       <footer><button type="button" class="secondary" data-close="patch-panel-dialog">CANCEL</button><button value="install" class="primary">PLACE PANEL</button></footer>
     </form>
   </dialog>
 
   <dialog id="patch-panel-map-dialog" class="panel-dialog wide-dialog" aria-labelledby="patch-panel-map-dialog-title">
     <form id="patch-panel-map-form" method="dialog">
-      <header><div><p class="eyebrow">ATOMIC RANGE PATCHING</p><h2 id="patch-panel-map-dialog-title">CONNECT PANEL RANGES</h2></div><button type="button" class="dialog-close" data-close="patch-panel-map-dialog" aria-label="Close panel mapping dialog">×</button></header>
-      <p class="dialog-note">The source range defines the cable count. The matching target end is calculated automatically; occupied endpoints block the complete operation.</p>
+      <header><div><p class="eyebrow">PERMANENT-LINK TERMINATION</p><h2 id="patch-panel-map-dialog-title">CONNECT PANEL BACKPORTS</h2></div><button type="button" class="dialog-close" data-close="patch-panel-map-dialog" aria-label="Close panel mapping dialog">×</button></header>
+      <p class="dialog-note">Map rear ranges one-to-one. Rear occupancy is independent: the matching front jacks remain available for switch, server, or wall-outlet patch cords. An occupied rear termination blocks the complete operation.</p>
       <div class="patch-map-grid">
-        <fieldset><legend>SOURCE PANEL</legend>
+        <fieldset><legend>SOURCE PANEL · REAR</legend>
           <label><span>PATCH PANEL</span><select name="sourceDeviceId" required></select></label>
           <div><label><span>FROM PORT</span><input name="sourceStart" type="number" min="1" value="1" required></label><label><span>THROUGH PORT</span><input name="sourceEnd" type="number" min="1" value="6" required></label></div>
         </fieldset>
         <div class="patch-map-direction" aria-hidden="true"><i></i><b>1 : 1</b><i></i></div>
-        <fieldset><legend>TARGET PANEL</legend>
+        <fieldset><legend>TARGET PANEL · REAR</legend>
           <label><span>PATCH PANEL</span><select name="targetDeviceId" required></select></label>
           <div><label><span>START PORT</span><input name="targetStart" type="number" min="1" value="1" required></label><label><span>CALCULATED END</span><output id="patch-map-target-end">6</output></label></div>
         </fieldset>
       </div>
       <section class="patch-map-preview" aria-live="polite">
-        <div class="section-heading"><h3>PHYSICAL PAIR PREVIEW</h3><span id="patch-map-count">0 CABLES</span></div>
+        <div class="section-heading"><h3>REAR TERMINATION PREVIEW</h3><span id="patch-map-count">0 REAR RUNS</span></div>
         <div id="patch-map-pairs" class="patch-map-pairs"></div>
         <p id="patch-map-error" class="patch-map-error"></p>
       </section>
-      <footer><button type="button" class="secondary" data-close="patch-panel-map-dialog">CANCEL</button><button id="create-patch-map-button" value="connect" class="primary">CREATE CABLE RANGE</button></footer>
+      <footer><button type="button" class="secondary" data-close="patch-panel-map-dialog">CANCEL</button><button id="create-patch-map-button" value="connect" class="primary">CONNECT REAR RANGE</button></footer>
     </form>
   </dialog>
 

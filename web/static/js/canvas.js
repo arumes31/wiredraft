@@ -1,11 +1,14 @@
 import {
-  CableMode, cableBezier, distanceToRoute, obstacleAwareCableRoute, orderedCableLinks, pointOnRoute, routeSegments,
-  routeWithCrossingBridges,
+  assignCableTracks, CableMode, cableBezier, cableDashPattern, CABLE_OUTLINE_WIDTH, cableRole, distanceToRoute,
+  orderedCableLinks, pointOnRoute, routeSegments, routesWithCrossingBridges,
 } from "./cabling.js";
 import { EmptyCanvasAction, emptyCanvasAction } from "./canvas-interactions.js";
+import { commentPreviewLines } from "./collaboration.js";
 import { resolveFaceplateTemplate } from "./faceplate.js";
 import { groupAccent, peerLinkIDs, summarizeLinkGroup } from "./link-group-display.js";
 import { linkVLANPalette, vlanBandPattern } from "./link-vlan-colors.js";
+import { layoutEndpointBadges, linkEndpointBadges } from "./link-end-labels.js";
+import { isPortSideOccupied, isRearPanelLink, LinkEndpointSide, RearPanelLinkVisual } from "./patch-panels.js";
 import { cableLabelVisibility, curveLabelCandidates, placeCableLabels, pointerBubblePlacement, radialCandidates } from "./label-layout.js";
 import { findPort } from "./state.js";
 import { connectorKind, connectorSize, portDescriptionPlacement, portLinkLEDColor } from "./termination.js";
@@ -39,6 +42,7 @@ export class CanvasEngine {
     this.portBoxes = [];
     this.linkCurves = [];
     this.routeCache = new Map();
+    this.trackPlanCache = null;
     this.stpPortStateCache = new Map();
     this.graphicsMode = normalizeGraphicsMode(options.graphicsMode);
     this.reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || false;
@@ -51,6 +55,7 @@ export class CanvasEngine {
     this.isCanvasVisible = true;
     this.hoveredPort = null;
     this.hoveredLink = null;
+    this.hoveredDevice = null;
     this.hoveredAnnotation = null;
     this.pointerWorld = { x: 0, y: 0 };
     this.pointerScreen = { x: 0, y: 0 };
@@ -115,6 +120,7 @@ export class CanvasEngine {
     this.canvas.addEventListener("pointerleave", () => {
       this.hoveredPort = null;
       this.hoveredLink = null;
+      this.hoveredDevice = null;
       this.hoveredAnnotation = null;
       this.invalidate();
     });
@@ -152,7 +158,7 @@ export class CanvasEngine {
     const topology = this.state.topology;
     const animationActive = graphicsAnimationActive(profile, {
       hasLinks: Boolean(topology?.links?.length),
-      hasFocus: Boolean(this.hoveredLink || this.state.selection?.type === "link" || this.state.traceLinkIDs?.size),
+      hasFocus: Boolean(this.hoveredLink || this.hoveredPort || this.hoveredDevice || this.state.selection?.type === "link" || this.state.traceLinkIDs?.size),
       isInteracting: Boolean(this.draft || this.linkDrag?.active || this.drag || this.rackDrag || this.pan || this.selectionBox),
     });
     const frameInterval = profile.maxFPS > 0 ? 1000 / profile.maxFPS : Infinity;
@@ -441,6 +447,7 @@ export class CanvasEngine {
     if (layout) {
       this.sceneDirty = true;
       this.routeCache.clear();
+      this.trackPlanCache = null;
     }
     if (!this.frame && this.isDocumentVisible && this.isCanvasVisible) {
       this.frame = requestAnimationFrame(this.loop);
@@ -530,6 +537,22 @@ export class CanvasEngine {
     ctx.restore();
   }
 
+  cableTrackPlan(orderedLinks = orderedCableLinks(this.state.topology)) {
+    const planKey = `${this.sceneRevision}|${orderedLinks.map((link) => `${link.id}:${link.sourcePortId}:${link.targetPortId}`).join("|")}`;
+    if (this.trackPlanCache?.key === planKey) return this.trackPlanCache;
+    const baseTracks = assignCableTracks({
+      links: orderedLinks,
+      portBoxes: this.portBoxes,
+      deviceBoxes: this.deviceBoxes,
+      rackBoxes: this.rackBoxes,
+    });
+    const planned = orderedLinks.map((link) => ({ link, route: baseTracks.get(link.id) })).filter(({ route }) => route);
+    const bridgedRoutes = routesWithCrossingBridges(planned.map(({ route }) => route));
+    const tracks = new Map(planned.map(({ link, route }, index) => [link.id, { route, curve: bridgedRoutes[index] }]));
+    this.trackPlanCache = { key: planKey, tracks };
+    return this.trackPlanCache;
+  }
+
   drawLinks(ctx, time, showAllLabels = false, showInteractionHighlights = true) {
     const topology = this.state.topology;
     if (!topology) return;
@@ -550,67 +573,48 @@ export class CanvasEngine {
         for (const linkID of group?.linkIds || []) warnings.add(linkID);
       }
     }
-    const routingObstacles = this.deviceBoxes.map((box) => ({ x: box.x, y: box.y, width: box.width, height: box.height }));
-    const routingPorts = this.portBoxes.map((box) => ({ x: box.x, y: box.y, width: box.width, height: box.height }));
-    const deviceMap = new Map(this.deviceBoxes.map((box) => [box.device.id, box]));
     const profile = this.activeGraphicsProfile || QUALITY_FALLBACK;
     const activeLinkIDs = new Set();
-    const occupiedRoutes = [];
-    const bundleRoutes = new Map();
+    const orderedLinks = orderedCableLinks(topology);
+    const trackPlan = this.cableTrackPlan(orderedLinks);
+    const hoverFocusLinkIDs = showInteractionHighlights ? this.hoverFocusLinkIDs(topology) : new Set();
+    const hasHoverFocus = hoverFocusLinkIDs.size > 0;
     this.linkCurves = [];
-    for (const link of orderedCableLinks(topology)) {
+    for (const link of orderedLinks) {
       const source = portMap.get(link.sourcePortId);
       const target = portMap.get(link.targetPortId);
       if (!source || !target) continue;
       const group = groupByLink.get(link.id);
-      const preferredRoutes = group ? bundleRoutes.get(group.id) || [] : [];
       activeLinkIDs.add(link.id);
-      const sourcePoint = { x: source.centerX, y: source.centerY };
-      const targetPoint = { x: target.centerX, y: target.centerY };
-      const routeKey = `${this.sceneRevision}|${link.sourcePortId}|${link.targetPortId}`;
-      let cached = this.routeCache.get(link.id);
-      if (!cached || cached.key !== routeKey) {
-        const route = obstacleAwareCableRoute(sourcePoint, targetPoint, {
-          sourceBounds: deviceMap.get(source.device.id),
-          targetBounds: deviceMap.get(target.device.id),
-          obstacles: routingObstacles,
-          portObstacles: routingPorts,
-          occupiedRoutes,
-          preferredRoutes,
-        });
-        cached = {
-          key: routeKey,
-          route,
-          curve: routeWithCrossingBridges(route, occupiedRoutes, { key: link.id }),
-        };
-        this.routeCache.set(link.id, cached);
-      }
+      const cached = trackPlan.tracks.get(link.id);
+      if (!cached) continue;
       const baseCurve = cached.route;
       const curve = cached.curve;
-      occupiedRoutes.push(baseCurve);
-      if (group) {
-        const routes = bundleRoutes.get(group.id) || [];
-        routes.push(baseCurve);
-        bundleRoutes.set(group.id, routes);
-      }
+      this.routeCache.set(link.id, { key: trackPlan.key, ...cached });
       const sourceSpeed = source.port.speedMbps || 1000;
       const targetSpeed = target.port.speedMbps || 1000;
       const speed = Math.min(sourceSpeed, targetSpeed);
-      const thickness = speed >= 40000 ? 6 : speed >= 10000 ? 4 : 2.5;
+      const speedThickness = speed >= 40000 ? 6 : speed >= 10000 ? 4 : 2.5;
       const selected = this.state.selection?.type === "link" && this.state.selection.id === link.id;
       const selectedPeer = selectedPeerLinkIDs.has(link.id);
       const traced = this.state.traceLinkIDs.has(link.id);
+      const rearMapping = isRearPanelLink(link);
+      const thickness = rearMapping ? RearPanelLinkVisual.strokeWidth : speedThickness;
       const vlanPalette = linkVLANPalette(topology, link);
-      const primaryColor = vlanPalette.nativeColor;
+      const role = cableRole(link, source, target, { crossRack: baseCurve.crossRack, group });
+      const dash = cableDashPattern(link, source, target, { group, role });
+      const primaryColor = rearMapping ? RearPanelLinkVisual.color : role.color;
       const failoverRole = group?.mode === "Failover" ? (group.primaryLinkId === link.id ? "primary" : "backup") : "";
-      const cableAlpha = failoverRole === "backup" ? .72 : .96;
+      const baseCableAlpha = rearMapping ? RearPanelLinkVisual.opacity : failoverRole === "backup" ? .72 : .96;
+      const hoverFocused = hoverFocusLinkIDs.has(link.id);
+      const cableAlpha = baseCableAlpha * (hasHoverFocus && !hoverFocused ? .2 : 1);
       const groupTarget = this.linkDrag?.targetLinkID === link.id;
-      const focused = selected || selectedPeer || traced || groupTarget || this.hoveredLink?.link.id === link.id;
+      const focused = selected || selectedPeer || traced || groupTarget || hoverFocused;
       const animateEffect = graphicsEffectActive(profile, focused);
       const effectTime = animateEffect ? time : 0;
       this.linkCurves.push({
         link, curve, baseCurve, source, target, thickness, selected, selectedPeer, traced, primaryColor, group,
-        vlanPalette, cableAlpha, warning: warnings.has(link.id),
+        vlanPalette, cableAlpha, rearMapping, role, dash, hoverFocused, warning: warnings.has(link.id),
       });
       if (groupTarget) {
         this.strokeCurve(ctx, curve, "#f0b35a", thickness + 13, .28);
@@ -625,63 +629,112 @@ export class CanvasEngine {
         this.strokeCurve(ctx, curve, peerAccent, thickness + 10, peerAlpha);
         this.strokeCurve(ctx, curve, peerAccent, thickness + 4, .78);
       }
-      this.strokeCurve(ctx, curve, "#020607", thickness + 2.5, .9);
-      this.drawVLANColors(ctx, curve, vlanPalette, thickness, effectTime, cableAlpha);
-      if (profile.pulses === "all" || (profile.pulses === "focused" && focused)) this.drawPulse(ctx, curve, effectTime, primaryColor);
-      if (warnings.has(link.id)) this.drawWarning(ctx, pointOnRoute(curve, .57));
+      if (rearMapping) {
+        this.strokeCurve(ctx, curve, "#020607", RearPanelLinkVisual.casingWidth, Math.min(cableAlpha, RearPanelLinkVisual.casingOpacity));
+        this.strokeCurve(ctx, curve, primaryColor, thickness, cableAlpha, { dash: RearPanelLinkVisual.dash, lineCap: "butt" });
+      } else {
+        const roleWidth = thickness + 1.25;
+        this.strokeCurve(ctx, curve, "#020607", roleWidth + CABLE_OUTLINE_WIDTH * 2, cableAlpha);
+        this.strokeCurve(ctx, curve, role.color, roleWidth, cableAlpha * .78, { dash });
+        this.drawVLANColors(ctx, curve, vlanPalette, Math.max(1.5, thickness - .5), effectTime, cableAlpha, dash);
+        if (profile.pulses === "all" || (profile.pulses === "focused" && focused)) this.drawPulse(ctx, curve, effectTime, primaryColor);
+      }
+      if (warnings.has(link.id)) this.drawWarning(ctx, pointOnRoute(curve, .57), hasHoverFocus && !hoverFocused ? .2 : 1);
     }
-    this.drawBridgeUnderpasses(ctx, time, profile);
+    this.drawBridgeJumpers(ctx, time, profile);
     for (const linkID of this.routeCache.keys()) if (!activeLinkIDs.has(linkID)) this.routeCache.delete(linkID);
     if (showInteractionHighlights) this.drawHoveredLinkHighlight(ctx, time);
     this.drawLinkGroupGuides(ctx, topology);
     this.drawCableLabels(ctx, topology, vlanMap, showAllLabels);
+    if (showAllLabels) this.drawExportEndpointLabels(ctx, topology);
   }
 
-  drawBridgeUnderpasses(ctx, time, profile = this.activeGraphicsProfile || QUALITY_FALLBACK) {
+  drawBridgeJumpers(ctx, time, profile = this.activeGraphicsProfile || QUALITY_FALLBACK) {
     for (const upperEntry of this.linkCurves) {
       for (const bridge of upperEntry.curve.bridges || []) {
         const underEntry = this.linkCurves[bridge.underRouteIndex];
         if (!underEntry || underEntry === upperEntry) continue;
-        const focused = underEntry.selected || underEntry.selectedPeer || underEntry.traced ||
-          this.hoveredLink?.link.id === underEntry.link.id;
+        const focused = upperEntry.selected || upperEntry.selectedPeer || upperEntry.traced || upperEntry.hoverFocused;
         const effectTime = graphicsEffectActive(profile, focused) ? time : 0;
         ctx.save();
         ctx.beginPath();
         ctx.arc(bridge.crossing.x, bridge.crossing.y, bridge.openingRadius || 5, 0, Math.PI * 2);
         ctx.clip();
-        this.strokeCurve(ctx, underEntry.baseCurve || underEntry.curve, "#020607", underEntry.thickness + 2.5, .9);
-        this.drawVLANColors(
-          ctx,
-          underEntry.baseCurve || underEntry.curve,
-          underEntry.vlanPalette,
-          underEntry.thickness,
-          effectTime,
-          underEntry.cableAlpha,
-        );
+        if (upperEntry.rearMapping) {
+          this.strokeCurve(
+            ctx,
+            upperEntry.curve,
+            "#020607",
+            RearPanelLinkVisual.casingWidth,
+            Math.min(upperEntry.cableAlpha, RearPanelLinkVisual.casingOpacity),
+          );
+          this.strokeCurve(ctx, upperEntry.curve, upperEntry.primaryColor, upperEntry.thickness, upperEntry.cableAlpha, { dash: RearPanelLinkVisual.dash, lineCap: "butt" });
+        } else {
+          const roleWidth = upperEntry.thickness + 1.25;
+          this.strokeCurve(ctx, upperEntry.curve, "#020607", roleWidth + CABLE_OUTLINE_WIDTH * 2, upperEntry.cableAlpha);
+          this.strokeCurve(
+            ctx,
+            upperEntry.curve,
+            upperEntry.role.color,
+            roleWidth,
+            upperEntry.cableAlpha * .78,
+            { dash: upperEntry.dash },
+          );
+          this.drawVLANColors(
+            ctx,
+            upperEntry.curve,
+            upperEntry.vlanPalette,
+            upperEntry.thickness,
+            effectTime,
+            upperEntry.cableAlpha,
+            upperEntry.dash,
+          );
+        }
         ctx.restore();
       }
     }
   }
 
   drawHoveredLinkHighlight(ctx, time) {
-    const hoveredLinkID = this.hoveredLink?.link.id;
-    if (!hoveredLinkID) return;
-    const entry = this.linkCurves.find((candidate) => candidate.link.id === hoveredLinkID);
-    if (!entry) return;
+    const focusedIDs = this.hoverFocusLinkIDs();
+    if (!focusedIDs.size) return;
     const profile = this.activeGraphicsProfile || QUALITY_FALLBACK;
     const effectTime = graphicsEffectActive(profile, true) ? time : 0;
-    const shimmer = .11 + (Math.sin(effectTime / 260) + 1) * .035;
-    this.strokeCurve(ctx, entry.curve, "#7affee", entry.thickness + 14, shimmer);
-    this.strokeCurve(ctx, entry.curve, "#7affee", entry.thickness + 7, .62);
-    this.strokeCurve(ctx, entry.curve, "#020607", entry.thickness + 3, .96);
-    this.drawVLANColors(ctx, entry.curve, entry.vlanPalette, entry.thickness + .75, effectTime, 1);
-    if (profile.pulses !== "none") this.drawPulse(ctx, entry.curve, effectTime, entry.primaryColor);
-    if (entry.warning) this.drawWarning(ctx, pointOnRoute(entry.curve, .57));
+    for (const entry of this.linkCurves.filter((candidate) => focusedIDs.has(candidate.link.id))) {
+      const focusColor = entry.rearMapping ? entry.primaryColor : entry.role?.color || "#7affee";
+      this.strokeCurve(ctx, entry.curve, focusColor, entry.thickness + 12, .12, { glow: true });
+      this.strokeCurve(ctx, entry.curve, focusColor, entry.thickness + 6, .58, { glow: true });
+      this.strokeCurve(ctx, entry.curve, "#020607", entry.thickness + 3, .96);
+      if (entry.rearMapping) {
+        this.strokeCurve(ctx, entry.curve, entry.primaryColor, entry.thickness + .75, 1, { dash: RearPanelLinkVisual.dash, lineCap: "butt" });
+      } else {
+        this.strokeCurve(ctx, entry.curve, entry.role?.color || entry.primaryColor, entry.thickness + 1.4, .88);
+        this.drawVLANColors(ctx, entry.curve, entry.vlanPalette, entry.thickness + .25, effectTime, 1, entry.dash);
+      }
+      if (entry.warning) this.drawWarning(ctx, pointOnRoute(entry.curve, .57));
+    }
   }
 
-  drawVLANColors(ctx, curve, palette, thickness, time, alpha) {
+  hoverFocusLinkIDs(topology = this.state?.topology) {
+    if (this.hoveredLink?.link.id) return new Set([this.hoveredLink.link.id]);
+    if (!topology) return new Set();
+    if (this.hoveredPort?.port.id) {
+      const portID = this.hoveredPort.port.id;
+      return new Set((topology.links || []).filter((link) =>
+        link.sourcePortId === portID || link.targetPortId === portID).map((link) => link.id));
+    }
+    if (this.hoveredDevice?.device.id) {
+      const deviceID = this.hoveredDevice.device.id;
+      const portIDs = new Set(topology.devices.find((device) => device.id === deviceID)?.ports.map((port) => port.id) || []);
+      return new Set((topology.links || []).filter((link) =>
+        portIDs.has(link.sourcePortId) || portIDs.has(link.targetPortId)).map((link) => link.id));
+    }
+    return new Set();
+  }
+
+  drawVLANColors(ctx, curve, palette, thickness, time, alpha, dash = []) {
     if (!palette.isRainbow) {
-      this.strokeCurve(ctx, curve, palette.nativeColor, thickness, alpha);
+      this.strokeCurve(ctx, curve, palette.nativeColor, thickness, alpha, { dash });
       return;
     }
     this.strokeCurve(ctx, curve, palette.nativeColor, thickness + 1, alpha * .9);
@@ -702,6 +755,10 @@ export class CanvasEngine {
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
     ctx.lineCap = options.lineCap || "round";
+    if (options.glow && (this.activeGraphicsProfile || QUALITY_FALLBACK).glows) {
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = color;
+    }
     if (options.dash) ctx.setLineDash(options.dash);
     if (options.dashOffset !== undefined) ctx.lineDashOffset = options.dashOffset;
     const segments = routeSegments(curve);
@@ -709,11 +766,54 @@ export class CanvasEngine {
     ctx.lineJoin = "round";
     ctx.beginPath();
     ctx.moveTo(segments[0].source.x, segments[0].source.y);
-    for (const segment of segments) {
-      ctx.bezierCurveTo(segment.cp1.x, segment.cp1.y, segment.cp2.x, segment.cp2.y, segment.target.x, segment.target.y);
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+      const segment = segments[segmentIndex];
+      const bridges = (curve.bridges || []).filter((bridge) => bridge.segmentIndex === segmentIndex)
+        .sort((left, right) => segment.target.x >= segment.source.x
+          ? left.crossing.x - right.crossing.x
+          : right.crossing.x - left.crossing.x);
+      if (!bridges.length || Math.abs(segment.source.y - segment.target.y) >= .001) {
+        ctx.lineTo(segment.target.x, segment.target.y);
+        continue;
+      }
+      const direction = segment.target.x >= segment.source.x ? 1 : -1;
+      for (const bridge of bridges) {
+        const radius = bridge.radius || 5;
+        ctx.lineTo(bridge.crossing.x - direction * radius, bridge.crossing.y);
+        ctx.arc(
+          bridge.crossing.x,
+          bridge.crossing.y,
+          radius,
+          direction > 0 ? Math.PI : 0,
+          direction > 0 ? Math.PI * 2 : -Math.PI,
+          direction < 0,
+        );
+      }
+      ctx.lineTo(segment.target.x, segment.target.y);
     }
     ctx.stroke();
     ctx.restore();
+  }
+
+  drawExportEndpointLabels(ctx, topology) {
+    const badges = layoutEndpointBadges(this.linkCurves.flatMap((entry) =>
+      linkEndpointBadges(topology, entry.link, entry.curve)), { charWidth: 3.8, height: 10, padding: 5 });
+    for (const badge of badges) {
+      ctx.save();
+      ctx.fillStyle = "rgba(5, 10, 12, .94)";
+      ctx.strokeStyle = "rgba(225, 239, 239, .72)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(badge.x - badge.width / 2, badge.y - badge.height / 2, badge.width, badge.height, 2.5);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#edf7f6";
+      ctx.font = "700 6px Bahnschrift Condensed, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(badge.text, badge.x, badge.y + .25, badge.width - 6);
+      ctx.restore();
+    }
   }
 
   drawLinkGroupGuides(ctx, topology) {
@@ -779,12 +879,13 @@ export class CanvasEngine {
     }
     for (const entry of this.linkCurves) {
       if (!visibility.linkIDs.has(entry.link.id)) continue;
-      const text = entry.link.vlanIds?.length > 1 ? `TRUNK · ${entry.link.vlanIds.join("/")}` : `VLAN ${entry.link.primaryVlan || 1}`;
+      const text = entry.rearMapping ? `REAR · ${entry.link.cableType}` :
+        entry.link.vlanIds?.length > 1 ? `TRUNK · ${entry.link.vlanIds.join("/")}` : `VLAN ${entry.link.primaryVlan || 1}`;
       ctx.font = "700 9px Bahnschrift Condensed, sans-serif";
       specs.push({
         id: `link:${entry.link.id}`, kind: "link", anchor: pointOnRoute(entry.curve, .5),
         candidates: curveLabelCandidates(entry.curve), width: ctx.measureText(text).width + 14, height: 20,
-        text, accent: vlanMap.get(entry.link.primaryVlan)?.colorHex || "#60757a",
+        text, accent: entry.rearMapping ? "#f0b35a" : vlanMap.get(entry.link.primaryVlan)?.colorHex || "#60757a",
       });
     }
     const obstacles = this.deviceBoxes.map((box) => ({ x: box.x, y: box.y, width: box.width, height: box.height }));
@@ -814,7 +915,7 @@ export class CanvasEngine {
       ctx.fillText(label.title, label.rect.x + 11, label.y - 6, label.rect.width - 18);
       ctx.fillStyle = "#83979a"; ctx.font = "700 7px Bahnschrift Condensed, sans-serif";
       ctx.fillText(label.detail, label.rect.x + 11, label.y + 7, label.rect.width - 18);
-    } else if (template.control !== "passive") {
+    } else {
       ctx.fillStyle = "#c9d6d7"; ctx.font = "700 9px Bahnschrift Condensed, sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(label.text, label.x, label.y + .5);
     }
@@ -832,8 +933,9 @@ export class CanvasEngine {
     ctx.restore();
   }
 
-  drawWarning(ctx, point) {
+  drawWarning(ctx, point, alpha = 1) {
     ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.translate(point.x, point.y);
     ctx.fillStyle = "#f0b35a"; ctx.strokeStyle = "#20170b"; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(10, 8); ctx.lineTo(-10, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -1127,6 +1229,11 @@ export class CanvasEngine {
       ctx.strokeStyle = "#d39a48"; ctx.lineWidth = 1;
       ctx.strokeRect(box.x + 3, box.y + 3, box.width - 6, box.height - 6);
       ctx.beginPath(); ctx.moveTo(box.x + 5, box.centerY); ctx.lineTo(box.x + box.width - 5, box.centerY); ctx.stroke();
+    } else if (kind === "coax") {
+      ctx.strokeStyle = "#c8d0cf"; ctx.lineWidth = 1.1;
+      ctx.beginPath(); ctx.arc(box.centerX, box.centerY, Math.min(box.width, box.height) * .32, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "#273032";
+      ctx.beginPath(); ctx.arc(box.centerX, box.centerY, 1.5, 0, Math.PI * 2); ctx.fill();
     } else if (kind === "power") {
       ctx.strokeStyle = "#a5b0b2"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(box.centerX, box.centerY, Math.min(box.width, box.height) * .28, 0, Math.PI * 2); ctx.stroke();
@@ -1235,16 +1342,33 @@ export class CanvasEngine {
     const topology = this.state.topology;
     let lines = [];
     let accent = "#42d9c8";
-    let highlightLast = false;
+    let highlightLine = -1;
+    let commentStart = -1;
+    const appendComments = (kind, targetID) => {
+      const commentLines = commentPreviewLines(topology, kind, targetID);
+      if (!commentLines.length) return;
+      commentStart = lines.length;
+      lines.push(...commentLines);
+    };
     if (this.hoveredPort) {
       const box = this.hoveredPort;
       const port = box.port;
-      const connected = topology.links.find((link) => link.sourcePortId === port.id || link.targetPortId === port.id);
-      let endpoint = "UNPATCHED";
-      if (connected) {
-        const peerID = connected.sourcePortId === port.id ? connected.targetPortId : connected.sourcePortId;
-        const peer = findPort(topology, peerID);
-        endpoint = peer ? `${peer.device.name} / ${peer.port.label}` : "UNKNOWN PEER";
+      const frontConnection = topology.links.find((link) =>
+        (link.sourcePortId === port.id && (link.sourceSide || "front") === "front") ||
+        (link.targetPortId === port.id && (link.targetSide || "front") === "front"));
+      const rearConnection = topology.links.find((link) =>
+        (link.sourcePortId === port.id && link.sourceSide === "rear") ||
+        (link.targetPortId === port.id && link.targetSide === "rear"));
+      let endpoint = "FRONT · UNPATCHED";
+      if (frontConnection) {
+        endpoint = `FRONT · ${linkEndpointTooltip(topology, frontConnection)}`;
+      }
+      let rearEndpoint = "";
+      if (box.device.category === "PatchPanel") {
+        rearEndpoint = "REAR · UNMAPPED";
+        if (rearConnection) {
+          rearEndpoint = `REAR · ${linkEndpointTooltip(topology, rearConnection)}`;
+        }
       }
       const stpStates = this.stpPortStates(port.id);
       const stpSummary = stpStates.length ? stpStates.slice(0, 4).map((state) => `VLAN ${state.vlanId} ${state.role.toUpperCase()}`).join(" · ") + (stpStates.length > 4 ? ` · +${stpStates.length - 4}` : "") : "STP NOT PARTICIPATING";
@@ -1255,35 +1379,58 @@ export class CanvasEngine {
         `TAGGED ${port.allowedVlans?.join(", ") || "NONE"}`,
         stpSummary,
         endpoint,
+        ...(rearEndpoint ? [rearEndpoint] : []),
       ];
-      highlightLast = true;
+      highlightLine = lines.length - 1;
+      appendComments("port", port.id);
     } else if (this.hoveredLink) {
-      const { link, group, primaryColor } = this.hoveredLink;
-      accent = group ? groupAccent(group.mode) : primaryColor;
+      const { link, group, primaryColor, role } = this.hoveredLink;
+      accent = role?.color || (group ? groupAccent(group.mode) : primaryColor);
+      const endpoints = linkEndpointTooltip(topology, link);
       if (group) {
         const summary = summarizeLinkGroup(topology, group);
-        lines = [summary.title, summary.detail];
+        lines = [summary.title, endpoints, `${role?.label || group.mode.toUpperCase()} · ${summary.detail}`];
       } else {
-        const source = findPort(topology, link.sourcePortId);
-        const target = findPort(topology, link.targetPortId);
-        const taggedVLANs = (link.vlanIds || []).filter((vlanID) => vlanID !== link.primaryVlan);
-        const vlan = taggedVLANs.length
-          ? `TRUNK · NATIVE ${link.primaryVlan || "—"} · TAGGED ${taggedVLANs.join("/")}`
-          : `VLAN ${link.primaryVlan || 1}`;
-        lines = [
-          `${vlan} · ${link.cableType}`,
-          `${source?.device.name || "UNKNOWN"} / ${source?.port.label || "?"} ↔ ${target?.device.name || "UNKNOWN"} / ${target?.port.label || "?"}`,
-        ];
+        if (isRearPanelLink(link)) {
+          lines = [
+            `REAR PANEL MAP · ${link.cableType}`,
+            endpoints,
+            "FRONT JACKS REMAIN INDEPENDENT",
+          ];
+          accent = "#f0b35a";
+        } else {
+          const taggedVLANs = (link.vlanIds || []).filter((vlanID) => vlanID !== link.primaryVlan);
+          const vlan = taggedVLANs.length
+            ? `TRUNK · NATIVE ${link.primaryVlan || "—"} · TAGGED ${taggedVLANs.join("/")}`
+            : `VLAN ${link.primaryVlan || 1}`;
+          lines = [
+            `${role?.label || "STANDARD ACCESS"} · ${vlan} · ${link.cableType}`,
+            endpoints,
+          ];
+        }
       }
+      appendComments("link", link.id);
+    } else if (this.hoveredDevice) {
+      const device = this.hoveredDevice.device;
+      const portIDs = new Set(device.ports.map((port) => port.id));
+      const links = (topology.links || []).filter((link) =>
+        portIDs.has(link.sourcePortId) || portIDs.has(link.targetPortId));
+      lines = [
+        `${rackLabel(topology, device)} · ${device.name}`,
+        `${links.length} CONNECTED PHYSICAL PATH${links.length === 1 ? "" : "S"}`,
+        ...links.slice(0, 4).map((link) => linkEndpointTooltip(topology, link)),
+        ...(links.length > 4 ? [`+${links.length - 4} MORE PATHS`] : []),
+      ];
+      appendComments("device", device.id);
     }
     if (!lines.length) return;
-    this.drawPointerSpeechBubble(ctx, lines, accent, highlightLast);
+    this.drawPointerSpeechBubble(ctx, lines, accent, { highlightLine, commentStart });
   }
 
-  drawPointerSpeechBubble(ctx, lines, accent, highlightLast = false) {
+  drawPointerSpeechBubble(ctx, lines, accent, { highlightLine = -1, commentStart = -1 } = {}) {
     ctx.save();
     ctx.font = "10px Bahnschrift Condensed, sans-serif";
-    const width = Math.min(380, Math.max(132, Math.max(...lines.map((line) => ctx.measureText(line).width)) + 24));
+    const width = Math.min(Math.max(132, this.width - 20), 520, Math.max(132, Math.max(...lines.map((line) => ctx.measureText(line).width)) + 24));
     const height = 14 + lines.length * 13;
     const bubble = pointerBubblePlacement(this.pointerScreen, { width, height }, { width: this.width, height: this.height });
     ctx.fillStyle = "rgba(7, 13, 15, .97)";
@@ -1303,8 +1450,12 @@ export class CanvasEngine {
     ctx.fillStyle = accent || "#42d9c8";
     ctx.fillRect(bubble.x, bubble.y + 5, 3, bubble.height - 10);
     lines.forEach((line, index) => {
-      ctx.fillStyle = index === 0 ? "#e9ffff" : highlightLast && index === lines.length - 1 ? "#f0b35a" : "#aebebf";
-      ctx.font = index === 0 ? "700 10px Bahnschrift Condensed, sans-serif" : "9px Bahnschrift Condensed, sans-serif";
+      const isCommentHeading = index === commentStart;
+      const isCommentBody = commentStart >= 0 && index > commentStart;
+      ctx.fillStyle = index === 0 ? "#e9ffff"
+        : index === highlightLine || isCommentHeading ? "#f0b35a"
+          : isCommentBody ? "#d8c6aa" : "#aebebf";
+      ctx.font = index === 0 || isCommentHeading ? "700 10px Bahnschrift Condensed, sans-serif" : "9px Bahnschrift Condensed, sans-serif";
       ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
       ctx.fillText(line, bubble.x + 12, bubble.y + 15 + index * 13, bubble.width - 20);
@@ -1338,7 +1489,7 @@ export class CanvasEngine {
     const port = this.hitPort(world);
     if (port) {
       this.state.select("port", port.port.id);
-	  const isOccupied = this.state.topology.links.some((link) => [link.sourcePortId, link.targetPortId].includes(port.port.id));
+	  const isOccupied = isPortSideOccupied(this.state.topology, port.port.id, LinkEndpointSide.FRONT);
 	  if (isOccupied) return;
       this.mode = CableMode.DRAFTING_CABLE;
       this.draft = { source: port, target: null };
@@ -1348,7 +1499,7 @@ export class CanvasEngine {
     if (link) {
       this.mode = CableMode.SELECTED_LINK;
       this.state.select("link", link.link.id);
-      this.linkDrag = { sourceLinkID: link.link.id, start: world, targetLinkID: null, active: false };
+      if (!isRearPanelLink(link.link)) this.linkDrag = { sourceLinkID: link.link.id, start: world, targetLinkID: null, active: false };
       return;
     }
     const device = this.hitDevice(world);
@@ -1409,6 +1560,7 @@ export class CanvasEngine {
     this.pointerWorld = world;
     this.callbacks.onPointer?.(world, this.camera.zoom);
     this.hoveredLink = null;
+    this.hoveredDevice = null;
     if (this.pan) {
       this.camera.x = this.pan.camera.x + screen.x - this.pan.screen.x;
       this.camera.y = this.pan.camera.y + screen.y - this.pan.screen.y;
@@ -1469,7 +1621,7 @@ export class CanvasEngine {
       if (distance > 7 / this.camera.zoom) this.linkDrag.active = true;
       if (this.linkDrag.active) {
         const target = this.hitLink(world);
-        this.linkDrag.targetLinkID = target && target.link.id !== this.linkDrag.sourceLinkID ? target.link.id : null;
+        this.linkDrag.targetLinkID = target && target.link.id !== this.linkDrag.sourceLinkID && !isRearPanelLink(target.link) ? target.link.id : null;
         this.canvas.style.cursor = this.linkDrag.targetLinkID ? "copy" : "grabbing";
       }
       return;
@@ -1481,9 +1633,10 @@ export class CanvasEngine {
     this.hoveredAnnotation = this.activeTool === "select" ? this.hitAnnotation(world) : null;
     this.hoveredPort = this.hoveredAnnotation ? null : this.hitPort(world, 4 / this.camera.zoom);
     this.hoveredLink = this.hoveredAnnotation || this.hoveredPort || this.draft ? null : this.hitLink(world);
+    this.hoveredDevice = this.hoveredAnnotation || this.hoveredPort || this.hoveredLink || this.draft ? null : this.hitDevice(world);
     const rack = this.hitRack(world);
     const rackHeader = rack && world.y <= rack.y + RACK_HEADER_HEIGHT;
-    this.canvas.style.cursor = this.hoveredAnnotation || this.hoveredPort || this.hoveredLink ? "pointer" : this.draft ? "crosshair" : rackHeader ? "grab" : "default";
+    this.canvas.style.cursor = this.hoveredAnnotation || this.hoveredPort || this.hoveredLink || this.hoveredDevice ? "pointer" : this.draft ? "crosshair" : rackHeader ? "grab" : "default";
   }
 
   pointerUp(event) {
@@ -1572,7 +1725,7 @@ export class CanvasEngine {
 
   isEligibleTarget(source, target) {
     if (!source || !target || source.port.id === target.port.id || source.device.id === target.device.id) return false;
-    return !this.state.topology.links.some((link) => [link.sourcePortId, link.targetPortId].includes(target.port.id));
+    return !isPortSideOccupied(this.state.topology, target.port.id, LinkEndpointSide.FRONT);
   }
 
   eventPoint(event) {
@@ -1690,10 +1843,13 @@ export class CanvasEngine {
     this.layoutScene();
     const boxes = [...this.rackBoxes, ...this.deviceBoxes];
     if (!boxes.length) return { x: 0, y: 0, width: 800, height: 500 };
-    const left = Math.min(...boxes.map((box) => box.x));
-    const top = Math.min(...boxes.map((box) => box.y));
-    const right = Math.max(...boxes.map((box) => box.x + box.width));
-    const bottom = Math.max(...boxes.map((box) => box.y + box.height));
+    const routePoints = this.state.topology
+      ? [...this.cableTrackPlan().tracks.values()].flatMap(({ route }) => route.points || [])
+      : [];
+    const left = Math.min(...boxes.map((box) => box.x), ...routePoints.map((point) => point.x));
+    const top = Math.min(...boxes.map((box) => box.y), ...routePoints.map((point) => point.y));
+    const right = Math.max(...boxes.map((box) => box.x + box.width), ...routePoints.map((point) => point.x));
+    const bottom = Math.max(...boxes.map((box) => box.y + box.height), ...routePoints.map((point) => point.y));
     return { x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
   }
 
@@ -1730,6 +1886,22 @@ export class CanvasEngine {
     this.activeGraphicsProfile = this.graphicsProfile();
     return canvas;
   }
+}
+
+function linkEndpointTooltip(topology, link) {
+  const source = findPort(topology, link.sourcePortId);
+  const target = findPort(topology, link.targetPortId);
+  return `${endpointTooltip(topology, source, link.sourceSide)} ➔ ${endpointTooltip(topology, target, link.targetSide)}`;
+}
+
+function endpointTooltip(topology, endpoint, side = "front") {
+  if (!endpoint) return "[UNKNOWN ENDPOINT]";
+  const sideLabel = side === "rear" ? "REAR " : "";
+  return `[${rackLabel(topology, endpoint.device)} - ${endpoint.device.name}: ${sideLabel}${endpoint.port.label}]`;
+}
+
+function rackLabel(topology, device) {
+  return topology.racks?.find((rack) => rack.id === device.rackId)?.name || "FREE CANVAS";
 }
 
 function isFormField(target) {

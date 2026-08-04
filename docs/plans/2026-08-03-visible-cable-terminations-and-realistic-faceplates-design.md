@@ -1,5 +1,7 @@
 # Visible cable terminations and realistic faceplates design
 
+> Cable geometry in this historical design is superseded by [Individual-track cable routing](./2026-08-04-individual-track-cable-routing-design.md); its faceplate fidelity decisions remain current.
+
 ## Goal
 
 Make every installed cable visibly reach its physical connector while improving faceplate likeness across the complete built-in hardware catalog. Product imagery and official front-panel documentation inform vector geometry; the application remains offline and does not redistribute vendor photography.

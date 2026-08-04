@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -15,6 +16,85 @@ test("loads a topology and opens primary editing tools", async ({ page }) => {
 
   await page.locator("#vlan-button").click();
   await expect(page.locator("#vlan-modal")).toBeVisible();
+});
+
+test("creates, switches, and remembers another network map", async ({ page, request }, testInfo) => {
+  const originalID = await page.locator("#topology-select").inputValue();
+  const originalName = await page.locator("#topology-name").textContent();
+  const before = await request.get("/api/v1/topologies").then((response) => response.json());
+  const mapName = `E2E ${testInfo.project.name.toUpperCase()} BLANK MAP`;
+
+  await page.locator("#add-topology-button").click();
+  const dialog = page.locator("#topology-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('[name="template"][value="blank"]')).toBeChecked();
+  await expect(dialog.locator('[name="template"][value="demo"]')).toHaveCount(1);
+  await dialog.locator('[name="name"]').fill(mapName);
+  await dialog.locator('button[value="create"]').click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator("#topology-name")).toHaveText(mapName);
+  await expect(page.locator("#rack-count")).toHaveText("0");
+  await expect(page.locator("#device-count")).toHaveText("0");
+
+  let created;
+  await expect.poll(async () => {
+    const topologies = await request.get("/api/v1/topologies").then((response) => response.json());
+    created = topologies.find((topology) => topology.name === mapName);
+    return Boolean(created);
+  }).toBe(true);
+  expect(created).toBeTruthy();
+  await expect(page.locator("#topology-count")).toHaveText(`${before.length + 1} MAPS`);
+
+  await page.locator("#topology-select").selectOption(originalID);
+  await expect(page.locator("#topology-name")).toHaveText(originalName);
+  await page.locator("#topology-select").selectOption(created.id);
+  await expect(page.locator("#topology-name")).toHaveText(mapName);
+  await page.reload();
+  await expect(page.locator("#connection-status")).toHaveAttribute("data-state", "online");
+  await expect(page.locator("#topology-select")).toHaveValue(created.id);
+  await expect(page.locator("#topology-name")).toHaveText(mapName);
+
+  // Keep the shared browser-test server deterministic for workflows that expect
+  // its original demo map to remain the most recently updated topology.
+  const original = await request.get(`/api/v1/topologies/${encodeURIComponent(originalID)}`).then((response) => response.json());
+  const restoreResponse = await request.put(`/api/v1/topologies/${encodeURIComponent(originalID)}`, {
+    data: original,
+    headers: { "If-Match": `"rev-${original.revision}"` },
+  });
+  expect(restoreResponse.ok()).toBe(true);
+});
+
+test("installs access points and browses the edge device families", async ({ page, request }, testInfo) => {
+  const topologyID = await page.locator("#topology-select").inputValue();
+  const deviceName = `E2E ${testInfo.project.name.toUpperCase()} AP 635`;
+  const beforeTopology = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
+  const beforeCount = beforeTopology.devices.filter((device) => device.name === deviceName).length;
+
+  await page.locator("#add-device-button").click();
+  const dialog = page.locator("#device-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('[name="family"] option[value="Access Points"]')).toContainText("ACCESS POINTS");
+  await expect(dialog.locator('[name="family"] option[value="Carrier Handoffs"]')).toContainText("CARRIER HANDOFFS");
+  await expect(dialog.locator('[name="family"] option[value="Modems & ONTs"]')).toContainText("MODEMS & ONTS");
+  await expect(dialog.locator('[name="family"] option[value="Cellular Routers"]')).toContainText("LTE / 5G ROUTERS");
+
+  await dialog.locator('[name="family"]').selectOption("Access Points");
+  await dialog.locator('[name="vendor"]').selectOption("HPE Aruba");
+  await dialog.locator('[name="model"]').selectOption("AP-635");
+  await dialog.locator('[name="name"]').fill(deviceName);
+  await expect(dialog.locator("#catalog-profile-summary")).toContainText("ACCESS POINTS · ACCESSPOINT");
+  await expect(dialog.locator("#catalog-profile-summary")).toContainText("2× RJ45 MGIG");
+  await dialog.locator('button[value="install"]').click();
+  await expect(dialog).not.toBeVisible();
+
+  await expect.poll(async () => {
+    const topology = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
+    return topology.devices.filter((device) => device.name === deviceName).length;
+  }).toBe(beforeCount + 1);
+  const topology = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
+  const installed = topology.devices.filter((device) => device.name === deviceName).at(-1);
+  expect(installed).toMatchObject({ category: "AccessPoint", model: "AP-635" });
+  expect(installed.ports.map((port) => port.label)).toEqual(["E0", "E1"]);
 });
 
 test("edits device inventory, management identity, location, and STP priority", async ({ page, request }) => {
@@ -56,25 +136,72 @@ test("edits device inventory, management identity, location, and STP priority", 
   await expect(page.locator("#stp-list .stp-instance").first()).toContainText(/ROOT/);
 });
 
-test("places a configurable patch panel and persists it through v1 API", async ({ page, request }) => {
+test("installs Generic Patch hardware only through Panel and maps rear ranges", async ({ page, request }, testInfo) => {
+  testInfo.setTimeout(120_000);
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  const projectLabel = testInfo.project.name.toUpperCase();
+  const firstPanelName = `E2E ${projectLabel} PATCH 01`;
+  const secondPanelName = `E2E ${projectLabel} PATCH 02`;
   const before = Number(await page.locator("#physical-device-count").textContent().then((value) => value?.match(/\d+/)?.[0] || 0));
   const topologyID = await page.locator("#topology-select").inputValue();
   const beforeResponse = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`);
   const beforeTopology = await beforeResponse.json();
-  const beforeMatching = beforeTopology.devices.filter((device) => device.name === "E2E PATCH 01" && device.category === "PatchPanel").length;
+  const beforeMatching = beforeTopology.devices.filter((device) => device.name === firstPanelName && device.category === "PatchPanel").length;
+
+  await page.locator("#add-device-button").click();
+  await expect(page.locator('#device-vendor option[value="Generic Patch"]')).toHaveCount(0);
+  await page.locator('#device-dialog .dialog-close[data-close="device-dialog"]').click();
+
   await page.locator("#add-patch-panel-button").click();
   const dialog = page.locator("#patch-panel-dialog");
   await expect(dialog).toBeVisible();
-  await dialog.locator('[name="name"]').fill("E2E PATCH 01");
-  await dialog.locator('[name="portCount"]').selectOption("12");
+  await expect(dialog.locator('[name="model"] option')).toHaveCount(18);
+  await dialog.locator('[name="name"]').fill(firstPanelName);
+  await dialog.locator('[name="model"]').selectOption("LC fiber panel 12");
   await dialog.locator('button[value="install"]').click();
   await expect(dialog).not.toBeVisible();
 
   await expect.poll(async () => {
     const response = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`);
     const topology = await response.json();
-    return topology.devices.filter((device) => device.name === "E2E PATCH 01" && device.category === "PatchPanel").length;
+    const panels = topology.devices.filter((device) => device.name === firstPanelName && device.category === "PatchPanel");
+    if (panels.length === beforeMatching + 1 && panels.at(-1)?.model !== "LC fiber panel 12") return -1;
+    return panels.length;
   }).toBe(beforeMatching + 1);
+
+  await page.locator("#add-patch-panel-button").click();
+  await dialog.locator('[name="name"]').fill(secondPanelName);
+  await dialog.locator('[name="model"]').selectOption("LC fiber panel 12");
+  await dialog.locator('button[value="install"]').click();
+  await expect(dialog).not.toBeVisible();
+
+  let panels = [];
+  await expect.poll(async () => {
+    const response = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`);
+    const topology = await response.json();
+    panels = topology.devices.filter((device) => [firstPanelName, secondPanelName].includes(device.name));
+    return panels.length;
+  }).toBe(2);
+
+  await expect(page.locator("#patch-panel-map-button")).toBeEnabled();
+  await page.locator("#patch-panel-map-button").click();
+  const rearDialog = page.locator("#patch-panel-map-dialog");
+  await rearDialog.locator('[name="sourceDeviceId"]').selectOption(panels.find((panel) => panel.name === firstPanelName).id);
+  await rearDialog.locator('[name="targetDeviceId"]').selectOption(panels.find((panel) => panel.name === secondPanelName).id);
+  await rearDialog.locator('[name="sourceStart"]').fill("1");
+  await rearDialog.locator('[name="sourceEnd"]').fill("2");
+  await rearDialog.locator('[name="targetStart"]').fill("1");
+  await expect(rearDialog.locator("#patch-map-count")).toHaveText("2 REAR RUNS");
+  await rearDialog.locator('button[value="connect"]').click();
+  await expect(rearDialog).not.toBeVisible();
+
+  await expect.poll(async () => {
+    const response = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`);
+    const topology = await response.json();
+    const rearLinks = topology.links.filter((link) => link.sourceSide === "rear" && link.targetSide === "rear" &&
+      [panels[0].id, panels[1].id].includes(link.sourceDeviceId) && [panels[0].id, panels[1].id].includes(link.targetDeviceId));
+    return rearLinks.length;
+  }).toBe(2);
   await expect(page.locator("#physical-device-count")).not.toHaveText(new RegExp(`^${before}$`));
 });
 
@@ -86,15 +213,33 @@ test("export menu opens below the toolbar and closes after export", async ({ pag
   const popoverBox = await menu.locator(".export-popover").boundingBox();
   expect(popoverBox.y).toBeGreaterThan(summaryBox.y);
   const download = page.waitForEvent("download");
-  await page.locator("#json-button").click();
-  await download;
+  await page.locator("#configuration-button").click();
+  await expect((await download).suggestedFilename()).toMatch(/-configuration\.html$/);
+  await expect(menu).not.toHaveAttribute("open", "");
+
+  await menu.locator("summary").click();
+  const svgDownload = page.waitForEvent("download");
+  await page.locator("#svg-button").click();
+  const exportedSVG = await svgDownload;
+  await expect(exportedSVG.suggestedFilename()).toMatch(/\.svg$/);
+  const svgPath = await exportedSVG.path();
+  const svg = await readFile(svgPath, "utf8");
+  expect(svg).toContain('data-layer="cable-outline"');
+  expect(svg).toContain('data-layer="link-end-label"');
   await expect(menu).not.toHaveAttribute("open", "");
 });
 
-test("anchors comments, embeds documentation, and creates a read-only share", async ({ page }) => {
-  await page.locator("#collaboration-button").click();
+test("anchors comments, embeds documentation, and creates a read-only share", async ({ page, request }) => {
+  const topologyID = await page.locator("#topology-select").inputValue();
+  const topology = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
+  const device = topology.devices[0];
+  await page.locator(`[data-tree-type="device"][data-tree-id="${device.id}"]`).click();
+  await expect(page.locator(".inspector-comments")).toContainText("COMMENTS");
+  await page.locator(".inspector-comment-add").click();
   const dialog = page.locator("#collaboration-dialog");
   await expect(dialog).toBeVisible();
+  await expect(dialog.locator("#collaboration-target")).toContainText(device.name);
+  await expect(dialog.locator('#comment-form [name="body"]')).toBeFocused();
 
   await dialog.locator('#comment-form [name="author"]').fill("E2E Operator");
   await dialog.locator('#comment-form [name="body"]').fill("Validate the maintenance path before change window.");

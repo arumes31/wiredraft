@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { instantiatePatchPanel, planPatchPanelMapping } from "./static/js/patch-panels.js";
+import { catalogVendors, modelsForVendor, patchPanelProfiles } from "./static/js/catalog.js";
+import {
+  availablePatchPanelPorts, instantiatePatchPanel, isRearPanelLink, planPatchPanelMapping, RearPanelLinkVisual,
+} from "./static/js/patch-panels.js";
 
 function identifiedPanel(name, count, id) {
   const panel = instantiatePatchPanel({ name, portCount: count, color: "#262d2f" }, { x: 0, y: 0 });
@@ -38,18 +41,49 @@ assert.deepEqual(plan.links.map((link) => [link.sourcePortId, link.targetPortId]
   ["panel-a-port-9", "panel-b-port-3"],
   ["panel-a-port-10", "panel-b-port-4"],
 ]);
+assert.ok(plan.links.every((link) => link.sourceSide === "rear" && link.targetSide === "rear" && isRearPanelLink(link)));
+assert.ok(RearPanelLinkVisual.strokeWidth < 2 && RearPanelLinkVisual.opacity < .5,
+  "rear panel maps must remain a thin, subordinate infrastructure layer");
 
-assert.throws(() => planPatchPanelMapping({
+const frontCableDoesNotBlockRear = planPatchPanelMapping({
   devices: [source, target],
-  links: [{ id: "occupied", sourcePortId: "panel-a-port-8", targetPortId: "panel-b-port-20" }],
+  links: [{
+    id: "front-cable", sourcePortId: "panel-a-port-8", targetPortId: "panel-b-port-20",
+    sourceSide: "front", targetSide: "front",
+  }],
 }, {
   sourceDeviceId: source.id, sourceStart: 7, sourceEnd: 10,
   targetDeviceId: target.id, targetStart: 1,
-}), /Already connected: PATCH A \/ 8/);
+});
+assert.equal(frontCableDoesNotBlockRear.links.length, 4);
+const portEight = availablePatchPanelPorts({
+  devices: [source, target], links: [{
+    id: "front-cable", sourcePortId: "panel-a-port-8", targetPortId: "panel-b-port-20",
+  }],
+}, source.id).find((port) => port.label === "8");
+assert.equal(portEight.frontOccupied, true);
+assert.equal(portEight.rearOccupied, false);
+
+assert.throws(() => planPatchPanelMapping({
+  devices: [source, target],
+  links: [{
+    id: "occupied", sourcePortId: "panel-a-port-8", targetPortId: "panel-b-port-20",
+    sourceSide: "rear", targetSide: "rear",
+  }],
+}, {
+  sourceDeviceId: source.id, sourceStart: 7, sourceEnd: 10,
+  targetDeviceId: target.id, targetStart: 1,
+}), /Rear already mapped: PATCH A \/ 8/);
 
 assert.throws(() => planPatchPanelMapping(topology, {
   sourceDeviceId: source.id, sourceStart: 20, sourceEnd: 24,
   targetDeviceId: target.id, targetStart: 22,
 }), /does not have ports 22–26/);
+
+assert.equal(catalogVendors().includes("Generic Patch"), false, "Generic Patch must not appear in the generic Device provider list");
+assert.deepEqual(modelsForVendor("Generic Patch"), [], "Generic Patch models belong exclusively to the Panel installer");
+assert.equal(patchPanelProfiles().length, 18);
+assert.ok(patchPanelProfiles().some((profile) => profile.model === "Cat6a copper panel 24"));
+assert.ok(patchPanelProfiles().some((profile) => profile.model === "MPO fiber panel 96"));
 
 console.log("patch panel range mapping checks passed");

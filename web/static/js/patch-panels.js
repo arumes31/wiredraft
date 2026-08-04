@@ -1,4 +1,28 @@
 export const PatchPanelPortCounts = Object.freeze([12, 24, 48, 96]);
+export const LinkEndpointSide = Object.freeze({ FRONT: "front", REAR: "rear" });
+export const RearPanelLinkVisual = Object.freeze({
+  color: "#f0b35a",
+  opacity: .46,
+  strokeWidth: 1.5,
+  casingOpacity: .28,
+  casingWidth: 3,
+  dash: Object.freeze([11, 6]),
+});
+
+export function endpointSide(link, endpoint) {
+  return String(link?.[`${endpoint}Side`] || LinkEndpointSide.FRONT).toLowerCase();
+}
+
+export function isRearPanelLink(link) {
+  return endpointSide(link, "source") === LinkEndpointSide.REAR &&
+    endpointSide(link, "target") === LinkEndpointSide.REAR;
+}
+
+export function isPortSideOccupied(topology, portID, side = LinkEndpointSide.FRONT) {
+  return (topology?.links || []).some((link) =>
+    (link.sourcePortId === portID && endpointSide(link, "source") === side) ||
+    (link.targetPortId === portID && endpointSide(link, "target") === side));
+}
 
 export function instantiatePatchPanel(input, position) {
   const portCount = Number(input.portCount);
@@ -39,10 +63,14 @@ export function patchPanelDevices(topology) {
 export function availablePatchPanelPorts(topology, deviceID) {
   const device = patchPanelDevices(topology).find((candidate) => candidate.id === deviceID);
   if (!device) return [];
-  const occupied = new Set((topology.links || []).flatMap((link) => [link.sourcePortId, link.targetPortId]));
   return [...device.ports]
     .sort((left, right) => left.portIndex - right.portIndex)
-    .map((port) => ({ ...port, occupied: occupied.has(port.id) }));
+    .map((port) => ({
+      ...port,
+      occupied: isPortSideOccupied(topology, port.id, LinkEndpointSide.REAR),
+      frontOccupied: isPortSideOccupied(topology, port.id, LinkEndpointSide.FRONT),
+      rearOccupied: isPortSideOccupied(topology, port.id, LinkEndpointSide.REAR),
+    }));
 }
 
 export function planPatchPanelMapping(topology, input) {
@@ -62,24 +90,37 @@ export function planPatchPanelMapping(topology, input) {
   if (sourcePorts.length !== count) throw new Error(`${source.name} does not have ports ${sourceStart}–${sourceEnd}`);
   if (targetPorts.length !== count) throw new Error(`${target.name} does not have ports ${targetStart}–${targetEnd}`);
 
-  const occupied = new Map();
+  const occupiedRear = new Map();
   for (const link of topology.links || []) {
-    occupied.set(link.sourcePortId, link.id);
-    occupied.set(link.targetPortId, link.id);
+    if (endpointSide(link, "source") === LinkEndpointSide.REAR) occupiedRear.set(link.sourcePortId, link.id);
+    if (endpointSide(link, "target") === LinkEndpointSide.REAR) occupiedRear.set(link.targetPortId, link.id);
   }
-  const blocked = [...sourcePorts, ...targetPorts].filter((port) => occupied.has(port.id));
+  const blocked = [...sourcePorts, ...targetPorts].filter((port) => occupiedRear.has(port.id));
   if (blocked.length) {
     const labels = blocked.slice(0, 4).map((port) => `${port.deviceId === source.id ? source.name : target.name} / ${port.label}`);
-    throw new Error(`Already connected: ${labels.join(", ")}${blocked.length > 4 ? ` +${blocked.length - 4} more` : ""}`);
+    throw new Error(`Rear already mapped: ${labels.join(", ")}${blocked.length > 4 ? ` +${blocked.length - 4} more` : ""}`);
   }
+
+  const incompatible = sourcePorts.find((port, index) => port.type !== targetPorts[index].type);
+  if (incompatible) throw new Error("Rear ranges must use matching connector types");
 
   const links = sourcePorts.map((sourcePort, index) => ({
     id: "", sourceDeviceId: source.id, sourcePortId: sourcePort.id,
+    sourceSide: LinkEndpointSide.REAR,
     targetDeviceId: target.id, targetPortId: targetPorts[index].id,
-    cableType: "CAT6A", vlanIds: [], primaryVlan: 0,
-    notes: `Patch range ${source.name} ${sourcePort.label} ↔ ${target.name} ${targetPorts[index].label}`,
+    targetSide: LinkEndpointSide.REAR,
+    cableType: panelCableType(source, sourcePort), vlanIds: [], primaryVlan: 0,
+    notes: `Panel rear map ${source.name} ${sourcePort.label} ↔ ${target.name} ${targetPorts[index].label}`,
   }));
   return { source, target, sourcePorts, targetPorts, targetEnd, links };
+}
+
+function panelCableType(panel, port) {
+  if (String(port.type).startsWith("FIBER_")) return "FIBER";
+  const model = String(panel.model || "").toUpperCase();
+  if (model.includes("CAT5E")) return "CAT5E";
+  if (model.includes("CAT6A")) return "CAT6A";
+  return "CAT6";
 }
 
 function orderedPorts(device) {

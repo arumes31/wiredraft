@@ -56,6 +56,7 @@ func (t Topology) Validate() error {
 	}
 
 	deviceIDs := make(map[string]struct{}, len(t.Devices))
+	deviceCategories := make(map[string]DeviceCategory, len(t.Devices))
 	ports := make(map[string]Port)
 	type placement struct {
 		deviceName string
@@ -97,6 +98,7 @@ func (t Topology) Validate() error {
 			})
 		}
 		deviceIDs[device.ID] = struct{}{}
+		deviceCategories[device.ID] = device.Category
 		for _, port := range device.Ports {
 			if _, exists := ports[port.ID]; exists {
 				return fmt.Errorf("duplicate port id %q", port.ID)
@@ -141,20 +143,34 @@ func (t Topology) Validate() error {
 	}
 
 	linkIDs := make(map[string]struct{}, len(t.Links))
-	occupiedPorts := make(map[string]string, len(t.Links)*2)
+	occupiedTerminations := make(map[string]string, len(t.Links)*2)
 	for _, link := range t.Links {
 		if err := link.Validate(deviceIDs, ports, vlanIDs); err != nil {
 			return fmt.Errorf("validating link %q: %w", link.ID, err)
+		}
+		if link.EffectiveSourceSide() == LinkEndpointSideRear && deviceCategories[link.SourceDeviceID] != DeviceCategoryPatchPanel {
+			return fmt.Errorf("validating link %q: source rear termination requires a patch panel", link.ID)
+		}
+		if link.EffectiveTargetSide() == LinkEndpointSideRear && deviceCategories[link.TargetDeviceID] != DeviceCategoryPatchPanel {
+			return fmt.Errorf("validating link %q: target rear termination requires a patch panel", link.ID)
 		}
 		if _, exists := linkIDs[link.ID]; exists {
 			return fmt.Errorf("duplicate link id %q", link.ID)
 		}
 		linkIDs[link.ID] = struct{}{}
-		for _, portID := range []string{link.SourcePortID, link.TargetPortID} {
-			if existing, exists := occupiedPorts[portID]; exists {
-				return fmt.Errorf("port %q is occupied by links %q and %q", portID, existing, link.ID)
+		terminations := []struct {
+			portID string
+			side   LinkEndpointSide
+		}{
+			{portID: link.SourcePortID, side: link.EffectiveSourceSide()},
+			{portID: link.TargetPortID, side: link.EffectiveTargetSide()},
+		}
+		for _, termination := range terminations {
+			key := termination.portID + "\x00" + string(termination.side)
+			if existing, exists := occupiedTerminations[key]; exists {
+				return fmt.Errorf("port %q %s side is occupied by links %q and %q", termination.portID, termination.side, existing, link.ID)
 			}
-			occupiedPorts[portID] = link.ID
+			occupiedTerminations[key] = link.ID
 		}
 	}
 	groupIDs := make(map[string]struct{}, len(t.LinkGroups))
@@ -192,7 +208,7 @@ func (t Topology) Validate() error {
 	}
 	threadIDs := make(map[string]struct{}, len(t.CommentThreads))
 	for _, thread := range t.CommentThreads {
-		if err := thread.Validate(deviceIDs, linkIDs); err != nil {
+		if err := thread.Validate(deviceIDs, ports, linkIDs); err != nil {
 			return fmt.Errorf("validating comment thread %q: %w", thread.ID, err)
 		}
 		if _, exists := threadIDs[thread.ID]; exists {
@@ -252,7 +268,7 @@ func (annotation Annotation) Validate() error {
 }
 
 // Validate checks an anchored threaded discussion and all messages.
-func (thread CommentThread) Validate(deviceIDs, linkIDs map[string]struct{}) error {
+func (thread CommentThread) Validate(deviceIDs map[string]struct{}, ports map[string]Port, linkIDs map[string]struct{}) error {
 	if !idPattern.MatchString(thread.ID) {
 		return errors.New("thread id must be a version 4 uuid")
 	}
@@ -267,6 +283,10 @@ func (thread CommentThread) Validate(deviceIDs, linkIDs map[string]struct{}) err
 	case CommentAnchorDevice:
 		if _, exists := deviceIDs[thread.Anchor.TargetID]; !exists {
 			return errors.New("device anchor references an unknown device")
+		}
+	case CommentAnchorPort:
+		if _, exists := ports[thread.Anchor.TargetID]; !exists {
+			return errors.New("port anchor references an unknown port")
 		}
 	case CommentAnchorLink:
 		if _, exists := linkIDs[thread.Anchor.TargetID]; !exists {
@@ -528,6 +548,15 @@ func (l Link) Validate(deviceIDs map[string]struct{}, ports map[string]Port, vla
 	if l.SourcePortID == l.TargetPortID {
 		return errors.New("link endpoints must be different ports")
 	}
+	if !slices.Contains([]LinkEndpointSide{"", LinkEndpointSideFront, LinkEndpointSideRear}, l.SourceSide) {
+		return fmt.Errorf("unknown source endpoint side %q", l.SourceSide)
+	}
+	if !slices.Contains([]LinkEndpointSide{"", LinkEndpointSideFront, LinkEndpointSideRear}, l.TargetSide) {
+		return fmt.Errorf("unknown target endpoint side %q", l.TargetSide)
+	}
+	if (l.EffectiveSourceSide() == LinkEndpointSideRear) != (l.EffectiveTargetSide() == LinkEndpointSideRear) {
+		return errors.New("rear panel mappings must terminate rear-to-rear")
+	}
 	if _, exists := deviceIDs[l.SourceDeviceID]; !exists {
 		return errors.New("source device does not exist")
 	}
@@ -721,6 +750,7 @@ var validPortTypes = []PortType{
 	PortTypeRJ45MGIG,
 	PortTypeRJ4510G,
 	PortTypeDSLRJ11,
+	PortTypeCoaxF,
 	PortTypeSFP1G,
 	PortTypeSFPPlus10G,
 	PortTypeSFP2825G,

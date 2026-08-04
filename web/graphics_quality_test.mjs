@@ -40,7 +40,7 @@ assert.match(app, /setGraphicsMode/, "graphics control must update the canvas re
 assert.match(canvas, /const due = this\.needsRender \|\| \(animationActive/, "idle canvases must skip full redraws");
 assert.match(canvas, /if \(animationActive && this\.isDocumentVisible && this\.isCanvasVisible\)/, "idle render loops must stop requesting frames");
 assert.match(canvas, /this\.isDocumentVisible && this\.isCanvasVisible/, "hidden canvases must suspend rendering");
-assert.match(canvas, /curve: routeWithCrossingBridges/, "crossing bridge geometry must be cached with each route");
+assert.match(canvas, /const bridgedRoutes = routesWithCrossingBridges/, "crossing jumper geometry must be batch-cached independent of link order");
 assert.doesNotMatch(canvas, /obstacleSignature|occupiedSignature/, "render frames must not rebuild route signature strings");
 assert.doesNotMatch(canvas, /profile\.animateLEDs|time \/ 330/, "port LEDs must not contain time-based color animation");
 

@@ -13,9 +13,14 @@ export function planLinkGroup(topology, sourceLinkID, targetLinkID, input) {
   if (!sourceLinkID || !targetLinkID || sourceLinkID === targetLinkID) {
     throw new Error("Choose two different cables");
   }
-  const linkIDs = new Set((topology?.links || []).map((link) => link.id));
+  const linksByID = new Map((topology?.links || []).map((link) => [link.id, link]));
+  const linkIDs = new Set(linksByID.keys());
   if (!linkIDs.has(sourceLinkID) || !linkIDs.has(targetLinkID)) {
     throw new Error("A selected cable no longer exists");
+  }
+  const selectedLinks = [linksByID.get(sourceLinkID), linksByID.get(targetLinkID)];
+  if (selectedLinks.some((link) => link.sourceSide === "rear" || link.targetSide === "rear")) {
+    throw new Error("Rear panel mappings cannot join trunk, LACP, MC-LAG, or failover groups");
   }
   const sourceGroup = groupForLink(topology, sourceLinkID);
   const targetGroup = groupForLink(topology, targetLinkID);

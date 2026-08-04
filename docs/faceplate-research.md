@@ -1,8 +1,8 @@
 # Faceplate visual research
 
-The built-in catalog contains 280 models and 125 distinct connector/chassis signatures. Every profile resolves to a sourced vector faceplate family; connector count, type, labels, PoE status, row arrangement, and normalized physical position remain model-specific. Power, storage, regional, and lifecycle variants share a family only when their documented front connector panel is equivalent.
+The built-in catalog contains 541 models. Every profile resolves to a sourced vector faceplate family; connector count, type, labels, PoE status, row arrangement, and normalized physical position remain model-specific. Power, storage, regional, and lifecycle variants share a family only when their documented front connector panel is equivalent.
 
-The renderer deliberately does not ship vendor photographs. Official front-panel images, diagrams, hardware guides, and product specifications were analyzed for chassis finish, port-bank surrounds, management and status areas, displays, vent patterns, module covers, drive bays, and rack hardware. Those observations are encoded in 22 scalable styling families:
+The renderer deliberately does not ship vendor photographs. Official front-panel images, diagrams, hardware guides, and product specifications were analyzed for chassis finish, port-bank surrounds, management and status areas, displays, vent patterns, module covers, drive bays, and rack hardware. Those observations are encoded in 28 scalable template IDs:
 
 | Vector family | Catalog profiles | Distinguishing front-panel features |
 | --- | ---: | --- |
@@ -12,20 +12,24 @@ The renderer deliberately does not ship vendor photographs. Official front-panel
 | Fortinet modular | 25 | Multi-unit shell, repeated module boundaries, dense SFP/QSFP banks |
 | Fortinet switch | 49 | Light access-switch shell, paired RJ45 rows, right-side uplink cages |
 | Fortinet rugged | 11 | Dark sealed industrial shell and louvered ventilation |
-| Cisco campus / datacenter | 11 | Dark graphite chassis, status/USB cluster, fixed or dense high-speed uplink banks |
-| HPE Aruba campus / datacenter | 7 | Charcoal chassis, orange identification accent, grouped port fields |
-| Juniper EX | 5 | Dark chassis, dedicated management/status block and extension/uplink areas |
-| Ubiquiti UniFi | 7 | Minimal light shell and left LCM status display |
-| MikroTik CRS | 5 | Light metal shell, compact status cluster and separated SFP/QSFP banks |
-| Dell PowerSwitch | 3 | Dark data-center shell, dense optical cages and mesh fields |
-| NETGEAR managed | 3 | Dark front, status/stack block and mixed copper/optical banks |
-| TP-Link Omada | 3 | Dark access chassis, LED/mode block, paired copper rows and right uplinks |
-| Arista datacenter | 3 | Dense optical front, environmental status block and high-speed breakout cages |
-| Extreme switch | 3 | Dark violet-toned shell, universal ports and covered VIM/module area |
-| Ruckus ICX | 3 | Dark campus chassis, access banks with separated stacking/uplink area |
-| Palo Alto PA | 2 | Minimal dark firewall shell with status/USB/console and Ethernet banks |
-| Sophos XGS | 2 | Blue-gray security chassis, management block and modular network areas |
-| Check Point Quantum | 1 | Dark security chassis, onboard LAN bank and expansion line-card boundary |
+| Cisco campus / datacenter | 51 | Dark graphite chassis, status/USB cluster, fixed or dense high-speed uplink banks |
+| HPE Aruba campus / datacenter | 18 | Charcoal chassis, orange identification accent, grouped port fields |
+| Juniper EX | 32 | Dark chassis, dedicated management/status block and extension/uplink areas |
+| Ubiquiti UniFi | 13 | Minimal light shell and left LCM status display |
+| MikroTik CRS | 22 | Light metal shell, compact status cluster and separated SFP/QSFP banks |
+| Dell PowerSwitch | 9 | Dark data-center shell, dense optical cages and mesh fields |
+| NETGEAR managed | 13 | Dark front, status/stack block and mixed copper/optical banks |
+| TP-Link Omada | 9 | Dark access chassis, LED/mode block, paired copper rows and right uplinks |
+| Arista datacenter | 12 | Dense optical front, environmental status block and high-speed breakout cages |
+| Extreme switch | 11 | Dark violet-toned shell, universal ports and covered VIM/module area |
+| Ruckus ICX | 10 | Dark campus chassis, access banks with separated stacking/uplink area |
+| Palo Alto PA | 12 | Minimal dark firewall shell with status/USB/console and Ethernet banks |
+| Sophos XGS | 13 | Blue-gray security chassis, management block and modular network areas |
+| Check Point Quantum | 15 | Dark security chassis, onboard LAN bank and expansion line-card boundary |
+| Wireless AP | 6 | Light ceiling/wall enclosure treatment with a compact status field and one or two PoE uplinks |
+| Carrier edge | 9 | Dark NID/modem shell with separated service-provider and customer interface groups |
+| Cellular edge | 5 | Rugged louvered CPE treatment for LTE/5G and industrial routers |
+| Static server / generic / patch | 58 | Rear card bays, category fallbacks, facilities equipment, and passive connector fields |
 
 Static servers use a separate local template with drive bays, BMC/status controls, mesh ventilation, and independently positioned NICs. Imported vendors fall back to category-specific industrial templates.
 
@@ -46,5 +50,12 @@ Static servers use a separate local template with drive bays, BMC/status control
 - Palo Alto PA-400 front panel: <https://docs.paloaltonetworks.com/hardware/pa-400-hardware-reference/pa-400-firewall-overview/pa-400-front-panel>
 - Sophos XGS operating instructions: <https://docs.sophos.com/nsg/hardware/operatinginstructions/xgs/sophos-operating-instructions-xgs-2100-2300-3100-3300.pdf>
 - Check Point 6000/7000 appliance front panels: <https://sc1.checkpoint.com/documents/6000_7000/GSG/EN/Content/Topics/GSG_6000_7000/6000-Appliances-Hardware.htm>
+- Cisco Catalyst 9166 access point interfaces: <https://www.cisco.com/c/en/us/products/collateral/wireless/catalyst-9166-series-access-points/catalyst-9166-series-access-points-ds.html>
+- HPE Aruba AP-635 interface specification: <https://www.hpe.com/us/en/collaterals/collateral.a50002582enw.html>
+- Fortinet FortiAP Wi-Fi 6 physical interfaces: <https://docs.fortinet.com/document/fortiap/7.0.0/secure-wireless-concept-guide/538598/fortiap-wi-fi-6-standard-and-utp-access-points>
+- Ubiquiti U7 Pro technical specification: <https://techspecs.ui.com/unifi/wifi/u7-pro>
+- Fortinet FortiExtender interface management: <https://docs.fortinet.com/document/fortiextender/7.2.2/admin-guide-standalone/705422/interface-management>
+- Teltonika RUTX50 interfaces: <https://wiki.teltonika-networks.com/view/RUTX50_Interfaces>
+- Cisco Catalyst IR1101 interface specification: <https://www.cisco.com/c/en/us/products/collateral/routers/1101-industrial-integrated-services-router/datasheet-c78-741709.html>
 
 Automated coverage fails if a built-in profile lacks a sourced template, so future catalog additions cannot silently fall back without being noticed.

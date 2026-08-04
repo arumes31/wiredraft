@@ -519,8 +519,10 @@ func TestCreateLinksAtomicallyConnectsPatchPanelRanges(t *testing.T) {
 		links[index] = model.Link{
 			SourceDeviceID: source.ID,
 			SourcePortID:   source.Ports[index].ID,
+			SourceSide:     model.LinkEndpointSideRear,
 			TargetDeviceID: target.ID,
 			TargetPortID:   target.Ports[index+2].ID,
+			TargetSide:     model.LinkEndpointSideRear,
 			CableType:      "CAT6A",
 		}
 	}
@@ -536,11 +538,48 @@ func TestCreateLinksAtomicallyConnectsPatchPanelRanges(t *testing.T) {
 	if len(topology.Links) != linkCount+len(links) {
 		t.Fatalf("link count = %d, want %d", len(topology.Links), linkCount+len(links))
 	}
+	for _, link := range topology.Links[linkCount:] {
+		if !link.IsRearPanelConnection() {
+			t.Errorf("bulk panel mapping sides = %q/%q, want rear/rear", link.SourceSide, link.TargetSide)
+		}
+	}
 	for index := range links {
 		for _, portID := range []string{source.Ports[index].ID, target.Ports[index+2].ID} {
-			if status := findTestPort(t, topology, portID).Status; status != model.PortStatusUp {
-				t.Errorf("bulk link endpoint %s status = %q, want %q", portID, status, model.PortStatusUp)
+			if status := findTestPort(t, topology, portID).Status; status != model.PortStatusDown {
+				t.Errorf("rear mapping endpoint %s status = %q, want %q", portID, status, model.PortStatusDown)
 			}
+		}
+	}
+
+	frontLink := model.Link{
+		SourceDeviceID: source.ID, SourcePortID: source.Ports[0].ID,
+		TargetDeviceID: target.ID, TargetPortID: target.Ports[2].ID,
+		CableType: "CAT6A",
+	}
+	topology = requestTopology(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/topologies/"+topology.ID+"/links",
+		frontLink,
+		http.StatusCreated,
+	)
+	for _, portID := range []string{source.Ports[0].ID, target.Ports[2].ID} {
+		if status := findTestPort(t, topology, portID).Status; status != model.PortStatusUp {
+			t.Errorf("front patch endpoint %s status = %q, want %q", portID, status, model.PortStatusUp)
+		}
+	}
+	topology = requestTopology(
+		t,
+		handler,
+		http.MethodDelete,
+		"/api/v1/topologies/"+topology.ID+"/links/"+topology.Links[linkCount].ID,
+		nil,
+		http.StatusOK,
+	)
+	for _, portID := range []string{source.Ports[0].ID, target.Ports[2].ID} {
+		if status := findTestPort(t, topology, portID).Status; status != model.PortStatusUp {
+			t.Errorf("front endpoint %s after rear-map removal = %q, want %q", portID, status, model.PortStatusUp)
 		}
 	}
 }
@@ -557,8 +596,8 @@ func TestCreateLinksRejectsEntirePatchPanelRange(t *testing.T) {
 	source := topology.Devices[len(topology.Devices)-2]
 	target := topology.Devices[len(topology.Devices)-1]
 	links := []model.Link{
-		{SourceDeviceID: source.ID, SourcePortID: source.Ports[0].ID, TargetDeviceID: target.ID, TargetPortID: target.Ports[0].ID, CableType: "CAT6A"},
-		{SourceDeviceID: source.ID, SourcePortID: source.Ports[0].ID, TargetDeviceID: target.ID, TargetPortID: target.Ports[1].ID, CableType: "CAT6A"},
+		{SourceDeviceID: source.ID, SourcePortID: source.Ports[0].ID, SourceSide: model.LinkEndpointSideRear, TargetDeviceID: target.ID, TargetPortID: target.Ports[0].ID, TargetSide: model.LinkEndpointSideRear, CableType: "CAT6A"},
+		{SourceDeviceID: source.ID, SourcePortID: source.Ports[0].ID, SourceSide: model.LinkEndpointSideRear, TargetDeviceID: target.ID, TargetPortID: target.Ports[1].ID, TargetSide: model.LinkEndpointSideRear, CableType: "CAT6A"},
 	}
 	body, err := json.Marshal(createLinksRequest{Links: links})
 	if err != nil {

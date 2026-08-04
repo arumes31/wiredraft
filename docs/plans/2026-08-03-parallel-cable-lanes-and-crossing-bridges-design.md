@@ -1,5 +1,7 @@
 # Parallel cable lanes and crossing bridges
 
+> Superseded by [Individual-track cable routing](./2026-08-04-individual-track-cable-routing-design.md), which replaces 12-pixel greedy lanes and curved jump arcs with batch-assigned 5-pixel Manhattan tracks.
+
 ## Goal
 
 Keep dense physical cabling legible without sending related cables through widely separated detours. Cables using the same corridor should run beside one another, and an unavoidable crossing should clearly show which cable passes over the other.

@@ -21,7 +21,15 @@ func TestCommentsDocumentationAndReadOnlyShares(t *testing.T) {
 		Anchor: model.CommentAnchor{Kind: model.CommentAnchorDevice, TargetID: topology.Devices[0].ID},
 		Author: "Daniel", Body: "Verify the cabling",
 	}, http.StatusCreated)
-	if len(topology.CommentThreads) != 1 || len(topology.CommentThreads[0].Messages) != 1 {
+	topology = requestTopology(t, handler, http.MethodPost, "/api/v1/topologies/"+topology.ID+"/comments", createCommentThreadRequest{
+		Anchor: model.CommentAnchor{Kind: model.CommentAnchorPort, TargetID: topology.Devices[0].Ports[0].ID},
+		Author: "Alex", Body: "Clean this connector",
+	}, http.StatusCreated)
+	topology = requestTopology(t, handler, http.MethodPost, "/api/v1/topologies/"+topology.ID+"/comments", createCommentThreadRequest{
+		Anchor: model.CommentAnchor{Kind: model.CommentAnchorLink, TargetID: topology.Links[0].ID},
+		Author: "NOC", Body: "Change-window dependency",
+	}, http.StatusCreated)
+	if len(topology.CommentThreads) != 3 || len(topology.CommentThreads[0].Messages) != 1 {
 		t.Fatalf("comment threads = %#v", topology.CommentThreads)
 	}
 	topology = requestTopology(t, handler, http.MethodPost, "/api/v1/topologies/"+topology.ID+"/comments/"+topology.CommentThreads[0].ID+"/replies", createCommentReplyRequest{
@@ -67,7 +75,7 @@ func TestCommentsDocumentationAndReadOnlyShares(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &shared); err != nil {
 		t.Fatal(err)
 	}
-	if len(shared.ShareGrants) != 0 || len(shared.CommentThreads) != 1 || len(shared.DocumentationLinks) != 1 {
+	if len(shared.ShareGrants) != 0 || len(shared.CommentThreads) != 3 || len(shared.DocumentationLinks) != 1 {
 		t.Fatalf("shared topology redaction/content = %#v", shared)
 	}
 
@@ -75,6 +83,33 @@ func TestCommentsDocumentationAndReadOnlyShares(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPut, share.Path, bytes.NewReader([]byte(`{}`))))
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("shared mutation status = %d, want 405", response.Code)
+	}
+}
+
+func TestDeletingTopologyObjectsPrunesTheirCommentAnchors(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t)
+	topology := requestTopology(t, handler, http.MethodPost, "/api/v1/topologies", map[string]string{
+		"name": "Comment pruning", "template": "demo",
+	}, http.StatusCreated)
+	deviceID := topology.Devices[0].ID
+	portID := topology.Devices[0].Ports[0].ID
+	linkID := topology.Links[0].ID
+
+	topology = requestTopology(t, handler, http.MethodPost, "/api/v1/topologies/"+topology.ID+"/comments", createCommentThreadRequest{
+		Anchor: model.CommentAnchor{Kind: model.CommentAnchorPort, TargetID: portID}, Author: "NOC", Body: "Port note",
+	}, http.StatusCreated)
+	topology = requestTopology(t, handler, http.MethodPost, "/api/v1/topologies/"+topology.ID+"/comments", createCommentThreadRequest{
+		Anchor: model.CommentAnchor{Kind: model.CommentAnchorLink, TargetID: linkID}, Author: "NOC", Body: "Cable note",
+	}, http.StatusCreated)
+
+	topology = requestTopology(t, handler, http.MethodDelete, "/api/v1/topologies/"+topology.ID+"/links/"+linkID, nil, http.StatusOK)
+	if len(topology.CommentThreads) != 1 || topology.CommentThreads[0].Anchor.Kind != model.CommentAnchorPort {
+		t.Fatalf("threads after link deletion = %#v, want only port comment", topology.CommentThreads)
+	}
+	topology = requestTopology(t, handler, http.MethodDelete, "/api/v1/topologies/"+topology.ID+"/devices/"+deviceID, nil, http.StatusOK)
+	if len(topology.CommentThreads) != 0 {
+		t.Fatalf("threads after device deletion = %#v, want none", topology.CommentThreads)
 	}
 }
 

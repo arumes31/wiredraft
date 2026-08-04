@@ -4,41 +4,504 @@ export const CableMode = Object.freeze({
   SELECTED_LINK: "SELECTED_LINK",
 });
 
+export const CABLE_TRACK_SPACING = 9;
+export const FACEPLATE_MICRO_LANE_SPACING = 8;
+export const CABLE_JUMPER_RADIUS = 5;
+export const CABLE_OUTLINE_WIDTH = 1;
+
+const FACEPLATE_INSET = 5;
+const FACEPLATE_ESCAPE = 0;
+const GUTTER_INSET = 12;
+const PERIMETER_INSET = 24;
+const BRIDGE_ENDPOINT_CLEARANCE = 20;
+const DENSE_MICRO_LANE_SPACING = .5;
+
+// Kept as the public draft-cable helper. The returned route is now a strict
+// Manhattan polyline despite the historic function name.
 export function cableBezier(source, target) {
-  const distance = Math.hypot(target.x - source.x, target.y - source.y);
-  const slack = Math.max(55, Math.min(220, distance * 0.34));
+  const middleX = source.x + (target.x - source.x) / 2;
+  return routeFromPoints([source, { x: middleX, y: source.y }, { x: middleX, y: target.y }, target]);
+}
+
+export function routeFromPoints(inputPoints, metadata = {}) {
+  const points = simplifyPath(orthogonalize(inputPoints));
+  const safePoints = points.length >= 2 ? points : [
+    points[0] || { x: 0, y: 0 },
+    points[0] || { x: 0, y: 0 },
+  ];
+  const segments = [];
+  for (let index = 1; index < safePoints.length; index += 1) {
+    const source = safePoints[index - 1];
+    const target = safePoints[index];
+    if (distance(source, target) <= .01) continue;
+    segments.push(lineSegment(source, target));
+  }
+  if (!segments.length) segments.push(lineSegment(safePoints[0], safePoints.at(-1)));
   return {
-    source,
-    target,
-    cp1: { x: source.x, y: source.y + slack },
-    cp2: { x: target.x, y: target.y - slack },
+    ...metadata,
+    source: segments[0].source,
+    target: segments.at(-1).target,
+    points: [segments[0].source, ...segments.map((segment) => segment.target)],
+    segments,
+    lengths: segments.map((segment) => distance(segment.source, segment.target)),
   };
 }
 
-const DEVICE_CLEARANCE = 12;
-const LANE_CLEARANCE = 18;
-const CORNER_RADIUS = 14;
-const CABLE_LANE_SPACING = 12;
-const MIN_CABLE_CLEARANCE = 8;
-const CABLE_LANE_AFFINITY = 1200;
-const BUNDLE_LANE_AFFINITY = 3600;
-const BUNDLE_ENDPOINT_REACH = 650;
-const CROSSING_PENALTY = 180;
-const BRIDGE_RADIUS = 12;
-const BRIDGE_HEIGHT = 13;
-const BRIDGE_ENDPOINT_CLEARANCE = 28;
+/**
+ * Assign every visible cable an individual orthogonal track in one batch.
+ * Port and device boxes use the same shape as CanvasEngine's scene geometry.
+ */
+export function assignCableTracks(scene, options = {}) {
+  const laneSpacing = clamp(Number(options.laneSpacing) || CABLE_TRACK_SPACING, 8, 10);
+  const microSpacing = clamp(Number(options.microSpacing) || FACEPLATE_MICRO_LANE_SPACING, 8, 10);
+  const links = scene?.links || [];
+  const portMap = new Map((scene?.portBoxes || []).map((box) => [box.port.id, box]));
+  const deviceMap = new Map((scene?.deviceBoxes || []).map((box) => [box.device.id, box]));
+  const rackMap = new Map((scene?.rackBoxes || []).map((box) => [box.rack.id, box]));
+  const descriptors = [];
 
-export function obstacleAwareCableRoute(source, target, options = {}) {
+  for (const link of links) {
+    const source = portMap.get(link.sourcePortId);
+    const target = portMap.get(link.targetPortId);
+    const sourceDevice = source ? deviceMap.get(source.device.id) : null;
+    const targetDevice = target ? deviceMap.get(target.device.id) : null;
+    if (!source || !target || !sourceDevice || !targetDevice) continue;
+    const deviceIDs = [source.device.id, target.device.id].sort();
+    descriptors.push({
+      link,
+      source,
+      target,
+      sourceDevice,
+      targetDevice,
+      sourceRack: rackMap.get(source.device.rackId || sourceDevice.rack?.id) || null,
+      targetRack: rackMap.get(target.device.rackId || targetDevice.rack?.id) || null,
+      bundleKey: `${deviceIDs[0]}::${deviceIDs[1]}`,
+      canonicalDeviceIDs: deviceIDs,
+    });
+  }
+
+  const bundles = new Map();
+  for (const descriptor of descriptors) {
+    const members = bundles.get(descriptor.bundleKey) || [];
+    members.push(descriptor);
+    bundles.set(descriptor.bundleKey, members);
+  }
+  for (const members of bundles.values()) members.sort(compareBundleMembers);
+
+  const routingState = {
+    laneSpacing,
+    microSpacing,
+    deviceMap,
+    rackMap,
+    allDeviceBoxes: [...deviceMap.values()],
+    allRackBoxes: [...rackMap.values()],
+    microY: new Map(),
+    microRows: new Map(),
+    corridorOrdinals: new Map(),
+    crossPairTotals: countCrossRackPairs(descriptors),
+  };
+  const tracks = new Map();
+
+  for (const bundleKey of [...bundles.keys()].sort()) {
+    const members = bundles.get(bundleKey);
+    for (let bundleIndex = 0; bundleIndex < members.length; bundleIndex += 1) {
+      const descriptor = members[bundleIndex];
+      const route = planDescriptorTrack(descriptor, {
+        ...routingState,
+        bundleIndex,
+        bundleSize: members.length,
+      });
+      tracks.set(descriptor.link.id, routeFromPoints(route.points, {
+        linkId: descriptor.link.id,
+        bundleKey,
+        bundleIndex,
+        bundleSize: members.length,
+        trackOffset: bundleIndex * laneSpacing,
+        laneSpacing,
+        microSpacing,
+        ...route.metadata,
+      }));
+    }
+  }
+  return tracks;
+}
+
+function planDescriptorTrack(descriptor, state) {
   const {
-    sourceBounds, targetBounds, obstacles = [], portObstacles = [], occupiedRoutes = [], preferredRoutes = [],
-  } = options;
-  if (!sourceBounds || !targetBounds) return routeFromCurves([cableBezier(source, target)]);
+    source, target, sourceDevice, targetDevice, sourceRack, targetRack,
+  } = descriptor;
+  const sameRack = Boolean(sourceRack && targetRack && rackID(sourceRack) === rackID(targetRack));
+  const crossRack = Boolean(sourceRack && targetRack && rackID(sourceRack) !== rackID(targetRack));
+  const sourceRow = portRow(source, sourceDevice);
+  const targetRow = portRow(target, targetDevice);
+  let sourceSide;
+  let targetSide;
+  let routeKind;
+  let gutterX = null;
+  let sourceGutterX = null;
+  let targetGutterX = null;
+  let bridgeY = null;
 
-  const expanded = obstacles.map((bounds) => expandRectangle(bounds, DEVICE_CLEARANCE));
-  const sourceExit = nearestVerticalExit(source, sourceBounds, DEVICE_CLEARANCE, target, portObstacles);
-  const targetExit = nearestVerticalExit(target, targetBounds, DEVICE_CLEARANCE, source, portObstacles);
-  const middle = shortestClearPath(sourceExit, targetExit, expanded, occupiedRoutes, preferredRoutes);
-  return roundedRoute([source, ...middle, target], expanded);
+  if (sameRack) {
+    const preferred = sameRackSide(source, target, sourceDevice, targetDevice);
+    const alternate = oppositeSide(preferred);
+    const preferredAvailable = microLaneAvailable(state, sourceDevice, preferred, sourceRow) &&
+      microLaneAvailable(state, targetDevice, preferred, targetRow);
+    sourceSide = targetSide = preferredAvailable ? preferred : alternate;
+    const corridor = `rack:${rackID(sourceRack)}:${sourceSide}`;
+    const ordinal = nextOrdinal(state.corridorOrdinals, corridor);
+    gutterX = outerRackGutter(sourceRack, sourceSide, ordinal, state.laneSpacing);
+    routeKind = "intra-rack";
+  } else if (crossRack) {
+    const sourceRackBox = sourceRack;
+    const targetRackBox = targetRack;
+    const sourceIsLeft = rackCenterX(sourceRackBox) <= rackCenterX(targetRackBox);
+    sourceSide = sourceIsLeft ? "right" : "left";
+    targetSide = sourceIsLeft ? "left" : "right";
+    const adjacent = horizontallyAdjacentRacks(sourceRackBox, targetRackBox, state.allRackBoxes);
+    const preferredAvailable = microLaneAvailable(state, sourceDevice, sourceSide, sourceRow) &&
+      microLaneAvailable(state, targetDevice, targetSide, targetRow);
+    if (adjacent && preferredAvailable) {
+      const pairKey = canonicalPair(rackID(sourceRack), rackID(targetRack));
+      const ordinal = nextOrdinal(state.corridorOrdinals, `rack-pair:${pairKey}`);
+      gutterX = interRackChannel(
+        sourceRackBox,
+        targetRackBox,
+        ordinal,
+        state.crossPairTotals.get(pairKey) || 1,
+        state.laneSpacing,
+      );
+      routeKind = "inter-rack";
+    } else {
+      if (!preferredAvailable) {
+        sourceSide = oppositeSide(sourceSide);
+        targetSide = oppositeSide(targetSide);
+      }
+      const ordinal = nextOrdinal(state.corridorOrdinals, `rack-perimeter:${canonicalPair(rackID(sourceRack), rackID(targetRack))}`);
+      sourceGutterX = outerRackGutter(sourceRackBox, sourceSide, ordinal, state.laneSpacing);
+      targetGutterX = outerRackGutter(targetRackBox, targetSide, ordinal, state.laneSpacing);
+      bridgeY = perimeterBridgeY(sourceRackBox, targetRackBox, state.allRackBoxes, ordinal, state.laneSpacing);
+      routeKind = "inter-rack-perimeter";
+    }
+  } else {
+    const sourceCenter = boxCenterX(sourceDevice);
+    const targetCenter = boxCenterX(targetDevice);
+    sourceSide = sourceCenter <= targetCenter ? "right" : "left";
+    targetSide = sourceCenter <= targetCenter ? "left" : "right";
+    const gap = horizontalDeviceGap(sourceDevice, targetDevice);
+    if (gap && verticalChannelClear(gap.center, sourceDevice, targetDevice, state.allDeviceBoxes)) {
+      const ordinal = nextOrdinal(state.corridorOrdinals, `free-gap:${descriptor.bundleKey}`);
+      gutterX = gap.center + centeredOffset(ordinal, state.bundleSize, state.laneSpacing);
+      routeKind = "free-canvas-gutter";
+    } else {
+      const ordinal = nextOrdinal(state.corridorOrdinals, `free-perimeter:${descriptor.bundleKey}`);
+      sourceGutterX = outerDeviceGutter(sourceDevice, sourceSide, ordinal, state.laneSpacing);
+      targetGutterX = outerDeviceGutter(targetDevice, targetSide, ordinal, state.laneSpacing);
+      bridgeY = perimeterBridgeY(sourceDevice, targetDevice, state.allDeviceBoxes, ordinal, state.laneSpacing);
+      routeKind = "free-canvas-perimeter";
+    }
+  }
+
+  const sourceLane = allocateEndpointLane(source, sourceDevice, sourceSide, sourceRow, state);
+  const targetLane = allocateEndpointLane(target, targetDevice, targetSide, targetRow, state);
+  const finalSourceGutter = gutterX ?? sourceGutterX;
+  const finalTargetGutter = gutterX ?? targetGutterX;
+  const sourceLead = endpointLead(source, sourceDevice, sourceSide, sourceLane, finalSourceGutter);
+  const targetLead = endpointLead(target, targetDevice, targetSide, targetLane, finalTargetGutter);
+  const points = [...sourceLead];
+  if (bridgeY === null) {
+    points.push({ x: finalTargetGutter, y: targetLane.y });
+  } else {
+    points.push(
+      { x: finalSourceGutter, y: bridgeY },
+      { x: finalTargetGutter, y: bridgeY },
+      { x: finalTargetGutter, y: targetLane.y },
+    );
+  }
+  points.push(...targetLead.slice(0, -1).reverse(), { x: target.centerX, y: target.centerY });
+
+  return {
+    points,
+    metadata: {
+      routeKind,
+      sameRack,
+      crossRack,
+      sourceSide,
+      targetSide,
+      sourceRow,
+      targetRow,
+      sourceMicroLaneY: sourceLane.y,
+      targetMicroLaneY: targetLane.y,
+      sourceMicroLaneIndex: sourceLane.index,
+      targetMicroLaneIndex: targetLane.index,
+      gutterX,
+      sourceGutterX: finalSourceGutter,
+      targetGutterX: finalTargetGutter,
+      bridgeY,
+    },
+  };
+}
+
+function endpointLead(portBox, deviceBox, side, lane, gutterX) {
+  const direction = side === "right" ? 1 : -1;
+  const connectorEdge = portBox.centerX + direction * (portBox.width / 2 + FACEPLATE_ESCAPE);
+  const escapeX = lane.escapeX ?? clamp(
+    connectorEdge,
+    deviceBox.x + FACEPLATE_INSET,
+    deviceBox.x + deviceBox.width - FACEPLATE_INSET,
+  );
+  return [
+    { x: portBox.centerX, y: portBox.centerY },
+    { x: escapeX, y: portBox.centerY },
+    { x: escapeX, y: lane.y },
+    { x: gutterX, y: lane.y },
+  ];
+}
+
+function allocateEndpointLane(portBox, deviceBox, side, row, state) {
+  const yKey = `${deviceBox.device.id}:${side}`;
+  const usedY = state.microY.get(yKey) || new Set();
+  const capacity = microRowCapacity(deviceBox, state.microSpacing);
+  let y = row === "top" ? deviceBox.y + FACEPLATE_INSET : deviceBox.y + deviceBox.height - FACEPLATE_INSET;
+  let index = 0;
+  let assigned = false;
+  for (; index < capacity; index += 1) {
+    const candidate = row === "top"
+      ? deviceBox.y + FACEPLATE_INSET + index * state.microSpacing
+      : deviceBox.y + deviceBox.height - FACEPLATE_INSET - index * state.microSpacing;
+    const key = coordinateKey(candidate);
+    if (usedY.has(key)) continue;
+    y = candidate;
+    usedY.add(key);
+    assigned = true;
+    break;
+  }
+  if (!assigned) {
+    // A fully patched 48/96-port 1U faceplate cannot physically retain an 8px
+    // pitch for every endpoint. Preserve unique in-device tracks and row
+    // ownership while compressing only the overflow lanes.
+    const bandStart = row === "top" ? deviceBox.y + FACEPLATE_INSET : deviceBox.y + deviceBox.height / 2 + DENSE_MICRO_LANE_SPACING;
+    const bandEnd = row === "top" ? deviceBox.y + deviceBox.height / 2 - DENSE_MICRO_LANE_SPACING : deviceBox.y + deviceBox.height - FACEPLATE_INSET;
+    const totalCapacity = Math.max(1, Math.floor((bandEnd - bandStart) / DENSE_MICRO_LANE_SPACING) + 1);
+    for (let overflowIndex = 0; overflowIndex < totalCapacity; overflowIndex += 1) {
+      const candidate = row === "top"
+        ? bandStart + overflowIndex * DENSE_MICRO_LANE_SPACING
+        : bandEnd - overflowIndex * DENSE_MICRO_LANE_SPACING;
+      const key = coordinateKey(candidate);
+      if (usedY.has(key)) continue;
+      y = candidate;
+      index = overflowIndex;
+      usedY.add(key);
+      assigned = true;
+      break;
+    }
+  }
+  state.microY.set(yKey, usedY);
+  const rowKey = `${deviceBox.device.id}:${side}:${row}`;
+  state.microRows.set(rowKey, (state.microRows.get(rowKey) || 0) + 1);
+
+  const direction = side === "right" ? 1 : -1;
+  const preferredEscape = portBox.centerX + direction * (portBox.width / 2 + FACEPLATE_ESCAPE);
+  const escapeX = clamp(
+    preferredEscape,
+    deviceBox.x + FACEPLATE_INSET,
+    deviceBox.x + deviceBox.width - FACEPLATE_INSET,
+  );
+  return { y, index, escapeX };
+}
+
+function microLaneAvailable(state, deviceBox, side, row) {
+  const used = state.microRows.get(`${deviceBox.device.id}:${side}:${row}`) || 0;
+  const capacity = microRowCapacity(deviceBox, state.microSpacing);
+  return used < capacity;
+}
+
+function microRowCapacity(deviceBox, spacing) {
+  return Math.max(1, Math.floor((deviceBox.height / 2 - FACEPLATE_INSET - spacing) / spacing) + 1);
+}
+
+function compareBundleMembers(left, right) {
+  const leftKey = canonicalEndpointKey(left);
+  const rightKey = canonicalEndpointKey(right);
+  return leftKey.localeCompare(rightKey) || String(left.link.id).localeCompare(String(right.link.id));
+}
+
+function canonicalEndpointKey(descriptor) {
+  const endpoints = [
+    { deviceID: descriptor.source.device.id, port: descriptor.source },
+    { deviceID: descriptor.target.device.id, port: descriptor.target },
+  ].sort((left, right) => left.deviceID.localeCompare(right.deviceID));
+  return endpoints.map(({ deviceID, port }) => [
+    deviceID,
+    fixedCoordinate(port.centerY),
+    fixedCoordinate(port.centerX),
+    String(port.port.label || port.port.id),
+  ].join(":" )).join("|");
+}
+
+function countCrossRackPairs(descriptors) {
+  const counts = new Map();
+  for (const descriptor of descriptors) {
+    if (!descriptor.sourceRack || !descriptor.targetRack || rackID(descriptor.sourceRack) === rackID(descriptor.targetRack)) continue;
+    const key = canonicalPair(rackID(descriptor.sourceRack), rackID(descriptor.targetRack));
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
+function interRackChannel(sourceRack, targetRack, ordinal, total, spacing) {
+  const [left, right] = rackCenterX(sourceRack) <= rackCenterX(targetRack)
+    ? [sourceRack, targetRack]
+    : [targetRack, sourceRack];
+  const gapLeft = left.x + left.width + GUTTER_INSET;
+  const gapRight = right.x - GUTTER_INSET;
+  const available = Math.max(0, gapRight - gapLeft);
+  const required = Math.max(0, (total - 1) * spacing);
+  const base = gapLeft + Math.max(0, (available - required) / 2);
+  return clamp(base + ordinal * spacing, gapLeft, gapRight);
+}
+
+function outerRackGutter(rack, side, ordinal, spacing) {
+  return side === "left"
+    ? rack.x - GUTTER_INSET - ordinal * spacing
+    : rack.x + rack.width + GUTTER_INSET + ordinal * spacing;
+}
+
+function outerDeviceGutter(device, side, ordinal, spacing) {
+  return side === "left"
+    ? device.x - GUTTER_INSET - ordinal * spacing
+    : device.x + device.width + GUTTER_INSET + ordinal * spacing;
+}
+
+function perimeterBridgeY(sourceBox, targetBox, allBoxes, ordinal, spacing) {
+  const top = Math.min(...allBoxes.map((box) => box.y));
+  const bottom = Math.max(...allBoxes.map((box) => box.y + box.height));
+  const sourceY = sourceBox.y + sourceBox.height / 2;
+  const targetY = targetBox.y + targetBox.height / 2;
+  const topCost = Math.abs(sourceY - top) + Math.abs(targetY - top);
+  const bottomCost = Math.abs(sourceY - bottom) + Math.abs(targetY - bottom);
+  return topCost <= bottomCost
+    ? top - PERIMETER_INSET - ordinal * spacing
+    : bottom + PERIMETER_INSET + ordinal * spacing;
+}
+
+function horizontallyAdjacentRacks(sourceRack, targetRack, rackBoxes) {
+  if (!sourceRack || !targetRack) return false;
+  const [left, right] = rackCenterX(sourceRack) <= rackCenterX(targetRack)
+    ? [sourceRack, targetRack]
+    : [targetRack, sourceRack];
+  if (right.x - (left.x + left.width) < GUTTER_INSET * 2 + CABLE_TRACK_SPACING) return false;
+  return !rackBoxes.some((rack) => rack !== left && rack !== right &&
+    rack.x < right.x && rack.x + rack.width > left.x + left.width);
+}
+
+function horizontalDeviceGap(source, target) {
+  if (source.x + source.width < target.x) {
+    return { left: source.x + source.width, right: target.x, center: (source.x + source.width + target.x) / 2 };
+  }
+  if (target.x + target.width < source.x) {
+    return { left: target.x + target.width, right: source.x, center: (target.x + target.width + source.x) / 2 };
+  }
+  return null;
+}
+
+function verticalChannelClear(x, source, target, deviceBoxes) {
+  const top = Math.min(source.y, target.y);
+  const bottom = Math.max(source.y + source.height, target.y + target.height);
+  return !deviceBoxes.some((box) => box !== source && box !== target &&
+    x > box.x && x < box.x + box.width && bottom > box.y && top < box.y + box.height);
+}
+
+function sameRackSide(source, target, sourceBox, targetBox) {
+  const leftCost = Math.abs(source.centerX - sourceBox.x) + Math.abs(target.centerX - targetBox.x);
+  const rightCost = Math.abs(sourceBox.x + sourceBox.width - source.centerX) +
+    Math.abs(targetBox.x + targetBox.width - target.centerX);
+  return rightCost <= leftCost ? "right" : "left";
+}
+
+function portRow(portBox, deviceBox) {
+  return portBox.centerY <= deviceBox.y + deviceBox.height / 2 ? "top" : "bottom";
+}
+
+export function cableRole(link, source, target, context = {}) {
+  const sourcePort = source?.port || source || {};
+  const targetPort = target?.port || target || {};
+  const text = [
+    link?.role,
+    link?.cableType,
+    sourcePort.label,
+    sourcePort.group,
+    targetPort.label,
+    targetPort.group,
+  ].filter(Boolean).join(" ");
+  if (/MGMT|MANAGEMENT|OOB|ILO|IDRAC|BMC|NMC|CONSOLE/i.test(text)) {
+    return { key: "management", label: "MANAGEMENT", color: "#f0b35a" };
+  }
+  const speed = Math.min(
+    positiveSpeed(sourcePort.speedMbps),
+    positiveSpeed(targetPort.speedMbps),
+  );
+  if (context.crossRack && speed >= 50000) {
+    return { key: "inter-rack-high-speed", label: `${speed / 1000}G INTER-RACK`, color: "#3de5e5" };
+  }
+  if (["Trunk", "LACP", "MC-LAG"].includes(context.group?.mode)) {
+    return { key: "trunk", label: context.group.mode.toUpperCase(), color: "#42d9c8" };
+  }
+  if (context.crossRack) return { key: "inter-rack", label: "INTER-RACK", color: "#62c8f2" };
+  return { key: "access", label: "STANDARD ACCESS", color: "#4e9cf5" };
+}
+
+export function cableDashPattern(link, source, target, context = {}) {
+  const sourcePort = source?.port || source || {};
+  const targetPort = target?.port || target || {};
+  const text = [link?.role, link?.notes, sourcePort.label, sourcePort.group, targetPort.label, targetPort.group]
+    .filter(Boolean).join(" ");
+  if (context.group?.mode === "Failover" && context.group.primaryLinkId !== link?.id) return [10, 5];
+  if (/\bHA\d*\b|HEARTBEAT|SYNC/i.test(text)) return [8, 4];
+  if (context.role?.key === "management" || /MGMT|MANAGEMENT|OOB/i.test(text)) return [4, 4];
+  return [];
+}
+
+// Compatibility route for callers without complete scene geometry. Canvas and
+// exports use assignCableTracks(), which is the authoritative batch planner.
+export function obstacleAwareCableRoute(source, target, options = {}) {
+  const { sourceBounds, targetBounds, obstacles = [] } = options;
+  if (!sourceBounds || !targetBounds) return cableBezier(source, target);
+  const all = obstacles.length ? obstacles : [sourceBounds, targetBounds];
+  const sourceIsLeft = boxCenterX(sourceBounds) <= boxCenterX(targetBounds);
+  const sourceSide = sourceIsLeft ? "left" : "right";
+  const targetSide = sourceIsLeft ? "right" : "left";
+  const sourceGutter = outerDeviceGutter(sourceBounds, sourceSide, 0, CABLE_TRACK_SPACING);
+  const targetGutter = outerDeviceGutter(targetBounds, targetSide, 0, CABLE_TRACK_SPACING);
+  const bridgeY = perimeterBridgeY(sourceBounds, targetBounds, all, 0, CABLE_TRACK_SPACING);
+  const sourceMicroY = source.y <= sourceBounds.y + sourceBounds.height / 2
+    ? sourceBounds.y + FACEPLATE_INSET
+    : sourceBounds.y + sourceBounds.height - FACEPLATE_INSET;
+  const targetMicroY = target.y <= targetBounds.y + targetBounds.height / 2
+    ? targetBounds.y + FACEPLATE_INSET
+    : targetBounds.y + targetBounds.height - FACEPLATE_INSET;
+  const sourceEscapeX = clamp(
+    source.x + (sourceSide === "right" ? FACEPLATE_ESCAPE : -FACEPLATE_ESCAPE),
+    sourceBounds.x + FACEPLATE_INSET,
+    sourceBounds.x + sourceBounds.width - FACEPLATE_INSET,
+  );
+  const targetEscapeX = clamp(
+    target.x + (targetSide === "right" ? FACEPLATE_ESCAPE : -FACEPLATE_ESCAPE),
+    targetBounds.x + FACEPLATE_INSET,
+    targetBounds.x + targetBounds.width - FACEPLATE_INSET,
+  );
+  return routeFromPoints([
+    source,
+    { x: sourceEscapeX, y: source.y },
+    { x: sourceEscapeX, y: sourceMicroY },
+    { x: sourceGutter, y: sourceMicroY },
+    { x: sourceGutter, y: bridgeY },
+    { x: targetGutter, y: bridgeY },
+    { x: targetGutter, y: targetMicroY },
+    { x: targetEscapeX, y: targetMicroY },
+    { x: targetEscapeX, y: target.y },
+    target,
+  ], { routeKind: "compatibility-perimeter" });
 }
 
 export function orderedCableLinks(topology) {
@@ -53,8 +516,7 @@ export function orderedCableLinks(topology) {
   for (const link of links) {
     if (appended.has(link.id)) continue;
     const group = groupByLink.get(link.id);
-    const memberIDs = group?.linkIds || [link.id];
-    for (const memberID of memberIDs) {
+    for (const memberID of group?.linkIds || [link.id]) {
       const member = linkByID.get(memberID);
       if (!member || appended.has(memberID)) continue;
       ordered.push(member);
@@ -65,103 +527,87 @@ export function orderedCableLinks(topology) {
 }
 
 export function routeSegments(route) {
-  return route?.segments?.length ? route.segments : route ? [route] : [];
+  return route?.segments?.length ? route.segments : route?.source && route?.target ? [route] : [];
 }
 
 export function pointOnRoute(route, t) {
   const segments = routeSegments(route);
   if (!segments.length) return { x: 0, y: 0 };
-  if (segments.length === 1) return pointOnBezier(segments[0], t);
-  const lengths = route.lengths?.length === segments.length ? route.lengths : segments.map(approximateCurveLength);
+  const lengths = route.lengths?.length === segments.length
+    ? route.lengths
+    : segments.map((segment) => distance(segment.source, segment.target));
   const total = lengths.reduce((sum, length) => sum + length, 0) || 1;
-  let remaining = Math.max(0, Math.min(1, t)) * total;
+  let remaining = clamp(Number(t) || 0, 0, 1) * total;
   for (let index = 0; index < segments.length; index += 1) {
-    if (remaining <= lengths[index] || index === segments.length - 1) {
-      return pointOnBezier(segments[index], lengths[index] ? remaining / lengths[index] : 0);
+    const length = lengths[index];
+    if (remaining <= length || index === segments.length - 1) {
+      const ratio = length ? remaining / length : 0;
+      return interpolate(segments[index].source, segments[index].target, ratio);
     }
-    remaining -= lengths[index];
+    remaining -= length;
   }
-  return segments.at(-1).target;
+  return { ...segments.at(-1).target };
 }
 
 export function distanceToRoute(point, route) {
-  return Math.min(...routeSegments(route).map((curve) => distanceToCurve(point, curve)));
+  const segments = routeSegments(route);
+  if (!segments.length) return Number.POSITIVE_INFINITY;
+  return Math.min(...segments.map((segment) => distanceToSegment(point, segment.source, segment.target)));
 }
 
-export function routeWithCrossingBridges(route, underRoutes = [], options = {}) {
-  if (!route || !underRoutes.length) return route;
-  const radius = Math.max(4, Number(options.radius) || BRIDGE_RADIUS);
-  const height = Math.max(3, Number(options.height) || BRIDGE_HEIGHT);
-  const endpointClearance = Math.max(radius * 2, Number(options.endpointClearance) || BRIDGE_ENDPOINT_CLEARANCE);
-  const polyline = flattenRoute(route);
-  const totalLength = polyline.at(-1)?.distance || 0;
-  if (totalLength <= endpointClearance * 2) return route;
-
-  const crossings = [];
-  const underSegments = underRoutes.flatMap((underRoute, underRouteIndex) =>
-    polylineSegments(flattenRoute(underRoute)).map((segment) => ({ ...segment, underRouteIndex })));
-  for (const ownSegment of polylineSegments(polyline)) {
-    for (const underSegment of underSegments) {
-      const intersection = properSegmentIntersection(
-        ownSegment.source,
-        ownSegment.target,
-        underSegment.source,
-        underSegment.target,
-      );
-      if (!intersection || intersection.angleSine < .32) continue;
-      const routeDistance = ownSegment.startDistance + distance(ownSegment.source, intersection.point);
-      if (routeDistance <= endpointClearance || routeDistance >= totalLength - endpointClearance) continue;
-      crossings.push({
-        distance: routeDistance,
-        point: intersection.point,
-        underRouteIndex: underSegment.underRouteIndex,
-      });
+// Assign every perpendicular crossing to the horizontal route, independent of
+// link order. The reserved/base geometry remains Manhattan; renderers replace
+// only the short crossing span with the described semicircular jumper.
+export function routesWithCrossingBridges(routes = [], options = {}) {
+  const endpointClearance = Math.max(8, Number(options.endpointClearance) || BRIDGE_ENDPOINT_CLEARANCE);
+  const radius = clamp(Number(options.radius) || CABLE_JUMPER_RADIUS, 4, 6);
+  const decorated = routes.map((route) => route ? { ...route, bridges: [] } : route);
+  const metrics = routes.map(routeMetrics);
+  for (let leftIndex = 0; leftIndex < routes.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < routes.length; rightIndex += 1) {
+      const leftSegments = routeSegments(routes[leftIndex]);
+      const rightSegments = routeSegments(routes[rightIndex]);
+      for (let leftSegmentIndex = 0; leftSegmentIndex < leftSegments.length; leftSegmentIndex += 1) {
+        for (let rightSegmentIndex = 0; rightSegmentIndex < rightSegments.length; rightSegmentIndex += 1) {
+          const leftSegment = leftSegments[leftSegmentIndex];
+          const rightSegment = rightSegments[rightSegmentIndex];
+          const crossing = orthogonalIntersection(leftSegment, rightSegment);
+          if (!crossing) continue;
+          const leftHorizontal = horizontalSegment(leftSegment);
+          const ownerIndex = leftHorizontal ? leftIndex : rightIndex;
+          const underRouteIndex = leftHorizontal ? rightIndex : leftIndex;
+          const segmentIndex = leftHorizontal ? leftSegmentIndex : rightSegmentIndex;
+          const segment = leftHorizontal ? leftSegment : rightSegment;
+          const ownerMetrics = metrics[ownerIndex];
+          const routeDistance = ownerMetrics.prefix[segmentIndex] + distance(segment.source, crossing);
+          if (routeDistance <= endpointClearance || routeDistance >= ownerMetrics.total - endpointClearance) continue;
+          if (distance(segment.source, crossing) <= radius + 1 || distance(crossing, segment.target) <= radius + 1) continue;
+          const bridges = decorated[ownerIndex].bridges;
+          if (bridges.some((bridge) => distance(bridge.crossing, crossing) < radius * 2 + 2)) continue;
+          bridges.push({
+            crossing,
+            apex: { x: crossing.x, y: crossing.y - radius },
+            segmentIndex,
+            underRouteIndex,
+            openingRadius: radius + 4,
+            radius,
+            horizontal: true,
+            jumperArc: true,
+          });
+        }
+      }
     }
   }
-  crossings.sort((left, right) => left.distance - right.distance);
-  const distinct = crossings.filter((crossing, index) =>
-    index === 0 || crossing.distance - crossings[index - 1].distance >= radius * 2.5);
-  if (!distinct.length) return route;
-
-  const side = stableBridgeSide(options.key);
-  const curves = [];
-  const bridges = [];
-  let cursorDistance = 0;
-  for (const crossing of distinct) {
-    const startDistance = crossing.distance - radius;
-    const endDistance = crossing.distance + radius;
-    appendPolylineRange(curves, polyline, cursorDistance, startDistance);
-    const start = pointAtPolylineDistance(polyline, startDistance);
-    const end = pointAtPolylineDistance(polyline, endDistance);
-    const span = { x: end.x - start.x, y: end.y - start.y };
-    const spanLength = Math.hypot(span.x, span.y) || 1;
-    const normal = { x: -span.y / spanLength * side, y: span.x / spanLength * side };
-    const controlLift = height * 1.34;
-    const bridge = {
-      source: start,
-      cp1: {
-        x: start.x + span.x * .28 + normal.x * controlLift,
-        y: start.y + span.y * .28 + normal.y * controlLift,
-      },
-      cp2: {
-        x: end.x - span.x * .28 + normal.x * controlLift,
-        y: end.y - span.y * .28 + normal.y * controlLift,
-      },
-      target: end,
-    };
-    curves.push(bridge);
-    bridges.push({
-      crossing: crossing.point,
-      apex: pointOnBezier(bridge, .5),
-      start,
-      end,
-      underRouteIndex: crossing.underRouteIndex,
-      openingRadius: Math.max(5, Math.min(radius * .64, height * .62)),
-    });
-    cursorDistance = endDistance;
+  for (const route of decorated.filter(Boolean)) {
+    route.bridges.sort((left, right) => left.segmentIndex - right.segmentIndex || left.crossing.x - right.crossing.x);
   }
-  appendPolylineRange(curves, polyline, cursorDistance, totalLength);
-  return { ...routeFromCurves(curves), bridges };
+  return decorated;
+}
+
+// Compatibility helper for callers that append one horizontal route at a time.
+export function routeWithCrossingBridges(route, underRoutes = [], options = {}) {
+  if (!route || !underRoutes.length) return route;
+  return routesWithCrossingBridges([...underRoutes, route], options).at(-1);
 }
 
 export function pointOnBezier(curve, t) {
@@ -173,6 +619,7 @@ export function pointOnBezier(curve, t) {
 }
 
 export function distanceToCurve(point, curve) {
+  if (axisAligned(curve.source, curve.target)) return distanceToSegment(point, curve.source, curve.target);
   let minimum = Number.POSITIVE_INFINITY;
   let previous = curve.source;
   for (let index = 1; index <= 32; index += 1) {
@@ -183,165 +630,74 @@ export function distanceToCurve(point, curve) {
   return minimum;
 }
 
-function distanceToSegment(point, start, end) {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  if (dx === 0 && dy === 0) return Math.hypot(point.x - start.x, point.y - start.y);
-  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)));
-  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
+export function segmentIntersectsRectangle(source, target, box) {
+  const epsilon = .01;
+  const left = box.x + epsilon;
+  const right = box.x + box.width - epsilon;
+  const top = box.y + epsilon;
+  const bottom = box.y + box.height - epsilon;
+  if (right <= left || bottom <= top) return false;
+  if (source.x === target.x) {
+    return source.x > left && source.x < right &&
+      Math.max(Math.min(source.y, target.y), top) <= Math.min(Math.max(source.y, target.y), bottom);
+  }
+  if (source.y === target.y) {
+    return source.y > top && source.y < bottom &&
+      Math.max(Math.min(source.x, target.x), left) <= Math.min(Math.max(source.x, target.x), right);
+  }
+  return false;
 }
 
-function nearestVerticalExit(point, bounds, clearance, peer, portObstacles) {
-  const otherPorts = portObstacles.filter((box) => !containsPoint(box, point));
-  const preferredSide = peer.y < point.y ? "top" : "bottom";
-  const candidates = [
-    { side: "top", edgeY: bounds.y, y: bounds.y - clearance },
-    { side: "bottom", edgeY: bounds.y + bounds.height, y: bounds.y + bounds.height + clearance },
-  ].map((candidate) => ({
-    ...candidate,
-    collisions: otherPorts.filter((box) => segmentIntersectsRectangle(
-      point,
-      { x: point.x, y: candidate.y },
-      expandRectangle(box, 3),
-    )).length,
-    edgeDistance: Math.abs(point.y - candidate.edgeY),
-  }));
-  candidates.sort((left, right) =>
-    left.collisions - right.collisions ||
-    left.edgeDistance - right.edgeDistance ||
-    Number(right.side === preferredSide) - Number(left.side === preferredSide));
-  return { x: point.x, y: candidates[0].y };
+function orthogonalIntersection(left, right) {
+  const leftHorizontal = horizontalSegment(left);
+  const rightHorizontal = horizontalSegment(right);
+  if (leftHorizontal === rightHorizontal) return null;
+  const horizontal = leftHorizontal ? left : right;
+  const vertical = leftHorizontal ? right : left;
+  const x = vertical.source.x;
+  const y = horizontal.source.y;
+  const withinHorizontal = x > Math.min(horizontal.source.x, horizontal.target.x) &&
+    x < Math.max(horizontal.source.x, horizontal.target.x);
+  const withinVertical = y > Math.min(vertical.source.y, vertical.target.y) &&
+    y < Math.max(vertical.source.y, vertical.target.y);
+  return withinHorizontal && withinVertical ? { x, y } : null;
 }
 
-function shortestClearPath(source, target, obstacles, occupiedRoutes, preferredRoutes = []) {
-  const occupiedSegments = occupiedRoutes.flatMap((route) => routeSegments(route));
-  const candidates = [
-    [source, target],
-    [source, { x: source.x, y: target.y }, target],
-    [source, { x: target.x, y: source.y }, target],
-  ];
-  const diagonalOffset = CABLE_LANE_SPACING / Math.sqrt(2);
-  const laneOffsets = [
-    { x: -CABLE_LANE_SPACING, y: 0 }, { x: CABLE_LANE_SPACING, y: 0 },
-    { x: 0, y: -CABLE_LANE_SPACING }, { x: 0, y: CABLE_LANE_SPACING },
-    { x: -diagonalOffset, y: -diagonalOffset }, { x: diagonalOffset, y: -diagonalOffset },
-    { x: -diagonalOffset, y: diagonalOffset }, { x: diagonalOffset, y: diagonalOffset },
-  ];
-  const preferredSet = new Set(preferredRoutes);
-  const affinityRoutes = [...preferredRoutes, ...occupiedRoutes.filter((route) => !preferredSet.has(route))];
-  for (const route of affinityRoutes) {
-    let vertices = routeVertices(route);
-    if (vertices.length < 2) continue;
-    const directEndpointSpread = Math.max(distance(source, vertices[0]), distance(target, vertices.at(-1)));
-    const reverseEndpointSpread = Math.max(distance(source, vertices.at(-1)), distance(target, vertices[0]));
-    const isBundleRoute = preferredSet.has(route);
-    const reach = isBundleRoute ? BUNDLE_ENDPOINT_REACH : 420;
-    if (Math.min(directEndpointSpread, reverseEndpointSpread) > reach) continue;
-    if (reverseEndpointSpread < directEndpointSpread) vertices = [...vertices].reverse();
-    for (const offset of laneOffsets) {
-      const shifted = vertices
-        .map((point) => ({ x: point.x + offset.x, y: point.y + offset.y }))
-        .filter((point) => obstacles.every((box) => !containsPoint(box, point)));
-      if (shifted.length >= 2) {
-        const laneCandidate = [source, ...shifted, target];
-        laneCandidate.laneAffinity = !isBundleRoute;
-        laneCandidate.bundleAffinity = isBundleRoute;
-        laneCandidate.sharedLength = polylineLength(shifted);
-        candidates.push(laneCandidate);
-      }
-    }
+function routeMetrics(route) {
+  const segments = routeSegments(route);
+  const prefix = [];
+  let total = 0;
+  for (const segment of segments) {
+    prefix.push(total);
+    total += distance(segment.source, segment.target);
   }
-  const allX = [source.x, target.x, ...obstacles.flatMap((box) => [box.x - LANE_CLEARANCE, box.x + box.width + LANE_CLEARANCE])];
-  const allY = [source.y, target.y, ...obstacles.flatMap((box) => [box.y - LANE_CLEARANCE, box.y + box.height + LANE_CLEARANCE])];
-  for (const segment of occupiedSegments) {
-    const dx = Math.abs(segment.target.x - segment.source.x);
-    const dy = Math.abs(segment.target.y - segment.source.y);
-    if (dx <= 2 && dy > 8) {
-      allX.push(segment.source.x - CABLE_LANE_SPACING, segment.source.x + CABLE_LANE_SPACING);
-    }
-    if (dy <= 2 && dx > 8) {
-      allY.push(segment.source.y - CABLE_LANE_SPACING, segment.source.y + CABLE_LANE_SPACING);
-    }
-  }
-  if (obstacles.length) {
-    allX.push(Math.min(...obstacles.map((box) => box.x)) - LANE_CLEARANCE * 2);
-    allX.push(Math.max(...obstacles.map((box) => box.x + box.width)) + LANE_CLEARANCE * 2);
-    allY.push(Math.min(...obstacles.map((box) => box.y)) - LANE_CLEARANCE * 2);
-    allY.push(Math.max(...obstacles.map((box) => box.y + box.height)) + LANE_CLEARANCE * 2);
-  }
-  const xLanes = uniqueNumbers(allX);
-  const yLanes = uniqueNumbers(allY);
-  for (const x of xLanes) candidates.push([source, { x, y: source.y }, { x, y: target.y }, target]);
-  for (const y of yLanes) candidates.push([source, { x: source.x, y }, { x: target.x, y }, target]);
-
-  const perimeterCandidates = [];
-  if (occupiedSegments.length) {
-    for (const x of xLanes) for (const y of yLanes) {
-      perimeterCandidates.push([source, { x, y: source.y }, { x, y }, { x: target.x, y }, target]);
-      perimeterCandidates.push([source, { x: source.x, y }, { x, y }, { x, y: target.y }, target]);
-    }
-  }
-
-  let valid = [...candidates, ...perimeterCandidates].map(prepareCandidate).filter((points) => pathClearsObstacles(points, obstacles));
-  if (!valid.length && !perimeterCandidates.length) {
-    for (const x of xLanes) for (const y of yLanes) {
-      perimeterCandidates.push([source, { x, y: source.y }, { x, y }, { x: target.x, y }, target]);
-      perimeterCandidates.push([source, { x: source.x, y }, { x, y }, { x, y: target.y }, target]);
-    }
-    valid = perimeterCandidates.map(prepareCandidate).filter((points) => pathClearsObstacles(points, obstacles));
-  }
-  if (!valid.length) return [source, target];
-  valid.sort((left, right) => routeScore(left, occupiedSegments) - routeScore(right, occupiedSegments));
-  return valid[0];
+  return { prefix, total };
 }
 
-function roundedRoute(inputPoints, obstacles) {
-  const points = simplifyPath(inputPoints);
-  const curves = [];
-  let cursor = points[0];
-  for (let index = 1; index < points.length; index += 1) {
-    const corner = points[index];
-    const canRound = index > 1 && index < points.length - 2 &&
-      !collinear(points[index - 1], corner, points[index + 1]) &&
-      obstacles.every((box) => pointRectangleDistance(corner, box) > CORNER_RADIUS);
-    if (!canRound) {
-      pushLine(curves, cursor, corner);
-      cursor = corner;
-      continue;
-    }
-    const before = moveToward(corner, points[index - 1], Math.min(CORNER_RADIUS, distance(corner, points[index - 1]) / 2));
-    const after = moveToward(corner, points[index + 1], Math.min(CORNER_RADIUS, distance(corner, points[index + 1]) / 2));
-    pushLine(curves, cursor, before);
-    curves.push({
-      source: before,
-      cp1: moveToward(before, corner, distance(before, corner) * 2 / 3),
-      cp2: moveToward(after, corner, distance(after, corner) * 2 / 3),
-      target: after,
-    });
-    cursor = after;
-  }
-  return routeFromCurves(curves);
+function horizontalSegment(segment) {
+  return Math.abs(segment.source.y - segment.target.y) < .001;
 }
 
-function routeFromCurves(segments) {
-  const safeSegments = segments.filter((curve) => distance(curve.source, curve.target) > .01);
-  const fallback = safeSegments.length ? safeSegments : [cableBezier({ x: 0, y: 0 }, { x: 0, y: 0 })];
+function lineSegment(source, target) {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
   return {
-    source: fallback[0].source,
-    target: fallback.at(-1).target,
-    segments: fallback,
-    lengths: fallback.map(approximateCurveLength),
+    source: { x: source.x, y: source.y },
+    cp1: { x: source.x + dx / 3, y: source.y + dy / 3 },
+    cp2: { x: source.x + dx * 2 / 3, y: source.y + dy * 2 / 3 },
+    target: { x: target.x, y: target.y },
   };
 }
 
-function pushLine(curves, source, target) {
-  if (distance(source, target) <= .01) return;
-  curves.push({
-    source,
-    cp1: moveToward(source, target, distance(source, target) / 3),
-    cp2: moveToward(source, target, distance(source, target) * 2 / 3),
-    target,
-  });
+function orthogonalize(points) {
+  const result = [];
+  for (const point of points.filter(Boolean)) {
+    const next = { x: Number(point.x) || 0, y: Number(point.y) || 0 };
+    const previous = result.at(-1);
+    if (previous && !axisAligned(previous, next)) result.push({ x: next.x, y: previous.y });
+    result.push(next);
+  }
+  return result;
 }
 
 function simplifyPath(points) {
@@ -349,244 +705,82 @@ function simplifyPath(points) {
   for (const point of points) {
     if (!unique.length || distance(unique.at(-1), point) > .01) unique.push({ x: point.x, y: point.y });
   }
-  let changed = true;
-  while (changed && unique.length > 2) {
-    changed = false;
-    for (let index = 1; index < unique.length - 1; index += 1) {
-      if (!collinear(unique[index - 1], unique[index], unique[index + 1])) continue;
-      unique.splice(index, 1); changed = true; break;
-    }
+  let index = 1;
+  while (index < unique.length - 1) {
+    if (collinear(unique[index - 1], unique[index], unique[index + 1])) unique.splice(index, 1);
+    else index += 1;
   }
   return unique;
 }
 
-function prepareCandidate(points) {
-  const simplified = simplifyPath(points);
-  if (points.laneAffinity) simplified.laneAffinity = true;
-  if (points.bundleAffinity) simplified.bundleAffinity = true;
-  if (points.sharedLength) simplified.sharedLength = points.sharedLength;
-  return simplified;
+function distanceToSegment(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (dx === 0 && dy === 0) return distance(point, start);
+  const ratio = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy), 0, 1);
+  return Math.hypot(point.x - (start.x + ratio * dx), point.y - (start.y + ratio * dy));
 }
 
-function pathClearsObstacles(points, obstacles) {
-  for (let index = 1; index < points.length; index += 1) {
-    if (obstacles.some((box) => segmentIntersectsRectangle(points[index - 1], points[index], box))) return false;
-  }
-  return true;
+function nextOrdinal(registry, key) {
+  const ordinal = registry.get(key) || 0;
+  registry.set(key, ordinal + 1);
+  return ordinal;
 }
 
-export function segmentIntersectsRectangle(source, target, box) {
-  const epsilon = .01;
-  const left = box.x + epsilon; const right = box.x + box.width - epsilon;
-  const top = box.y + epsilon; const bottom = box.y + box.height - epsilon;
-  if (right <= left || bottom <= top) return false;
-  let near = 0; let far = 1;
-  const dx = target.x - source.x; const dy = target.y - source.y;
-  for (const [p, q] of [[-dx, source.x - left], [dx, right - source.x], [-dy, source.y - top], [dy, bottom - source.y]]) {
-    if (Math.abs(p) < 1e-9) {
-      if (q < 0) return false;
-      continue;
-    }
-    const ratio = q / p;
-    if (p < 0) near = Math.max(near, ratio); else far = Math.min(far, ratio);
-    if (near > far) return false;
-  }
-  return far >= 0 && near <= 1;
+function centeredOffset(index, count, spacing) {
+  return (index - (count - 1) / 2) * spacing;
 }
 
-function routeScore(points, occupiedSegments = []) {
-  let length = 0;
-  for (let index = 1; index < points.length; index += 1) length += distance(points[index - 1], points[index]);
-  const laneAffinity = points.laneAffinity ? CABLE_LANE_AFFINITY : 0;
-  const bundleAffinity = points.bundleAffinity ? BUNDLE_LANE_AFFINITY + Math.min(1800, points.sharedLength * .8) : 0;
-  return length + Math.max(0, points.length - 2) * 24 + routeConflictPenalty(points, occupiedSegments) - laneAffinity - bundleAffinity;
+function positiveSpeed(value) {
+  const speed = Number(value);
+  return Number.isFinite(speed) && speed > 0 ? speed : 1000;
 }
 
-function polylineLength(points) {
-  let length = 0;
-  for (let index = 1; index < points.length; index += 1) length += distance(points[index - 1], points[index]);
-  return length;
+function fixedCoordinate(value) {
+  return Number(value || 0).toFixed(3).padStart(12, "0");
 }
 
-function routeConflictPenalty(points, occupiedSegments) {
-  if (!occupiedSegments.length) return 0;
-  let penalty = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    const source = points[index - 1];
-    const target = points[index];
-    const lengthWeight = Math.max(1, Math.min(8, distance(source, target) / 80));
-    for (const segment of occupiedSegments) {
-      const clearance = segmentDistance(source, target, segment.source, segment.target);
-      const angleSine = segmentAngleSine(source, target, segment.source, segment.target);
-      if (angleSine < .16) {
-        if (clearance < MIN_CABLE_CLEARANCE) {
-          penalty += (MIN_CABLE_CLEARANCE - clearance + 1) ** 2 * 8 * lengthWeight;
-        } else if (clearance < CABLE_LANE_SPACING) {
-          penalty += (CABLE_LANE_SPACING - clearance) ** 2 * 8 * lengthWeight;
-        }
-        continue;
-      }
-      if (segmentsIntersect(source, target, segment.source, segment.target)) {
-        penalty += CROSSING_PENALTY / Math.max(.32, angleSine);
-      } else if (clearance < MIN_CABLE_CLEARANCE) {
-        penalty += (MIN_CABLE_CLEARANCE - clearance) ** 2 * 18 * lengthWeight;
-      }
-    }
-  }
-  return penalty;
+function coordinateKey(value) {
+  return Number(value).toFixed(3);
 }
 
-function segmentAngleSine(leftSource, leftTarget, rightSource, rightTarget) {
-  const left = { x: leftTarget.x - leftSource.x, y: leftTarget.y - leftSource.y };
-  const right = { x: rightTarget.x - rightSource.x, y: rightTarget.y - rightSource.y };
-  const denominator = Math.hypot(left.x, left.y) * Math.hypot(right.x, right.y);
-  return denominator ? Math.abs(left.x * right.y - left.y * right.x) / denominator : 0;
+function canonicalPair(left, right) {
+  return [String(left), String(right)].sort().join("::");
 }
 
-function segmentDistance(leftSource, leftTarget, rightSource, rightTarget) {
-  if (segmentsIntersect(leftSource, leftTarget, rightSource, rightTarget)) return 0;
-  return Math.min(
-    distanceToSegment(leftSource, rightSource, rightTarget),
-    distanceToSegment(leftTarget, rightSource, rightTarget),
-    distanceToSegment(rightSource, leftSource, leftTarget),
-    distanceToSegment(rightTarget, leftSource, leftTarget),
-  );
+function oppositeSide(side) {
+  return side === "left" ? "right" : "left";
 }
 
-function segmentsIntersect(leftSource, leftTarget, rightSource, rightTarget) {
-  const cross = (origin, first, second) =>
-    (first.x - origin.x) * (second.y - origin.y) - (first.y - origin.y) * (second.x - origin.x);
-  const leftA = cross(leftSource, leftTarget, rightSource);
-  const leftB = cross(leftSource, leftTarget, rightTarget);
-  const rightA = cross(rightSource, rightTarget, leftSource);
-  const rightB = cross(rightSource, rightTarget, leftTarget);
-  const boundsOverlap = Math.max(Math.min(leftSource.x, leftTarget.x), Math.min(rightSource.x, rightTarget.x)) <=
-      Math.min(Math.max(leftSource.x, leftTarget.x), Math.max(rightSource.x, rightTarget.x)) + .01 &&
-    Math.max(Math.min(leftSource.y, leftTarget.y), Math.min(rightSource.y, rightTarget.y)) <=
-      Math.min(Math.max(leftSource.y, leftTarget.y), Math.max(rightSource.y, rightTarget.y)) + .01;
-  return boundsOverlap && leftA * leftB <= 0 && rightA * rightB <= 0;
+function rackCenterX(box) {
+  return box ? box.x + box.width / 2 : 0;
 }
 
-function properSegmentIntersection(leftSource, leftTarget, rightSource, rightTarget) {
-  const left = { x: leftTarget.x - leftSource.x, y: leftTarget.y - leftSource.y };
-  const right = { x: rightTarget.x - rightSource.x, y: rightTarget.y - rightSource.y };
-  const denominator = left.x * right.y - left.y * right.x;
-  if (Math.abs(denominator) < 1e-7) return null;
-  const offset = { x: rightSource.x - leftSource.x, y: rightSource.y - leftSource.y };
-  const leftRatio = (offset.x * right.y - offset.y * right.x) / denominator;
-  const rightRatio = (offset.x * left.y - offset.y * left.x) / denominator;
-  const epsilon = 1e-6;
-  if (leftRatio < -epsilon || leftRatio > 1 + epsilon || rightRatio < -epsilon || rightRatio > 1 + epsilon) return null;
-  return {
-    point: { x: leftSource.x + left.x * leftRatio, y: leftSource.y + left.y * leftRatio },
-    angleSine: segmentAngleSine(leftSource, leftTarget, rightSource, rightTarget),
-  };
+function rackID(box) {
+  return box?.rack?.id || box?.id || "";
 }
 
-function flattenRoute(route) {
-  const points = [];
-  let total = 0;
-  for (const curve of routeSegments(route)) {
-    const samples = Math.max(4, Math.ceil(approximateCurveLength(curve) / 7));
-    for (let index = 0; index <= samples; index += 1) {
-      if (points.length && index === 0) continue;
-      const point = pointOnBezier(curve, index / samples);
-      if (points.length) total += distance(points.at(-1), point);
-      points.push({ x: point.x, y: point.y, distance: total });
-    }
-  }
-  return points;
+function boxCenterX(box) {
+  return box.x + box.width / 2;
 }
 
-function routeVertices(route) {
-  const segments = routeSegments(route);
-  if (!segments.length) return [];
-  return [segments[0].source, ...segments.map((segment) => segment.target)];
-}
-
-function polylineSegments(polyline) {
-  const segments = [];
-  for (let index = 1; index < polyline.length; index += 1) {
-    segments.push({
-      source: polyline[index - 1],
-      target: polyline[index],
-      startDistance: polyline[index - 1].distance,
-      endDistance: polyline[index].distance,
-    });
-  }
-  return segments;
-}
-
-function pointAtPolylineDistance(polyline, targetDistance) {
-  if (!polyline.length) return { x: 0, y: 0 };
-  const clamped = Math.max(0, Math.min(polyline.at(-1).distance, targetDistance));
-  for (let index = 1; index < polyline.length; index += 1) {
-    const start = polyline[index - 1];
-    const end = polyline[index];
-    if (clamped > end.distance) continue;
-    const span = end.distance - start.distance;
-    const ratio = span ? (clamped - start.distance) / span : 0;
-    return { x: start.x + (end.x - start.x) * ratio, y: start.y + (end.y - start.y) * ratio };
-  }
-  return { x: polyline.at(-1).x, y: polyline.at(-1).y };
-}
-
-function appendPolylineRange(curves, polyline, startDistance, endDistance) {
-  if (endDistance - startDistance <= .01) return;
-  let cursor = pointAtPolylineDistance(polyline, startDistance);
-  for (const point of polyline) {
-    if (point.distance <= startDistance || point.distance >= endDistance) continue;
-    pushLine(curves, cursor, point);
-    cursor = point;
-  }
-  pushLine(curves, cursor, pointAtPolylineDistance(polyline, endDistance));
-}
-
-function stableBridgeSide(key) {
-  const value = String(key || "bridge");
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) hash = (hash * 31 + value.charCodeAt(index)) | 0;
-  return hash & 1 ? 1 : -1;
-}
-
-function expandRectangle(bounds, amount) {
-  return { x: bounds.x - amount, y: bounds.y - amount, width: bounds.width + amount * 2, height: bounds.height + amount * 2 };
-}
-
-function pointRectangleDistance(point, box) {
-  const dx = Math.max(box.x - point.x, 0, point.x - (box.x + box.width));
-  const dy = Math.max(box.y - point.y, 0, point.y - (box.y + box.height));
-  return Math.hypot(dx, dy);
-}
-
-function containsPoint(bounds, point) {
-  return point.x >= bounds.x && point.x <= bounds.x + bounds.width &&
-    point.y >= bounds.y && point.y <= bounds.y + bounds.height;
-}
-
-function uniqueNumbers(values) {
-  return [...new Set(values.map((value) => Math.round(value * 100) / 100))];
+function axisAligned(source, target) {
+  return Math.abs(source.x - target.x) < .001 || Math.abs(source.y - target.y) < .001;
 }
 
 function collinear(first, middle, last) {
-  return Math.abs((middle.x - first.x) * (last.y - middle.y) - (middle.y - first.y) * (last.x - middle.x)) < .01;
+  return Math.abs((middle.x - first.x) * (last.y - middle.y) -
+    (middle.y - first.y) * (last.x - middle.x)) < .001;
 }
 
-function moveToward(source, target, amount) {
-  const total = distance(source, target);
-  if (!total) return { ...source };
-  return { x: source.x + (target.x - source.x) * amount / total, y: source.y + (target.y - source.y) * amount / total };
+function interpolate(source, target, t) {
+  return { x: source.x + (target.x - source.x) * t, y: source.y + (target.y - source.y) * t };
 }
 
 function distance(source, target) {
   return Math.hypot(target.x - source.x, target.y - source.y);
 }
 
-function approximateCurveLength(curve) {
-  let length = 0; let previous = curve.source;
-  for (let index = 1; index <= 12; index += 1) {
-    const point = pointOnBezier(curve, index / 12);
-    length += distance(previous, point); previous = point;
-  }
-  return length;
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value));
 }

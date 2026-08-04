@@ -76,4 +76,48 @@ freePortEngine.pointerDown({ button: 0, pointerId: 2, preventDefault() {} });
 assert.deepEqual(selectedPort, [{ type: "port", id: "free-port" }]);
 assert.equal(freePortEngine.mode, "DRAFTING_CABLE");
 
+const rearMappedPort = {
+  device: { id: "patch-panel-a", category: "PatchPanel" },
+  port: { id: "mapped-front-port" },
+};
+const rearMappedTarget = {
+  device: { id: "patch-panel-b", category: "PatchPanel" },
+  port: { id: "mapped-front-target" },
+};
+const rearMappedSelections = [];
+const rearMappedPortEngine = Object.create(CanvasEngine.prototype);
+Object.assign(rearMappedPortEngine, {
+  canvas: {
+    setPointerCapture() {},
+    style: {},
+  },
+  state: {
+    topology: {
+      links: [{
+        id: "rear-map",
+        sourcePortId: rearMappedPort.port.id,
+        sourceSide: "rear",
+        targetPortId: rearMappedTarget.port.id,
+        targetSide: "rear",
+      }],
+    },
+    select: (type, id) => rearMappedSelections.push({ type, id }),
+  },
+  camera: { zoom: 1 },
+  isSpaceDown: false,
+  invalidate() {},
+  eventPoint: () => ({ x: 130, y: 80 }),
+  screenToWorld: (point) => point,
+  hitPort: () => rearMappedPort,
+  hitLink: () => { throw new Error("a rear map must not block its front jack"); },
+});
+rearMappedPortEngine.pointerDown({ button: 0, pointerId: 3, preventDefault() {} });
+assert.deepEqual(rearMappedSelections, [{ type: "port", id: rearMappedPort.port.id }]);
+assert.equal(rearMappedPortEngine.mode, "DRAFTING_CABLE",
+  "a rear-mapped jack must still start an independent front cable");
+assert.equal(rearMappedPortEngine.isEligibleTarget(
+  { device: { id: "switch-a" }, port: { id: "switch-port" } },
+  rearMappedTarget,
+), true, "a rear-mapped jack must remain eligible as an independent front target");
+
 console.log("canvas interaction checks passed");

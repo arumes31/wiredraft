@@ -33,6 +33,13 @@ func TestValidationBoundaries(t *testing.T) {
 			candidate.SpeedMbps = 800000
 			return candidate.Validate(candidate.DeviceID, vlanIDs)
 		}},
+		{"coax service port", func() error {
+			candidate := port
+			candidate.Type = PortTypeCoaxF
+			candidate.Label = "DOCSIS"
+			candidate.SpeedMbps = 2500
+			return candidate.Validate(candidate.DeviceID, vlanIDs)
+		}},
 		{"port above maximum speed", func() error {
 			candidate := port
 			candidate.SpeedMbps = 800001
@@ -53,6 +60,11 @@ func TestValidationBoundaries(t *testing.T) {
 		{"device maximum rows", func() error { return validationDevice(port, 4).Validate(vlanIDs) }},
 		{"device too many rows", func() error { return validationDevice(port, 5).Validate(vlanIDs) }},
 		{"link valid primary vlan", func() error { return validationLink(port).Validate(deviceIDs, ports, vlanIDs) }},
+		{"link mixed termination planes", func() error {
+			candidate := validationLink(port)
+			candidate.SourceSide = LinkEndpointSideRear
+			return candidate.Validate(deviceIDs, ports, vlanIDs)
+		}},
 		{"link missing target", func() error {
 			candidate := validationLink(port)
 			candidate.TargetPortID = fixtureUUID(99)
@@ -66,7 +78,7 @@ func TestValidationBoundaries(t *testing.T) {
 			err := test.run()
 			wantError := strings.Contains(test.name, "below") || strings.Contains(test.name, "above") ||
 				strings.Contains(test.name, "outside") || strings.Contains(test.name, "too many") || strings.Contains(test.name, "missing") ||
-				strings.Contains(test.name, "reserved")
+				strings.Contains(test.name, "reserved") || strings.Contains(test.name, "mixed")
 			if (err != nil) != wantError {
 				t.Fatalf("error = %v, wantError = %v", err, wantError)
 			}

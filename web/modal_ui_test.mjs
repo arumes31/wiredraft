@@ -6,7 +6,7 @@ const css = readFileSync(new URL("./static/css/styles.css", import.meta.url), "u
 const appJS = readFileSync(new URL("./static/js/app.js", import.meta.url), "utf8");
 
 const dialogs = [...html.matchAll(/<dialog\s+([^>]+)>([\s\S]*?)<\/dialog>/g)];
-assert.equal(dialogs.length, 12, "every application dialog should be covered by the modal system");
+assert.equal(dialogs.length, 13, "every application dialog should be covered by the modal system");
 
 for (const [, attributes, body] of dialogs) {
   const id = attributes.match(/\bid="([^"]+)"/)?.[1];
@@ -24,7 +24,7 @@ assert.match(css, /\.export-popover \{[^}]*top: calc\(100% \+ 10px\);[^}]*bottom
   "export popup must open downward from the toolbar trigger");
 assert.match(appJS, /async function runExportAction\(action\) \{\s*await action\(\);\s*closeExportMenu\(\);\s*\}/,
   "successful exports must close the popup after their action completes");
-for (const id of ["png-button", "svg-button", "pdf-button", "html-button", "json-button"]) {
+for (const id of ["png-button", "svg-button", "pdf-button", "html-button", "configuration-button", "json-button"]) {
   assert.match(appJS, new RegExp(`getElementById\\("${id}"\\)\\.addEventListener\\("click", \\(\\) => runLazyExport`),
     `${id} must use the lazy auto-closing export action`);
 }

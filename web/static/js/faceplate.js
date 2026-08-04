@@ -29,6 +29,9 @@ const SOURCES = Object.freeze({
   "Generic Lab": "https://www.oiforum.com/technical-work/hot-topics/common-electrical-io-cei-112g-2-0/",
   "Generic Facility": "https://www.apc.com/us/en/product-range/61888-rack-pdu/",
   "Generic KVM": "https://www.raritan.com/products/kvm-serial/kvm-over-ip-switches",
+  "Generic Edge": "https://www.broadband-forum.org/projects/architecture-and-migration/",
+  ADTRAN: "https://www.adtran.com/en/products-and-services/network-termination",
+  "Teltonika Networks": "https://teltonika-networks.com/products/routers/rutx50",
 });
 
 const STATUS_AREA_X = Object.freeze({
@@ -69,6 +72,9 @@ const templates = Object.freeze({
   "generic-patch-panel": template("generic-patch-panel", "Generic Patch", "#343b3d", "#171d1f", "#edf5f3", "#42d9c8", "minimal", "passive", "patch"),
   "generic-switch": template("generic-switch", "Generic", "#344044", "#172124", "#e5eeee", "#57cfc0", "perforated", "status-stack", "switch"),
   "generic-firewall": template("generic-firewall", "Generic", "#3c3e42", "#1b1d21", "#eef0f2", "#ee9e4b", "slots", "status-stack", "firewall"),
+  "wireless-ap": template("wireless-ap", "Wireless", "#e5e9e6", "#c6cfca", "#202829", "#4ec9bc", "minimal", "wireless", "ceiling"),
+  "carrier-edge": template("carrier-edge", "Carrier", "#303a3d", "#151e21", "#e7f0ef", "#54c8dc", "perforated", "signal", "demarc"),
+  "cellular-edge": template("cellular-edge", "Cellular", "#3b4141", "#1a2021", "#eef1ed", "#e3a44d", "louvers", "signal", "rugged"),
   "generic-device": template("generic-device", "Generic", "#3a4143", "#191f21", "#e8eeee", "#69c7bb", "perforated", "status-stack", "device"),
 });
 
@@ -101,6 +107,11 @@ export function resolveFaceplateTemplate(device) {
 
   if (vendor === "Static" || category === "Server") return sourcedTemplate(templates["static-server"], vendor);
   if (category === "PatchPanel") return sourcedTemplate(templates["generic-patch-panel"], vendor);
+  if (category === "AccessPoint") return sourcedTemplate(templates["wireless-ap"], vendor);
+  if (category === "Modem") return sourcedTemplate(templates["carrier-edge"], vendor);
+  if (category === "Router" && /FortiExtender|RUTX|IR1101|\b(?:LTE|5G|Cellular)\b/i.test(model)) {
+    return sourcedTemplate(templates["cellular-edge"], vendor);
+  }
   if (vendor === "Fortinet") {
     if (/Rugged/i.test(model)) return templates["fortinet-rugged"];
     if (/FortiSwitch/i.test(model)) return templates["fortinet-switch"];

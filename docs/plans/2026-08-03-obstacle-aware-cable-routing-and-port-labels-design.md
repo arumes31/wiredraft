@@ -1,5 +1,7 @@
 # Obstacle-aware cable routing and visible port labels
 
+> Superseded by [Individual-track cable routing](./2026-08-04-individual-track-cable-routing-design.md), which replaces cubic routes and outer vertical stubs with zero-extension orthogonal faceplate exits and rack gutters.
+
 ## Outcome
 
 Cables remain visible between their endpoints instead of passing behind unrelated equipment. A connected cable may cover only its own connector and the shortest exit path from that connector; it should avoid other port banks whenever the topology leaves a viable route. Permanent physical interface names remain readable above cable terminations.

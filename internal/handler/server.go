@@ -433,10 +433,17 @@ func (s *Server) createLinks(w http.ResponseWriter, request *http.Request) {
 }
 
 func activateLinkEndpointPorts(topology *model.Topology, link model.Link) {
+	frontPortIDs := make(map[string]struct{}, 2)
+	if link.EffectiveSourceSide() == model.LinkEndpointSideFront {
+		frontPortIDs[link.SourcePortID] = struct{}{}
+	}
+	if link.EffectiveTargetSide() == model.LinkEndpointSideFront {
+		frontPortIDs[link.TargetPortID] = struct{}{}
+	}
 	for deviceIndex := range topology.Devices {
 		for portIndex := range topology.Devices[deviceIndex].Ports {
 			port := &topology.Devices[deviceIndex].Ports[portIndex]
-			if port.ID == link.SourcePortID || port.ID == link.TargetPortID {
+			if _, connected := frontPortIDs[port.ID]; connected {
 				port.Status = model.PortStatusUp
 			}
 		}
@@ -477,6 +484,9 @@ func applyLinkConfiguration(
 	selectedLinkIndex := slicesIndex(topology.Links, func(link model.Link) bool { return link.ID == linkID })
 	if selectedLinkIndex < 0 {
 		return store.ErrNotFound
+	}
+	if topology.Links[selectedLinkIndex].IsRearPanelConnection() {
+		return fmt.Errorf("%w: rear panel mappings do not carry switchport configuration", store.ErrInvalid)
 	}
 	if !slices.Contains([]model.PortMode{model.PortModeAccess, model.PortModeTrunk, model.PortModeHybrid}, input.Mode) {
 		return fmt.Errorf("%w: unsupported link port mode %q", store.ErrInvalid, input.Mode)
@@ -575,13 +585,20 @@ func (s *Server) deleteLink(w http.ResponseWriter, request *http.Request) {
 }
 
 func deactivateUnlinkedEndpointPorts(topology *model.Topology, removedLink model.Link) {
-	unlinkedPortIDs := map[string]struct{}{
-		removedLink.SourcePortID: {},
-		removedLink.TargetPortID: {},
+	unlinkedPortIDs := make(map[string]struct{}, 2)
+	if removedLink.EffectiveSourceSide() == model.LinkEndpointSideFront {
+		unlinkedPortIDs[removedLink.SourcePortID] = struct{}{}
+	}
+	if removedLink.EffectiveTargetSide() == model.LinkEndpointSideFront {
+		unlinkedPortIDs[removedLink.TargetPortID] = struct{}{}
 	}
 	for _, link := range topology.Links {
-		delete(unlinkedPortIDs, link.SourcePortID)
-		delete(unlinkedPortIDs, link.TargetPortID)
+		if link.EffectiveSourceSide() == model.LinkEndpointSideFront {
+			delete(unlinkedPortIDs, link.SourcePortID)
+		}
+		if link.EffectiveTargetSide() == model.LinkEndpointSideFront {
+			delete(unlinkedPortIDs, link.TargetPortID)
+		}
 	}
 	if len(unlinkedPortIDs) == 0 {
 		return
@@ -1504,6 +1521,9 @@ func pruneCollaborationReferences(topology *model.Topology) {
 		keep := thread.Anchor.Kind == model.CommentAnchorCanvas
 		if thread.Anchor.Kind == model.CommentAnchorDevice {
 			_, keep = devices[thread.Anchor.TargetID]
+		}
+		if thread.Anchor.Kind == model.CommentAnchorPort {
+			_, keep = ports[thread.Anchor.TargetID]
 		}
 		if thread.Anchor.Kind == model.CommentAnchorLink {
 			_, keep = links[thread.Anchor.TargetID]

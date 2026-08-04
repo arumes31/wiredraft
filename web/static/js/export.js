@@ -1,7 +1,15 @@
-import { obstacleAwareCableRoute, orderedCableLinks, routeSegments, routeWithCrossingBridges } from "./cabling.js";
+import {
+  assignCableTracks, cableBezier, cableDashPattern, CABLE_OUTLINE_WIDTH, cableRole, orderedCableLinks,
+  routeSegments, routesWithCrossingBridges,
+} from "./cabling.js";
 import { resolveFaceplateTemplate } from "./faceplate.js";
 import { linkVLANPalette, vlanBandPattern } from "./link-vlan-colors.js";
-import { connectorSize, portDescriptionPlacement } from "./termination.js";
+import { layoutEndpointBadges, linkEndpointBadges } from "./link-end-labels.js";
+import { isRearPanelLink, RearPanelLinkVisual } from "./patch-panels.js";
+import { connectorKind, connectorSize, portDescriptionPlacement } from "./termination.js";
+import { buildConfigurationDocument } from "./configuration-report.js";
+
+export { buildConfigurationDocument };
 
 function download(name, blob) {
   const anchor = document.createElement("a");
@@ -39,6 +47,11 @@ export async function exportPDF(topology, engine) {
 export function exportHTML(topology, engine) {
   const document = buildHTMLDocument(topology, engine);
   download(`${fileBase(topology)}.html`, new Blob([document], { type: "text/html;charset=utf-8" }));
+}
+
+export function exportConfiguration(topology) {
+  const document = buildConfigurationDocument(topology);
+  download(`${fileBase(topology)}-configuration.html`, new Blob([document], { type: "text/html;charset=utf-8" }));
 }
 
 export function buildPDFDocument(jpegBytes, imageWidth, imageHeight, title = "Network topology") {
@@ -148,19 +161,36 @@ export function buildSVGDocument(topology, engine) {
   const height = Math.ceil(bounds.height + 100);
   const portPoints = engine.portCenters();
   const rackBoxes = engine.rackRectangles();
-  const deviceBoxes = new Map(engine.deviceRectangles().map((box) => [box.device.id, box]));
-  const portOwners = new Map(topology.devices.flatMap((device) => device.ports.map((port) => [port.id, device.id])));
+  const deviceBoxList = engine.deviceRectangles();
+  const deviceBoxes = new Map(deviceBoxList.map((box) => [box.device.id, box]));
   const portGeometry = new Map(topology.devices.flatMap((device) => device.ports.map((port) => {
     const point = portPoints.get(port.id); const size = connectorSize(port.type);
     return [port.id, point ? { x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height } : null];
   })).filter(([, box]) => box));
+  const portBoxes = topology.devices.flatMap((device) => device.ports.map((port) => {
+    const point = portPoints.get(port.id);
+    const geometry = portGeometry.get(port.id);
+    return point && geometry ? {
+      port,
+      device,
+      ...geometry,
+      centerX: point.x,
+      centerY: point.y,
+    } : null;
+  })).filter(Boolean);
   const renderedLinks = [];
-  const occupiedRoutes = [];
-  const bundleRoutes = new Map();
   const groupByLink = new Map();
   for (const group of topology.linkGroups || []) {
     for (const linkID of group.linkIds || []) groupByLink.set(linkID, group);
   }
+  const orderedLinks = orderedCableLinks(topology);
+  const baseTracks = assignCableTracks({
+    links: orderedLinks,
+    portBoxes,
+    deviceBoxes: deviceBoxList,
+    rackBoxes,
+  });
+  const portBoxMap = new Map(portBoxes.map((box) => [box.port.id, box]));
   const renderedPortLabels = [];
   const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
     `<style>text{font-family:'DIN Condensed',sans-serif}.name{font-size:14px;font-weight:bold;letter-spacing:1px}.model{font-size:9px}.port{fill:#091012;stroke:#60757a;stroke-width:1}.port-label{font-weight:700;text-anchor:middle;dominant-baseline:middle}</style>`,
@@ -176,32 +206,33 @@ export function buildSVGDocument(topology, engine) {
       parts.push(`<path d="M${x + 30} ${lineY}H${x + box.width - 30}" stroke="#304347" stroke-width="1"/>`);
     }
   }
-  for (const link of orderedCableLinks(topology)) {
+  const plannedLinks = [];
+  for (const link of orderedLinks) {
     const source = portPoints.get(link.sourcePortId);
     const target = portPoints.get(link.targetPortId);
     if (!source || !target) continue;
     const group = groupByLink.get(link.id);
-    const preferredRoutes = group ? bundleRoutes.get(group.id) || [] : [];
-    const baseRoute = obstacleAwareCableRoute({ x: source.x, y: source.y }, { x: target.x, y: target.y }, {
-      sourceBounds: deviceBoxes.get(portOwners.get(link.sourcePortId)),
-      targetBounds: deviceBoxes.get(portOwners.get(link.targetPortId)),
-      obstacles: [...deviceBoxes.values()],
-      portObstacles: [...portGeometry.values()],
-      occupiedRoutes,
-      preferredRoutes,
+    const baseRoute = baseTracks.get(link.id) || cableBezier(source, target);
+    const role = cableRole(link, portBoxMap.get(link.sourcePortId), portBoxMap.get(link.targetPortId), {
+      crossRack: baseRoute.crossRack,
+      group,
     });
-    const route = routeWithCrossingBridges(baseRoute, occupiedRoutes, { key: link.id });
-    occupiedRoutes.push(baseRoute);
-    if (group) {
-      const routes = bundleRoutes.get(group.id) || [];
-      routes.push(baseRoute);
-      bundleRoutes.set(group.id, routes);
-    }
+    const dash = cableDashPattern(link, portBoxMap.get(link.sourcePortId), portBoxMap.get(link.targetPortId), { group, role });
+    plannedLinks.push({ link, group, baseRoute, role, dash });
+  }
+  const bridgedRoutes = routesWithCrossingBridges(plannedLinks.map(({ baseRoute }) => baseRoute));
+  for (let index = 0; index < plannedLinks.length; index += 1) {
+    const { link, group, baseRoute, role, dash } = plannedLinks[index];
+    const route = bridgedRoutes[index];
     const translated = translateRoute(route, offsetX, offsetY);
     const palette = linkVLANPalette(topology, link);
     const path = svgRoutePath(translated);
     const basePath = svgRoutePath(translateRoute(baseRoute, offsetX, offsetY));
-    renderedLinks.push({ link, route, path, basePath, palette });
+    renderedLinks.push({
+      link, group, route, path, basePath, palette, role, dash,
+      badges: linkEndpointBadges(topology, link, translated),
+      rearMapping: isRearPanelLink(link),
+    });
   }
   for (const device of topology.devices) {
     const box = deviceBoxes.get(device.id);
@@ -263,8 +294,14 @@ export function buildSVGDocument(topology, engine) {
       const point = portPoints.get(port.id);
       if (point) {
         const size = connectorSize(port.type);
+        const kind = connectorKind(port.type);
         const portLabel = String(port.label || `PORT ${port.portIndex || ""}`).trim();
-        parts.push(`<rect class="port" x="${point.x + offsetX - size.width / 2}" y="${point.y + offsetY - size.height / 2}" width="${size.width}" height="${size.height}" rx="2"/>`);
+        if (kind === "coax") {
+          parts.push(`<circle class="port" cx="${point.x + offsetX}" cy="${point.y + offsetY}" r="${size.width / 2}"/>`);
+          parts.push(`<circle cx="${point.x + offsetX}" cy="${point.y + offsetY}" r="1.5" fill="#536265"/>`);
+        } else {
+          parts.push(`<rect class="port" x="${point.x + offsetX - size.width / 2}" y="${point.y + offsetY - size.height / 2}" width="${size.width}" height="${size.height}" rx="2"/>`);
+        }
         const portBox = {
           port: { ...port, label: portLabel }, centerX: point.x, centerY: point.y,
           x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height,
@@ -283,10 +320,18 @@ export function buildSVGDocument(topology, engine) {
       if (!underEntry || underEntry === upperEntry) continue;
       const clipID = `bridge-underpass-${upperIndex}-${bridgeIndex}`;
       parts.push(`<defs><clipPath id="${clipID}"><circle cx="${bridge.crossing.x + offsetX}" cy="${bridge.crossing.y + offsetY}" r="${bridge.openingRadius || 5}"/></clipPath></defs>`);
-      parts.push(`<g data-layer="bridge-underpass" clip-path="url(#${clipID})">`);
-      parts.push(...svgCableElements({ ...underEntry, path: underEntry.basePath || underEntry.path }));
+      parts.push(`<g data-layer="bridge-jumper" data-under-link="${escapeXML(underEntry.link.id)}" clip-path="url(#${clipID})">`);
+      parts.push(...svgCableElements(upperEntry));
       parts.push(`</g>`);
     }
+  }
+  const endpointBadges = layoutEndpointBadges(renderedLinks.flatMap((entry) => entry.badges), {
+    charWidth: 4.1, height: 11, padding: 5,
+  });
+  for (const badge of endpointBadges) {
+    parts.push(`<g data-layer="link-end-label" data-endpoint="${badge.endpoint}"><title>${escapeXML(badge.fullText)}</title>`);
+    parts.push(`<rect x="${badge.x - badge.width / 2}" y="${badge.y - badge.height / 2}" width="${badge.width}" height="${badge.height}" rx="2.5" fill="#050a0c" fill-opacity=".94" stroke="#e1efef" stroke-opacity=".72" stroke-width="1"/>`);
+    parts.push(`<text x="${badge.x}" y="${badge.y + .25}" fill="#edf7f6" font-size="6" font-weight="700" text-anchor="middle" dominant-baseline="middle">${escapeXML(badge.text)}</text></g>`);
   }
   for (const label of renderedPortLabels) {
     const x = label.x + label.offsetX; const y = label.y + label.offsetY;
@@ -319,21 +364,59 @@ function translateRoute(route, offsetX, offsetY) {
     cp2: { x: curve.cp2.x + offsetX, y: curve.cp2.y + offsetY },
     target: { x: curve.target.x + offsetX, y: curve.target.y + offsetY },
   }));
-  return { source: segments[0].source, target: segments.at(-1).target, segments };
+  return {
+    ...route,
+    source: segments[0].source,
+    target: segments.at(-1).target,
+    points: [segments[0].source, ...segments.map((segment) => segment.target)],
+    segments,
+    bridges: (route.bridges || []).map((bridge) => ({
+      ...bridge,
+      crossing: { x: bridge.crossing.x + offsetX, y: bridge.crossing.y + offsetY },
+      apex: { x: bridge.apex.x + offsetX, y: bridge.apex.y + offsetY },
+    })),
+  };
 }
 
-function svgRoutePath(route) {
+export function svgRoutePath(route) {
   const segments = routeSegments(route);
-  return `M${segments[0].source.x} ${segments[0].source.y} ` + segments.map((curve) =>
-    `C${curve.cp1.x} ${curve.cp1.y},${curve.cp2.x} ${curve.cp2.y},${curve.target.x} ${curve.target.y}`).join(" ");
+  if (!segments.length) return "";
+  const commands = [`M${segments[0].source.x} ${segments[0].source.y}`];
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+    const segment = segments[segmentIndex];
+    const horizontal = Math.abs(segment.source.y - segment.target.y) < .001;
+    const direction = segment.target.x >= segment.source.x ? 1 : -1;
+    const bridges = (route.bridges || []).filter((bridge) => bridge.segmentIndex === segmentIndex)
+      .sort((left, right) => direction > 0 ? left.crossing.x - right.crossing.x : right.crossing.x - left.crossing.x);
+    if (!horizontal || !bridges.length) {
+      commands.push(horizontal ? `H${segment.target.x}` : `V${segment.target.y}`);
+      continue;
+    }
+    for (const bridge of bridges) {
+      const radius = bridge.radius || 5;
+      commands.push(`H${bridge.crossing.x - direction * radius}`);
+      commands.push(`A${radius} ${radius} 0 0 ${direction > 0 ? 1 : 0} ${bridge.crossing.x + direction * radius} ${bridge.crossing.y}`);
+    }
+    commands.push(`H${segment.target.x}`);
+  }
+  return commands.join(" ");
 }
 
 function svgCableElements(entry) {
+  if (entry.rearMapping) {
+    return [
+      `<path data-layer="panel-rear-map-casing" data-route-kind="${entry.route?.routeKind || "orthogonal"}" data-bundle-index="${entry.route?.bundleIndex ?? 0}" d="${entry.path}" fill="none" stroke="#020505" stroke-width="${RearPanelLinkVisual.casingWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${RearPanelLinkVisual.casingOpacity}"/>`,
+      `<path data-layer="panel-rear-map" d="${entry.path}" fill="none" stroke="${RearPanelLinkVisual.color}" stroke-width="${RearPanelLinkVisual.strokeWidth}" stroke-linecap="butt" stroke-linejoin="round" stroke-dasharray="${RearPanelLinkVisual.dash.join(" ")}" opacity="${RearPanelLinkVisual.opacity}"/>`,
+    ];
+  }
+  const dash = entry.dash?.length ? ` stroke-dasharray="${entry.dash.join(" ")}"` : "";
+  const roleWidth = 4.25;
   const elements = [
-    `<path data-layer="cable" d="${entry.path}" fill="none" stroke="#020505" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>`,
+    `<path data-layer="cable-outline" data-route-kind="${entry.route?.routeKind || "orthogonal"}" data-bundle-index="${entry.route?.bundleIndex ?? 0}" d="${entry.path}" fill="none" stroke="#020505" stroke-width="${roleWidth + CABLE_OUTLINE_WIDTH * 2}" stroke-linecap="round" stroke-linejoin="round"/>`,
   ];
+  elements.push(`<path data-layer="cable-role" data-role="${entry.role.key}" d="${entry.path}" fill="none" stroke="${entry.role.color}" stroke-width="${roleWidth}" stroke-linecap="round" stroke-linejoin="round" opacity=".78"${dash}/>`);
   if (!entry.palette.isRainbow) {
-    elements.push(`<path data-layer="cable" data-vlan="${entry.palette.nativeVlanID}" d="${entry.path}" fill="none" stroke="${entry.palette.nativeColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`);
+    elements.push(`<path data-layer="cable" data-vlan="${entry.palette.nativeVlanID}" d="${entry.path}" fill="none" stroke="${entry.palette.nativeColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"${dash}/>`);
     return elements;
   }
   elements.push(`<path data-layer="cable-native" data-vlan="${entry.palette.nativeVlanID}" d="${entry.path}" fill="none" stroke="${entry.palette.nativeColor}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>`);

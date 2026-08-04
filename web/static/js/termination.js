@@ -12,6 +12,7 @@ export function connectorKind(type = "") {
   if (type === "USB_C_CONSOLE") return "usb-c";
   if (type === "Stack") return "stack";
   if (type === "DSL_RJ11") return "dsl";
+  if (type === "COAX_F") return "coax";
   if (type === "Console") return "console";
   if (type === "Power") return "power";
   return "rj45";
@@ -30,6 +31,7 @@ export function connectorSize(type = "") {
   if (kind === "usb-c") return { width: 15, height: 7 };
   if (kind === "stack") return { width: 22, height: 16 };
   if (kind === "dsl") return { width: 14, height: 11 };
+  if (kind === "coax") return { width: 15, height: 15 };
   if (kind === "console") return { width: 16, height: 12 };
   if (kind === "power") return { width: 18, height: 16 };
   return { width: 18, height: 14 };

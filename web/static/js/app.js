@@ -6,13 +6,14 @@ import {
   GRAPHICS_STORAGE_KEY, GraphicsMode, graphicsProfileSummary, normalizeGraphicsMode,
 } from "./graphics-quality.js";
 import {
-  TopologyCollaboration, absoluteShareURL, isRevisionConflict, validateDocumentationURL,
+  TopologyCollaboration, absoluteShareURL, commentAnchorLabel, commentPreview, commentThreadsForAnchor,
+  isRevisionConflict, selectedCommentAnchor, validateDocumentationURL,
 } from "./collaboration.js";
 import {
   ServerCardTypes, defaultServerCards, instantiateGenericServerBack, serverCardType, serverSlotCapacity,
 } from "./server-cards.js";
 import {
-  instantiatePatchPanel, patchPanelDevices, planPatchPanelMapping,
+  isRearPanelLink, patchPanelDevices, planPatchPanelMapping,
 } from "./patch-panels.js";
 import { usedRackUnits } from "./rack.js";
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./link-groups.js";
@@ -33,17 +34,18 @@ import { ToastQueue } from "./toast-queue.js";
 import { topologySize, topologySizeMessage } from "./topology-size.js";
 import { TopologyMinimap } from "./minimap.js";
 import { renderTopologyTree } from "./topology-tree.js";
+import { ACTIVE_MAP_STORAGE_KEY, nextMapName, preferredTopologyID } from "./maps.js";
 
 const state = new AppState();
 api.setRevisionProvider(() => state.topology?.revision);
-const cableMediaTypes = ["CAT5E", "CAT6", "CAT6A", "FIBER", "SMF", "MMF", "DAC", "AOC", "TWINAX"];
+const cableMediaTypes = ["CAT5E", "CAT6", "CAT6A", "COAX", "FIBER", "SMF", "MMF", "DAC", "AOC", "TWINAX"];
 const elements = Object.fromEntries([
-  "topology-select", "connection-status", "topology-name", "rack-count", "device-count", "physical-device-count", "link-count", "vlan-count",
+  "topology-select", "topology-count", "topology-dialog", "topology-form", "connection-status", "topology-name", "rack-count", "device-count", "physical-device-count", "link-count", "vlan-count",
   "workspace", "selection-inspector", "vlan-palette", "analysis-count", "analysis-list", "stp-count", "stp-list", "inspector-empty", "inspector-content", "zoom-readout",
   "pointer-readout", "toast", "device-dialog", "device-form", "vlan-modal", "vlan-form", "vlan-manager-list",
   "trace-dialog", "trace-form", "rack-dialog", "rack-form", "static-server-dialog", "static-server-form",
   "server-card-list", "server-card-count", "server-back-preview", "install-server-button",
-  "patch-panel-dialog", "patch-panel-form", "patch-panel-map-dialog", "patch-panel-map-form",
+  "patch-panel-dialog", "patch-panel-form", "patch-panel-profile-summary", "patch-panel-map-dialog", "patch-panel-map-form",
   "patch-map-target-end", "patch-map-count", "patch-map-pairs", "patch-map-error", "create-patch-map-button",
   "link-group-dialog", "link-group-form", "link-group-summary", "switch-system-dialog", "switch-system-form",
   "switch-system-members", "switch-system-member-count", "firewall-cluster-dialog", "firewall-cluster-form",
@@ -93,6 +95,7 @@ let exportModulePromise = null;
 let analysisUIModulePromise = null;
 let shareEntries = [];
 let createdShareURL = "";
+let topologySummaries = [];
 
 let pendingServerCards = [];
 let serverCardSequence = 0;
@@ -130,14 +133,14 @@ initialize().catch(showError);
 
 async function initialize() {
   elements["loading-skeleton"].hidden = false;
-  const topologies = await api.listTopologies();
-  fillTopologySelect(topologies);
-  if (!topologies.length) {
+  topologySummaries = await api.listTopologies();
+  fillTopologySelect(topologySummaries);
+  if (!topologySummaries.length) {
     const created = await api.createTopology({ name: "Untitled topology", template: "demo" });
     await loadTopology(created.id);
     return;
   }
-  await loadTopology(topologies[0].id);
+  await loadTopology(preferredTopologyID(topologySummaries, rememberedTopologyID()));
   requestAnimationFrame(() => canvas.fit());
 }
 
@@ -153,6 +156,7 @@ async function loadTopology(id) {
   state.setTopology(topology);
   autosave.markSaved();
   elements["topology-select"].value = id;
+  rememberTopologyID(id);
   events.connect(topology);
   await refreshAnalysis();
   elements["loading-skeleton"].hidden = true;
@@ -166,6 +170,52 @@ function fillTopologySelect(topologies) {
     option.textContent = topology.name;
     return option;
   }));
+  elements["topology-count"].textContent = `${topologies.length} MAP${topologies.length === 1 ? "" : "S"}`;
+}
+
+function rememberedTopologyID() {
+  try {
+    return localStorage.getItem(ACTIVE_MAP_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberTopologyID(id) {
+  try {
+    localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, id);
+  } catch {
+    // Storage can be unavailable in private or embedded browsing contexts.
+  }
+}
+
+function openTopologyDialog() {
+  elements["topology-form"].reset();
+  elements["topology-form"].elements.name.value = nextMapName(topologySummaries);
+  elements["topology-dialog"].showModal();
+  requestAnimationFrame(() => elements["topology-form"].elements.name.select());
+}
+
+async function createTopology(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = form.querySelector('button[value="create"]');
+  const data = new FormData(form);
+  submit.disabled = true;
+  try {
+    const created = await api.createTopology({
+      name: String(data.get("name")).trim(),
+      template: String(data.get("template")),
+    });
+    topologySummaries = await api.listTopologies();
+    fillTopologySelect(topologySummaries);
+    elements["topology-dialog"].close();
+    await loadTopology(created.id);
+    requestAnimationFrame(() => canvas.fit());
+    toast(`Map created · ${created.name}`);
+  } finally {
+    submit.disabled = false;
+  }
 }
 
 function renderTopology() {
@@ -281,6 +331,7 @@ function renderInspector() {
   if (selection.type === "device") renderDeviceInspector(selection.id);
   if (selection.type === "link") renderLinkInspector(selection.id);
   if (selection.type === "annotation") renderAnnotationInspector(selection.id);
+  renderCommentInspector(selection);
   renderDocumentationInspector(selection);
 }
 
@@ -320,6 +371,25 @@ function renderDocumentationInspector(selection) {
   section.className = "inspector-documents";
   section.innerHTML = `<div class="section-heading"><h3>DOCUMENTATION</h3><span>${links.length} LINK${links.length === 1 ? "" : "S"}</span></div>
     ${links.map((item) => `<a href="${escapeHTML(item.url)}" target="_blank" rel="noopener noreferrer"><span>${escapeHTML(item.label)}</span><b>OPEN ↗</b></a>`).join("")}`;
+  elements["inspector-content"].append(section);
+}
+
+function renderCommentInspector(selection) {
+  const anchor = selectedCommentAnchor(selection);
+  if (!anchor) return;
+  const allThreads = commentThreadsForAnchor(state.topology, anchor.kind, anchor.targetId, { includeResolved: true });
+  const preview = commentPreview(state.topology, anchor.kind, anchor.targetId, { maxThreads: 2, maxBodyLength: 96 });
+  const resolvedCount = allThreads.filter((thread) => thread.resolved).length;
+  const section = document.createElement("section");
+  section.className = "inspector-comments";
+  section.innerHTML = `
+    <div class="section-heading"><h3>COMMENTS</h3><span>${preview.count} OPEN${resolvedCount ? ` · ${resolvedCount} RESOLVED` : ""}</span></div>
+    <div class="inspector-comment-preview">
+      ${preview.entries.length ? preview.entries.map((entry) => `<p><b>${escapeHTML(entry.author)}</b><span>${escapeHTML(entry.body)}</span></p>`).join("") : `<p class="is-empty"><span>No open notes on this ${escapeHTML(anchor.kind)}.</span></p>`}
+      ${preview.remaining ? `<em>+${preview.remaining} MORE OPEN THREAD${preview.remaining === 1 ? "" : "S"}</em>` : ""}
+    </div>
+    <button type="button" class="secondary inspector-comment-add">ADD COMMENT</button>`;
+  section.querySelector(".inspector-comment-add").addEventListener("click", () => openCollaboration({ focusComment: true }).catch(showError));
   elements["inspector-content"].append(section);
 }
 
@@ -508,6 +578,10 @@ function renderLinkInspector(linkID) {
   if (!link) return;
   const source = findPort(state.topology, link.sourcePortId);
   const target = findPort(state.topology, link.targetPortId);
+  if (isRearPanelLink(link)) {
+    renderRearPanelLinkInspector(link, source, target);
+    return;
+  }
   const group = groupForLink(state.topology, link.id);
   const issueCount = state.analysis.issues.filter((issue) => issue.linkId === link.id || (group && issue.groupId === group.id)).length;
   const failoverRole = group?.mode === "Failover" ? (group.primaryLinkId === link.id ? "PRIMARY" : "BACKUP") : "";
@@ -598,8 +672,24 @@ function renderLinkInspector(linkID) {
   }
 }
 
+function renderRearPanelLinkInspector(link, source, target) {
+  elements["inspector-content"].innerHTML = `
+    <div class="inspector-title"><p class="eyebrow">PASSIVE REAR TERMINATION</p><h3>${escapeHTML(link.cableType)}</h3><p>${escapeHTML(source?.device.name || "Unknown")} ↔ ${escapeHTML(target?.device.name || "Unknown")}</p></div>
+    <div class="metric-grid"><span>SOURCE BACKPORT<b>${escapeHTML(source?.port.label || "—")}</b></span><span>TARGET BACKPORT<b>${escapeHTML(target?.port.label || "—")}</b></span><span>TERMINATION<b>REAR</b></span><span>FRONT JACKS<b>AVAILABLE SEPARATELY</b></span></div>
+    <section class="rear-map-inspector">
+      <header><span>PERMANENT LINK</span><b>FRONT JACKS REMAIN CABLEABLE</b></header>
+      <div><span><i>REAR</i><b>${escapeHTML(source?.device.name || "Unknown panel")}</b><em>${escapeHTML(source?.port.label || "—")}</em></span><strong>↔</strong><span><i>REAR</i><b>${escapeHTML(target?.device.name || "Unknown panel")}</b><em>${escapeHTML(target?.port.label || "—")}</em></span></div>
+      <p>${escapeHTML(link.notes || "Panel backports are mapped one-to-one.")}</p>
+    </section>
+    <div class="inspector-actions"><button id="focus-link" class="secondary">FOCUS REAR RUN</button><button id="delete-link" class="danger">REMOVE REAR MAP</button></div>`;
+  document.getElementById("focus-link").addEventListener("click", () => state.setTrace([link.id]));
+  document.getElementById("delete-link").addEventListener("click", () => deleteLink(link));
+}
+
 function bindControls() {
   elements["topology-select"].addEventListener("change", (event) => loadTopology(event.target.value).catch(showError));
+  document.getElementById("add-topology-button").addEventListener("click", openTopologyDialog);
+  elements["topology-form"].addEventListener("submit", (event) => createTopology(event).catch(showError));
   elements["graphics-quality"].addEventListener("change", (event) => {
     const mode = normalizeGraphicsMode(event.target.value);
     canvas.setGraphicsMode(mode);
@@ -616,7 +706,7 @@ function bindControls() {
   document.getElementById("add-rack-button").addEventListener("click", () => elements["rack-dialog"].showModal());
   document.getElementById("add-device-button").addEventListener("click", () => openDeviceDialog().catch(showError));
   document.getElementById("add-server-button").addEventListener("click", openStaticServerDialog);
-  document.getElementById("add-patch-panel-button").addEventListener("click", openPatchPanelDialog);
+  document.getElementById("add-patch-panel-button").addEventListener("click", () => openPatchPanelDialog().catch(showError));
   document.getElementById("patch-panel-map-button").addEventListener("click", openPatchPanelMapDialog);
   document.getElementById("vlan-button").addEventListener("click", () => elements["vlan-modal"].showModal());
   document.getElementById("trace-button").addEventListener("click", () => elements["trace-dialog"].showModal());
@@ -630,6 +720,7 @@ function bindControls() {
   document.getElementById("svg-button").addEventListener("click", () => runLazyExport("exportSVG", state.topology, canvas).catch(showError));
   document.getElementById("pdf-button").addEventListener("click", () => runLazyExport("exportPDF", state.topology, canvas).catch(showError));
   document.getElementById("html-button").addEventListener("click", () => runLazyExport("exportHTML", state.topology, canvas).catch(showError));
+  document.getElementById("configuration-button").addEventListener("click", () => runLazyExport("exportConfiguration", state.topology).catch(showError));
   document.getElementById("json-button").addEventListener("click", () => runLazyExport("exportJSON", state.topology).catch(showError));
   document.getElementById("import-button").addEventListener("click", () => {
     closeExportMenu();
@@ -649,7 +740,8 @@ function bindControls() {
   elements["server-card-list"].addEventListener("change", handleServerCardChange);
   elements["server-card-list"].addEventListener("input", handleServerCardInput);
   elements["patch-panel-form"].addEventListener("submit", installPatchPanel);
-  elements["patch-panel-form"].elements.portCount.addEventListener("change", renderPatchPanelMiniature);
+  elements["patch-panel-form"].elements.model.addEventListener("change", updatePatchPanelProfile);
+  elements["patch-panel-form"].elements.color.addEventListener("input", renderPatchPanelMiniature);
   elements["patch-panel-map-form"].addEventListener("submit", createPatchPanelMapping);
   elements["patch-panel-map-form"].addEventListener("input", renderPatchPanelMappingPreview);
   elements["patch-panel-map-form"].addEventListener("change", renderPatchPanelMappingPreview);
@@ -764,23 +856,25 @@ function saveTextAnnotation(event) {
   selectCanvasTool("select");
 }
 
-async function openCollaboration() {
+async function openCollaboration({ focusComment = false } = {}) {
   shareEntries = await api.listShares(state.topology.id);
   createdShareURL = "";
   renderCollaboration();
   elements["collaboration-dialog"].showModal();
+  if (focusComment) requestAnimationFrame(() => elements["comment-form"].elements.body.focus());
 }
 
 function collaborationTarget() {
   const selection = state.selection;
   if (!selection || !["rack", "device", "port", "link"].includes(selection.type)) return { targetKind: "topology", targetId: state.topology.id, label: state.topology.name };
-  return { targetKind: selection.type, targetId: selection.id, label: `${selection.type.toUpperCase()} · ${selection.id.slice(0, 8)}` };
+  const anchor = selectedCommentAnchor(selection);
+  const label = anchor ? commentAnchorLabel(state.topology, anchor) : `${selection.type.toUpperCase()} · ${selection.id.slice(0, 8)}`;
+  return { targetKind: selection.type, targetId: selection.id, label };
 }
 
 function commentAnchor() {
-  if (["device", "link"].includes(state.selection?.type)) {
-    return { kind: state.selection.type, targetId: state.selection.id };
-  }
+  const selectedAnchor = selectedCommentAnchor(state.selection);
+  if (selectedAnchor) return selectedAnchor;
   if (state.selection?.type === "annotation") {
     const annotation = (state.topology.annotations || []).find((item) => item.id === state.selection.id);
     if (annotation) return { kind: "canvas", x: annotation.x1, y: annotation.y1 };
@@ -793,10 +887,16 @@ function renderCollaboration() {
   if (!state.topology) return;
   const target = collaborationTarget();
   elements["collaboration-target"].textContent = target.label;
-  const threads = state.topology.commentThreads || [];
+  const activeAnchor = selectedCommentAnchor(state.selection);
+  const threads = [...(state.topology.commentThreads || [])].sort((left, right) => {
+    const leftActive = activeAnchor && left.anchor.kind === activeAnchor.kind && left.anchor.targetId === activeAnchor.targetId;
+    const rightActive = activeAnchor && right.anchor.kind === activeAnchor.kind && right.anchor.targetId === activeAnchor.targetId;
+    return Number(rightActive) - Number(leftActive) || String(right.updatedAt || "").localeCompare(String(left.updatedAt || ""));
+  });
   elements["comments-list"].innerHTML = threads.length ? threads.map((thread) => {
-    const anchor = thread.anchor.kind === "canvas" ? `CANVAS · ${Math.round(thread.anchor.x)}, ${Math.round(thread.anchor.y)}` : `${thread.anchor.kind.toUpperCase()} · ${thread.anchor.targetId.slice(0, 8)}`;
-    return `<article class="collaboration-card${thread.resolved ? " is-resolved" : ""}">
+    const anchor = commentAnchorLabel(state.topology, thread.anchor);
+    const active = activeAnchor && thread.anchor.kind === activeAnchor.kind && thread.anchor.targetId === activeAnchor.targetId;
+    return `<article class="collaboration-card${thread.resolved ? " is-resolved" : ""}${active ? " is-active-anchor" : ""}">
       <header><span>${escapeHTML(anchor)}</span><b>${thread.resolved ? "RESOLVED" : `${thread.messages.length} MESSAGE${thread.messages.length === 1 ? "" : "S"}`}</b></header>
       ${thread.messages.map((message) => `<p><strong>${escapeHTML(message.author)}</strong>${escapeHTML(message.body)}</p>`).join("")}
       <footer><button type="button" data-comment-resolve="${thread.id}">${thread.resolved ? "REOPEN" : "RESOLVE"}</button><button type="button" class="danger" data-comment-delete="${thread.id}">DELETE</button></footer>
@@ -980,14 +1080,47 @@ async function installStaticServer(event) {
   elements["static-server-dialog"].close();
 }
 
-function openPatchPanelDialog() {
+async function openPatchPanelDialog() {
+  await loadCatalogModule();
   elements["patch-panel-form"].reset();
-  renderPatchPanelMiniature();
+  setupPatchPanelCatalog();
   elements["patch-panel-dialog"].showModal();
 }
 
+function setupPatchPanelCatalog(preferredModel = "Cat6a copper panel 24") {
+  const form = elements["patch-panel-form"];
+  const profiles = catalogModule.patchPanelProfiles();
+  form.elements.model.replaceChildren(...profiles.map((profile) => new Option(
+    `${profile.model} · ${profile.units}U`,
+    profile.model,
+  )));
+  if (profiles.some((profile) => profile.model === preferredModel)) form.elements.model.value = preferredModel;
+  updatePatchPanelProfile();
+}
+
+function selectedPatchPanelProfile() {
+  const model = elements["patch-panel-form"].elements.model.value;
+  return catalogModule?.patchPanelProfiles().find((profile) => profile.model === model);
+}
+
+function updatePatchPanelProfile() {
+  const profile = selectedPatchPanelProfile();
+  if (!profile) return;
+  const form = elements["patch-panel-form"];
+  form.elements.color.value = profile.color;
+  const count = profile.groups.reduce((total, group) => total + group.count, 0);
+  const media = profile.groups.map((group) => group.type.replaceAll("_", " ")).join(" · ");
+  elements["patch-panel-profile-summary"].textContent = `${profile.units}U · ${count} FRONT JACKS + ${count} REAR TERMINATIONS · ${media} — Front and rear occupancy are tracked independently.`;
+  renderPatchPanelMiniature();
+}
+
 function renderPatchPanelMiniature() {
-  const count = Number(elements["patch-panel-form"].elements.portCount.value);
+  const profile = selectedPatchPanelProfile();
+  if (!profile) return;
+  const count = profile.groups.reduce((total, group) => total + group.count, 0);
+  const preview = document.getElementById("patch-panel-jack-preview");
+  document.getElementById("patch-panel-preview-label").textContent = `${profile.model.toUpperCase()} · FRONT / REAR READY`;
+  preview.closest(".patch-panel-miniature").style.setProperty("--panel-preview-color", elements["patch-panel-form"].elements.color.value);
   document.getElementById("patch-panel-jack-preview").innerHTML = Array.from(
     { length: Math.min(count, 48) },
     (_, index) => `<i>${index + 1}</i>`,
@@ -998,12 +1131,14 @@ async function installPatchPanel(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const index = state.topology.devices.length;
-  const panel = instantiatePatchPanel({
-    name: form.get("name"), portCount: Number(form.get("portCount")), color: form.get("color"),
-  }, {
+  const catalog = await loadCatalogModule();
+  const profile = catalog.patchPanelProfiles().find((candidate) => candidate.model === form.get("model"));
+  if (!profile) throw new Error("Select a patch-panel model");
+  const panel = catalog.instantiateProfile(profile, String(form.get("name")), {
     x: 100 + (index % 2) * 730,
-    y: 100 + Math.floor(index / 2) * (Number(form.get("portCount")) > 48 ? 250 : 150),
+    y: 100 + Math.floor(index / 2) * (profile.units * 100 + 50),
   });
+  panel.faceplate.vendorColor = String(form.get("color"));
   const topology = await updateFrom(() => api.createDevice(state.topology.id, panel), true, "Patch panel installed");
   if (topology) elements["patch-panel-dialog"].close();
 }
@@ -1048,9 +1183,9 @@ function renderPatchPanelMappingPreview() {
   elements["patch-map-target-end"].textContent = Number.isFinite(calculatedEnd) ? String(calculatedEnd) : "—";
   try {
     const plan = planPatchPanelMapping(state.topology, Object.fromEntries(new FormData(form)));
-    elements["patch-map-count"].textContent = `${plan.links.length} CABLE${plan.links.length === 1 ? "" : "S"}`;
+    elements["patch-map-count"].textContent = `${plan.links.length} REAR RUN${plan.links.length === 1 ? "" : "S"}`;
     elements["patch-map-pairs"].innerHTML = plan.sourcePorts.map((port, index) =>
-      `<span><b>${escapeHTML(plan.source.name)}</b><em>${escapeHTML(port.label)}</em><i>↔</i><em>${escapeHTML(plan.targetPorts[index].label)}</em><b>${escapeHTML(plan.target.name)}</b></span>`).join("");
+      `<span><b>${escapeHTML(plan.source.name)}</b><em><small>REAR</small>${escapeHTML(port.label)}</em><i>↔</i><em><small>REAR</small>${escapeHTML(plan.targetPorts[index].label)}</em><b>${escapeHTML(plan.target.name)}</b></span>`).join("");
     elements["patch-map-error"].textContent = "";
     elements["create-patch-map-button"].disabled = false;
     return plan;
@@ -1070,7 +1205,7 @@ async function createPatchPanelMapping(event) {
   const topology = await updateFrom(
     () => api.createLinks(state.topology.id, plan.links),
     true,
-    `${plan.links.length} patch cables connected`,
+    `${plan.links.length} panel backports mapped`,
   );
   if (topology) elements["patch-panel-map-dialog"].close();
 }
@@ -1164,7 +1299,7 @@ function renderServerBackPreview() {
     if (!draft) return `<div class="server-preview-slot is-empty"><b>S${index + 1}</b><span>EMPTY BAY</span></div>`;
     const type = serverCardType(draft.typeKey);
     const kind = type.portType.startsWith("QSFP") ? "qsfp" : type.portType.startsWith("SFP") ? "sfp" :
-      type.portType === "Console" ? "console" : type.portType === "Power" ? "power" : type.portType === "DSL_RJ11" ? "dsl" : "rj45";
+      type.portType === "Console" ? "console" : type.portType === "Power" ? "power" : type.portType === "DSL_RJ11" ? "dsl" : type.portType === "COAX_F" ? "coax" : "rj45";
     const connectors = Array.from({ length: Number(draft.portCount) }, () => `<i class="is-${kind}"></i>`).join("");
     return `<div class="server-preview-slot" data-zone="${type.zone}"><b>S${index + 1} · ${escapeHTML(draft.label || type.defaultLabel)}</b><span>${connectors}</span><em>${escapeHTML(type.label)}</em></div>`;
   }).join("");
@@ -1174,28 +1309,43 @@ function renderServerBackPreview() {
   elements["server-back-preview"].innerHTML = `<div class="server-preview-service"><i></i><i></i><b>FANS / PSU BUS</b></div><div class="server-preview-slots">${slots}</div>`;
 }
 
-function setupHardwareCatalog(preferredVendor = "Cisco") {
+function setupHardwareCatalog(preferredVendor = "Cisco", preferredFamily = "all") {
 	if (!catalogModule) return;
 	const form = elements["device-form"];
+	const familySelect = form.elements.family;
 	const vendorSelect = form.elements.vendor;
-	const previous = catalogModule.catalogVendors().includes(preferredVendor) ? preferredVendor : catalogModule.catalogVendors()[0];
-	vendorSelect.replaceChildren(...catalogModule.catalogVendors().map((vendor) => new Option(vendor, vendor)));
-	vendorSelect.value = previous;
+	const families = catalogModule.catalogFamilies();
+	const selectedFamily = families.some((family) => family.id === preferredFamily) ? preferredFamily : "all";
+	familySelect.replaceChildren(...families.map((family) => new Option(`${family.label} · ${family.count}`, family.id)));
+	familySelect.value = selectedFamily;
+	const fillVendors = (preferred = "") => {
+		const vendors = catalogModule.catalogVendors(familySelect.value);
+		const selectedVendor = vendors.includes(preferred) ? preferred : vendors[0] || "";
+		vendorSelect.replaceChildren(...vendors.map((vendor) => new Option(vendor, vendor)));
+		vendorSelect.value = selectedVendor;
+		vendorSelect.disabled = vendors.length === 0;
+		fillHardwareModels(selectedVendor);
+	};
+	familySelect.onchange = () => {
+		form.elements.filter.value = "";
+		fillVendors();
+	};
 	vendorSelect.onchange = () => {
 		form.elements.filter.value = "";
 		fillHardwareModels(vendorSelect.value);
 	};
 	form.elements.filter.oninput = () => fillHardwareModels(vendorSelect.value, form.elements.filter.value);
 	form.elements.model.onchange = updateHardwareSummary;
-	fillHardwareModels(previous);
+	fillVendors(preferredVendor);
 }
 
 function fillHardwareModels(vendor, query = "") {
-	const select = elements["device-form"].elements.model;
+	const form = elements["device-form"];
+	const select = form.elements.model;
 	const previous = select.value;
 	const needle = query.trim().toLocaleLowerCase();
-	const profiles = catalogModule.modelsForVendor(vendor).filter((profile) => !needle ||
-		`${profile.model} ${profile.sku || ""}`.toLocaleLowerCase().includes(needle));
+	const profiles = catalogModule.modelsForVendor(vendor, form.elements.family.value).filter((profile) => !needle ||
+		`${profile.model} ${profile.sku || ""} ${profile.family || ""} ${profile.category}`.toLocaleLowerCase().includes(needle));
 	select.replaceChildren(...profiles.map((profile) => new Option(
 		`${profile.model}${profile.sku ? ` · ${profile.sku}` : ""}`,
 		profile.model,
@@ -1218,8 +1368,10 @@ function updateHardwareSummary() {
 	const fidelity = profile.fidelity === "family" ? " · FAMILY-EQUIVALENT PANEL" :
 		profile.fidelity === "modular" ? " · MODULAR CHASSIS" : profile.fidelity ? " · VERIFIED PANEL" : "";
 	const portFidelity = profile.portLayout?.fidelity === "exact" ? " · SOURCE-VERIFIED PORT LEGENDS" : " · FAMILY PORT LEGENDS";
+	const family = profile.family ? `${profile.family.toUpperCase()} · ` : "";
+	const placement = profile.placement ? ` · ${profile.placement.toUpperCase()}` : "";
 	const note = profile.note ? ` — ${profile.note}` : "";
-	document.getElementById("catalog-profile-summary").textContent = `${profile.category.toUpperCase()} · ${profile.units}U · ${ports} INTERFACES${lifecycle}${fidelity}${portFidelity} — ${media}${note}`;
+	document.getElementById("catalog-profile-summary").textContent = `${family}${profile.category.toUpperCase()} · ${profile.units}U · ${ports} INTERFACES${placement}${lifecycle}${fidelity}${portFidelity} — ${media}${note}`;
 	form.elements.color.value = profile.color;
 	form.elements.name.value = profile.model;
 }
@@ -1232,7 +1384,7 @@ async function importCatalog(event) {
 		const profiles = JSON.parse(await file.text());
 		const catalog = await loadCatalogModule();
 		const count = catalog.registerProfiles(profiles);
-		setupHardwareCatalog(profiles[0]?.vendor);
+		setupHardwareCatalog(profiles[0]?.vendor, profiles[0]?.family || "all");
 		toast(`${count} hardware profile${count === 1 ? "" : "s"} imported`);
 	} catch (error) { showError(error); }
 }
@@ -1245,7 +1397,8 @@ async function createLink(sourceBox, targetBox) {
   const link = {
     id: "", sourceDeviceId: sourceBox.device.id, sourcePortId: sourceBox.port.id,
     targetDeviceId: targetBox.device.id, targetPortId: targetBox.port.id,
-    cableType: sourceBox.port.type.includes("SFP") || targetBox.port.type.includes("SFP") ? "FIBER" : "CAT6A",
+    cableType: sourceBox.port.type === "COAX_F" || targetBox.port.type === "COAX_F" ? "COAX" :
+      /SFP|FIBER_/.test(sourceBox.port.type) || /SFP|FIBER_/.test(targetBox.port.type) ? "FIBER" : "CAT6A",
     vlanIds: shared.length ? shared : [primary], primaryVlan: primary, notes: "",
   };
   await updateFrom(() => api.createLink(state.topology.id, link), true, "Cable patched");
