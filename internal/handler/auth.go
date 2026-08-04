@@ -92,7 +92,7 @@ func (s *Server) verifyTOTP(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	s.setSessionCookie(w, session)
-	s.logger.Info("authentication succeeded", "user", session.Principal.Username, "role", session.Principal.Role, "factor", "totp")
+	s.logger.Info("authentication succeeded", "user_id", session.Principal.UserID, "role", session.Principal.Role, "factor", "totp")
 	s.writeSession(w, session, nil)
 }
 
@@ -108,7 +108,7 @@ func (s *Server) completeTOTPSetup(w http.ResponseWriter, request *http.Request)
 		return
 	}
 	s.setSessionCookie(w, session)
-	s.logger.Info("totp enrollment completed", "user", session.Principal.Username, "role", session.Principal.Role)
+	s.logger.Info("totp enrollment completed", "user_id", session.Principal.UserID, "role", session.Principal.Role)
 	s.writeSession(w, session, recoveryCodes)
 }
 
@@ -124,7 +124,7 @@ func (s *Server) verifyRecoveryCode(w http.ResponseWriter, request *http.Request
 		return
 	}
 	s.setSessionCookie(w, session)
-	s.logger.Warn("recovery code used", "user", session.Principal.Username, "role", session.Principal.Role)
+	s.logger.Warn("recovery code used", "user_id", session.Principal.UserID, "role", session.Principal.Role)
 	s.writeSession(w, session, nil)
 }
 
@@ -183,7 +183,11 @@ func (s *Server) createUser(w http.ResponseWriter, request *http.Request) {
 		s.authFailure(w, err)
 		return
 	}
-	s.logger.Info("account created", "administrator", principalFromRequest(request).Username, "user", user.Username, "organizations", user.Organizations)
+	s.logger.Info("account created",
+		"administrator_id", principalFromRequest(request).UserID,
+		"user_id", user.ID,
+		"organization_count", len(user.Organizations),
+	)
 	writeJSON(w, http.StatusCreated, user)
 }
 
@@ -207,7 +211,12 @@ func (s *Server) updateUser(w http.ResponseWriter, request *http.Request) {
 		s.authFailure(w, err)
 		return
 	}
-	s.logger.Info("account updated", "administrator", principalFromRequest(request).Username, "user", user.Username, "disabled", user.Disabled, "organizations", user.Organizations)
+	s.logger.Info("account updated",
+		"administrator_id", principalFromRequest(request).UserID,
+		"user_id", user.ID,
+		"disabled", user.Disabled,
+		"organization_count", len(user.Organizations),
+	)
 	writeJSON(w, http.StatusOK, user)
 }
 

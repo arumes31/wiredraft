@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,12 +93,15 @@ func TestAuthenticatedGuestWorkspace(t *testing.T) {
 func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	t.Parallel()
 	const secret = "JBSWY3DPEHPK3PXP" // #nosec G101 -- public RFC-compatible test fixture.
-	handler, _, _ := newAuthenticatedTestHandler(t, auth.Config{
-		AdminUsername: "admin", AdminPassword: authTestPassword,
+	const adminUsername = "audit-operator"
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	handler, _, _ := newAuthenticatedTestHandlerWithLogger(t, auth.Config{
+		AdminUsername: adminUsername, AdminPassword: authTestPassword,
 		AdminTOTPSecret: secret, GuestEnabled: true,
-	})
+	}, logger)
 	loginResponse := performJSONRequest(t, handler, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"username": "admin", "password": authTestPassword,
+		"username": adminUsername, "password": authTestPassword,
 	}, nil)
 	var challenge auth.LoginChallenge
 	decodeResponse(t, loginResponse, &challenge)
@@ -177,6 +181,17 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	decodeResponse(t, updatedResponse, &updated)
 	if !updated.Disabled || len(updated.Organizations) != 1 || updated.Organizations[0] != "Guest" {
 		t.Fatalf("updated user = %#v", updated)
+	}
+	logOutput := logs.String()
+	for _, event := range []string{"authentication succeeded", "account created", "account updated"} {
+		if !strings.Contains(logOutput, `"msg":"`+event+`"`) {
+			t.Errorf("audit log is missing %q event", event)
+		}
+	}
+	for _, userValue := range []string{adminUsername, "vienna-user", `"organizations"`, `"administrator"`, `"user"`} {
+		if strings.Contains(logOutput, userValue) {
+			t.Errorf("audit log contains user-controlled identity field %q: %s", userValue, logOutput)
+		}
 	}
 
 	logout := newJSONRequest(t, http.MethodPost, "/api/v1/auth/logout", nil, cookie)
@@ -286,6 +301,11 @@ func TestGuestLoginCanBeDisabled(t *testing.T) {
 
 func newAuthenticatedTestHandler(t *testing.T, config auth.Config) (http.Handler, *auth.Manager, *store.JSONStore) {
 	t.Helper()
+	return newAuthenticatedTestHandlerWithLogger(t, config, slog.New(slog.DiscardHandler))
+}
+
+func newAuthenticatedTestHandlerWithLogger(t *testing.T, config auth.Config, logger *slog.Logger) (http.Handler, *auth.Manager, *store.JSONStore) {
+	t.Helper()
 	dataDir := t.TempDir()
 	topologyStore, err := store.NewJSONStore(dataDir)
 	if err != nil {
@@ -307,7 +327,7 @@ func newAuthenticatedTestHandler(t *testing.T, config auth.Config) (http.Handler
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewWithAuth(topologyStore, sse.NewBroker(), slog.New(slog.DiscardHandler), static, authManager), authManager, topologyStore
+	return NewWithAuth(topologyStore, sse.NewBroker(), logger, static, authManager), authManager, topologyStore
 }
 
 func performJSONRequest(t *testing.T, handler http.Handler, method, path string, body any, cookie *http.Cookie) *httptest.ResponseRecorder {

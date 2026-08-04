@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
@@ -81,6 +82,29 @@ func TestValidationBoundaries(t *testing.T) {
 				strings.Contains(test.name, "reserved") || strings.Contains(test.name, "mixed")
 			if (err != nil) != wantError {
 				t.Fatalf("error = %v, wantError = %v", err, wantError)
+			}
+		})
+	}
+}
+
+func TestTerminationMapCapacity(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		linkCount int
+		want      int
+	}{
+		{name: "empty", linkCount: 0, want: 0},
+		{name: "ordinary", linkCount: 8, want: 16},
+		{name: "largest safe", linkCount: math.MaxInt / 2, want: math.MaxInt - 1},
+		{name: "overflow boundary", linkCount: math.MaxInt/2 + 1, want: 0},
+		{name: "maximum integer", linkCount: math.MaxInt, want: 0},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := terminationMapCapacity(test.linkCount); got != test.want {
+				t.Fatalf("terminationMapCapacity(%d) = %d, want %d", test.linkCount, got, test.want)
 			}
 		})
 	}

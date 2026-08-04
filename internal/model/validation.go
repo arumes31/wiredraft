@@ -154,7 +154,7 @@ func (t Topology) Validate() error {
 	}
 
 	linkIDs := make(map[string]struct{}, len(t.Links))
-	occupiedTerminations := make(map[string]string, len(t.Links)*2)
+	occupiedTerminations := make(map[string]string, terminationMapCapacity(len(t.Links)))
 	type rearChannelRecord struct {
 		panelPair string
 		name      string
@@ -275,6 +275,13 @@ func (t Topology) Validate() error {
 		shareIDs[share.ID] = struct{}{}
 	}
 	return nil
+}
+
+func terminationMapCapacity(linkCount int) int {
+	if linkCount > math.MaxInt/2 {
+		return 0
+	}
+	return linkCount * 2
 }
 
 // Validate checks a canvas annotation's shape and bounded world coordinates.

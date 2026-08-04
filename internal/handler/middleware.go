@@ -60,7 +60,7 @@ func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
 		}
 		logger.Info("http request",
 			"method", request.Method,
-			"path", request.URL.Path,
+			"route", request.Pattern,
 			"status", status,
 			"bytes", wrapped.bytes,
 			"duration_ms", time.Since(started).Milliseconds(),
