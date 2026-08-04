@@ -45,6 +45,36 @@ func TestStaticFallback(t *testing.T) {
 	}
 }
 
+func TestTopologyOrganizationAndLocationRoundTrip(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t)
+	topology := requestTopology(t, handler, http.MethodPost, "/api/v1/topologies", map[string]string{
+		"name": "Vienna core", "organization": "Example Corp", "location": "Vienna DC1", "template": "blank",
+	}, http.StatusCreated)
+	if topology.Organization != "Example Corp" || topology.Location != "Vienna DC1" {
+		t.Fatalf("created scope = %q / %q, want Example Corp / Vienna DC1", topology.Organization, topology.Location)
+	}
+
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/topologies", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET topologies status = %d, want 200", response.Code)
+	}
+	var summaries []model.Summary
+	if err := json.Unmarshal(response.Body.Bytes(), &summaries); err != nil {
+		t.Fatalf("decoding summaries: %v", err)
+	}
+	summaryIndex := slices.IndexFunc(summaries, func(summary model.Summary) bool { return summary.ID == topology.ID })
+	if summaryIndex < 0 {
+		t.Fatalf("created topology %q is missing from summaries", topology.ID)
+	}
+	if summaries[summaryIndex].Organization != topology.Organization || summaries[summaryIndex].Location != topology.Location {
+		t.Fatalf("summary scope = %q / %q, want %q / %q",
+			summaries[summaryIndex].Organization, summaries[summaryIndex].Location, topology.Organization, topology.Location)
+	}
+}
+
 func TestRackCRUDReleasesMountedDevices(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)

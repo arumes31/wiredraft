@@ -1,6 +1,6 @@
 import {
   assignCableTracks, CableMode, cableBezier, cableDashPattern, CABLE_OUTLINE_WIDTH, cableRole, distanceToRoute,
-  orderedCableLinks, pointOnRoute, routeSegments, routesWithCrossingBridges,
+  orderedCableLinks, pointOnRoute, routeSegments, routesWithCrossingBridges, segmentIntersectsRectangle,
 } from "./cabling.js";
 import { EmptyCanvasAction, emptyCanvasAction } from "./canvas-interactions.js";
 import { commentPreviewLines } from "./collaboration.js";
@@ -69,6 +69,10 @@ export class CanvasEngine {
     this.linkCurves = [];
     this.routeCache = new Map();
     this.trackPlanCache = null;
+    this.routingChanges = { full: true, changedDeviceIDs: new Set(), obstacleBounds: [] };
+    this.routingGeometryKey = "";
+    this.routingPlanRevision = 0;
+    this.lastRoutingStats = { mode: "full", totalLinks: 0, reroutedLinks: 0, crossingPairs: 0 };
     this.stpPortStateCache = new Map();
     this.graphicsMode = normalizeGraphicsMode(options.graphicsMode);
     this.reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || false;
@@ -401,6 +405,7 @@ export class CanvasEngine {
 
   layoutScene() {
     if (!this.sceneDirty) return;
+    const previousGeometry = captureRoutingGeometry(this.deviceBoxes, this.rackBoxes, this.portBoxes);
     this.rackBoxes = [];
     this.deviceBoxes = [];
     this.rackTiles.clear();
@@ -419,6 +424,8 @@ export class CanvasEngine {
     this.orderedLinks = [];
     const topology = this.state.topology;
     if (!topology) {
+      this.routingChanges = { full: true, changedDeviceIDs: new Set(), obstacleBounds: [] };
+      this.routingGeometryKey = "";
       this.sceneDirty = false;
       this.sceneRevision += 1;
       return;
@@ -496,6 +503,9 @@ export class CanvasEngine {
         addMapArrayValue(this.linksByDevice, deviceID, link);
       }
     }
+    const currentGeometry = captureRoutingGeometry(this.deviceBoxes, this.rackBoxes, this.portBoxes);
+    this.routingChanges = compareRoutingGeometry(previousGeometry, currentGeometry, this.sceneRevision === 0);
+    this.routingGeometryKey = currentGeometry.key;
     this.sceneDirty = false;
     this.sceneRevision += 1;
   }
@@ -520,7 +530,6 @@ export class CanvasEngine {
     if (layout) {
       this.sceneDirty = true;
       this.routeCache.clear();
-      this.trackPlanCache = null;
     }
     if (!this.frame && this.isDocumentVisible && this.isCanvasVisible) {
       this.frame = requestAnimationFrame(this.loop);
@@ -613,21 +622,86 @@ export class CanvasEngine {
   cableTrackPlan(orderedLinks = orderedCableLinks(this.state.topology)) {
     const groupSignature = (this.state.topology?.linkGroups || []).map((group) =>
       `${group.id}:${group.mode}:${group.linkIds.join(",")}:${group.primaryLinkId || ""}`).join("|");
-    const planKey = `${this.sceneRevision}|${orderedLinks.map((link) =>
+    const structureKey = `${(this.state.topology?.racks || []).map((rack) => rack.id).join(",")}|${
+      (this.state.topology?.devices || []).map((device) => `${device.id}:${device.rackId || "free"}:${
+        (device.ports || []).map((port) => `${port.id}:${port.label}`).join(",")}`).join("|")}|${orderedLinks.map((link) =>
       `${link.id}:${link.sourcePortId}:${link.sourceSide || "front"}:${link.targetPortId}:${link.targetSide || "front"}`).join("|")}|${groupSignature}`;
-    if (this.trackPlanCache?.key === planKey) return this.trackPlanCache;
+    if (this.trackPlanCache?.structureKey === structureKey && this.trackPlanCache?.geometryKey === this.routingGeometryKey) {
+      this.lastRoutingStats = {
+        mode: "reused", totalLinks: orderedLinks.length, reroutedLinks: 0, crossingPairs: 0,
+      };
+      return this.trackPlanCache;
+    }
+
+    const canIncrement = this.trackPlanCache?.structureKey === structureKey && !this.routingChanges.full;
+    const affectedLinkIDs = canIncrement ? this.affectedRoutingLinkIDs(orderedLinks) : new Set(orderedLinks.map((link) => link.id));
+    const incrementalLimit = Math.max(1, Math.ceil(orderedLinks.length * .6));
+    const incremental = canIncrement && affectedLinkIDs.size > 0 && affectedLinkIDs.size <= incrementalLimit;
+    if (canIncrement && affectedLinkIDs.size === 0) {
+      this.trackPlanCache = {
+        ...this.trackPlanCache,
+        geometryKey: this.routingGeometryKey,
+        key: `route-plan-${++this.routingPlanRevision}`,
+      };
+      this.lastRoutingStats = {
+        mode: "reused", totalLinks: orderedLinks.length, reroutedLinks: 0, crossingPairs: 0,
+      };
+      return this.trackPlanCache;
+    }
+    const previousBaseTracks = incremental
+      ? new Map([...this.trackPlanCache.tracks].map(([linkID, track]) => [linkID, track.route]))
+      : null;
     const baseTracks = assignCableTracks({
       links: orderedLinks,
       portBoxes: this.portBoxes,
       deviceBoxes: this.deviceBoxes,
       rackBoxes: this.rackBoxes,
       linkGroups: this.state.topology?.linkGroups || [],
-    });
+    }, incremental ? { previousTracks: previousBaseTracks, rerouteLinkIDs: affectedLinkIDs } : undefined);
     const planned = orderedLinks.map((link) => ({ link, route: baseTracks.get(link.id) })).filter(({ route }) => route);
-    const bridgedRoutes = routesWithCrossingBridges(planned.map(({ route }) => route));
+    const crossingStats = { pairsExamined: 0 };
+    const previousRoutes = incremental
+      ? planned.map(({ link }) => this.trackPlanCache.tracks.get(link.id)?.curve)
+      : null;
+    const affectedIndices = incremental
+      ? new Set(planned.flatMap(({ link }, index) => affectedLinkIDs.has(link.id) ? [index] : []))
+      : null;
+    const bridgedRoutes = routesWithCrossingBridges(planned.map(({ route }) => route), incremental ? {
+      previousRoutes, affectedIndices, stats: crossingStats,
+    } : { stats: crossingStats });
     const tracks = new Map(planned.map(({ link, route }, index) => [link.id, { route, curve: bridgedRoutes[index] }]));
-    this.trackPlanCache = { key: planKey, tracks };
+    this.trackPlanCache = {
+      key: `route-plan-${++this.routingPlanRevision}`,
+      structureKey,
+      geometryKey: this.routingGeometryKey,
+      tracks,
+    };
+    this.lastRoutingStats = {
+      mode: incremental ? "incremental" : "full",
+      totalLinks: orderedLinks.length,
+      reroutedLinks: incremental ? affectedLinkIDs.size : orderedLinks.length,
+      crossingPairs: crossingStats.pairsExamined,
+    };
     return this.trackPlanCache;
+  }
+
+  affectedRoutingLinkIDs(orderedLinks) {
+    const affected = new Set();
+    for (const deviceID of this.routingChanges.changedDeviceIDs) {
+      for (const linkID of this.linkIDsByDevice.get(deviceID) || []) affected.add(linkID);
+    }
+    for (const [linkID, track] of this.trackPlanCache?.tracks || []) {
+      if (affected.has(linkID)) continue;
+      const crossesChangedObstacle = this.routingChanges.obstacleBounds.some((bounds) =>
+        routeSegments(track.route).some((segment) =>
+          segmentIntersectsRectangle(segment.source, segment.target, expand(bounds, 10))));
+      if (crossesChangedObstacle) affected.add(linkID);
+    }
+    for (const linkID of [...affected]) {
+      for (const memberID of this.groupLinkIDsByLink.get(linkID) || []) affected.add(memberID);
+    }
+    const liveLinkIDs = new Set(orderedLinks.map((link) => link.id));
+    return new Set([...affected].filter((linkID) => liveLinkIDs.has(linkID)));
   }
 
   drawLinks(ctx, time, showAllLabels = false, showInteractionHighlights = true) {
@@ -2021,6 +2095,71 @@ function addMapArrayValue(map, key, value) {
   const values = map.get(key) || [];
   values.push(value);
   map.set(key, values);
+}
+
+function captureRoutingGeometry(deviceBoxes = [], rackBoxes = [], portBoxes = []) {
+  const portsByDevice = new Map();
+  for (const box of portBoxes) {
+    const entries = portsByDevice.get(box.device.id) || [];
+    entries.push(`${box.port.id}:${fixedGeometry(box.centerX)}:${fixedGeometry(box.centerY)}`);
+    portsByDevice.set(box.device.id, entries);
+  }
+  const devices = new Map(deviceBoxes.map((box) => [box.device.id, {
+    id: box.device.id,
+    rackID: box.device.rackId || box.rack?.id || "",
+    x: box.x, y: box.y, width: box.width, height: box.height,
+    portKey: (portsByDevice.get(box.device.id) || []).sort().join(","),
+  }]));
+  const racks = new Map(rackBoxes.map((box) => [box.rack.id, {
+    id: box.rack.id, x: box.x, y: box.y, width: box.width, height: box.height,
+  }]));
+  const key = `${[...racks.values()].sort(compareGeometryIDs).map(geometryKey).join("|")}::${
+    [...devices.values()].sort(compareGeometryIDs).map((box) => `${geometryKey(box)}:${box.rackID}:${box.portKey}`).join("|")}`;
+  return { devices, racks, key };
+}
+
+function compareRoutingGeometry(previous, current, isInitial) {
+  if (isInitial || !sameMapKeys(previous.devices, current.devices) || !sameMapKeys(previous.racks, current.racks)) {
+    return { full: true, changedDeviceIDs: new Set(current.devices.keys()), obstacleBounds: [] };
+  }
+  const changedDeviceIDs = new Set();
+  const obstacleBounds = [];
+  for (const [deviceID, currentBox] of current.devices) {
+    const previousBox = previous.devices.get(deviceID);
+    if (sameGeometry(previousBox, currentBox) && previousBox.portKey === currentBox.portKey && previousBox.rackID === currentBox.rackID) continue;
+    changedDeviceIDs.add(deviceID);
+    obstacleBounds.push(previousBox, currentBox);
+  }
+  for (const [rackID, currentBox] of current.racks) {
+    const previousBox = previous.racks.get(rackID);
+    if (sameGeometry(previousBox, currentBox)) continue;
+    obstacleBounds.push(previousBox, currentBox);
+    for (const device of current.devices.values()) {
+      if (device.rackID === rackID) changedDeviceIDs.add(device.id);
+    }
+  }
+  return { full: false, changedDeviceIDs, obstacleBounds };
+}
+
+function sameMapKeys(left, right) {
+  return left.size === right.size && [...left.keys()].every((key) => right.has(key));
+}
+
+function sameGeometry(left, right) {
+  return left && right && left.x === right.x && left.y === right.y &&
+    left.width === right.width && left.height === right.height;
+}
+
+function geometryKey(box) {
+  return `${box.id}:${fixedGeometry(box.x)}:${fixedGeometry(box.y)}:${fixedGeometry(box.width)}:${fixedGeometry(box.height)}`;
+}
+
+function compareGeometryIDs(left, right) {
+  return left.id.localeCompare(right.id);
+}
+
+function fixedGeometry(value) {
+  return Number(value || 0).toFixed(3);
 }
 
 function isFormField(target) {

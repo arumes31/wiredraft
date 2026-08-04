@@ -12,3 +12,28 @@ export function nextMapName(topologies, prefix = "NETWORK MAP") {
   while (names.has(`${prefix} ${String(sequence).padStart(2, "0")}`)) sequence += 1;
   return `${prefix} ${String(sequence).padStart(2, "0")}`;
 }
+
+export function organizationLocationOptions(topologies = []) {
+  const locationsByOrganization = new Map();
+  for (const topology of topologies) {
+    const organization = String(topology.organization || "").trim();
+    const location = String(topology.location || "").trim();
+    if (!organization || !location) continue;
+    const locations = locationsByOrganization.get(organization) || new Set();
+    locations.add(location);
+    locationsByOrganization.set(organization, locations);
+  }
+  return [...locationsByOrganization.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([organization, locations]) => ({
+      organization,
+      locations: [...locations].sort((left, right) => left.localeCompare(right)),
+    }));
+}
+
+export function topologyOptionLabel(topology) {
+  const organization = String(topology?.organization || "").trim();
+  const location = String(topology?.location || "").trim();
+  const scope = organization && location ? `${organization} · ${location}` : "UNASSIGNED";
+  return `${scope} / ${topology?.name || "Untitled topology"}`;
+}

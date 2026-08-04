@@ -59,12 +59,14 @@ func (s *JSONStore) List() []model.Summary {
 	summaries := make([]model.Summary, 0, len(s.topologies))
 	for _, topology := range s.topologies {
 		summaries = append(summaries, model.Summary{
-			ID:          topology.ID,
-			Name:        topology.Name,
-			RackCount:   len(topology.Racks),
-			DeviceCount: topology.LogicalDeviceCount(),
-			LinkCount:   len(topology.Links),
-			UpdatedAt:   topology.UpdatedAt,
+			ID:           topology.ID,
+			Name:         topology.Name,
+			Organization: topology.Organization,
+			Location:     topology.Location,
+			RackCount:    len(topology.Racks),
+			DeviceCount:  topology.LogicalDeviceCount(),
+			LinkCount:    len(topology.Links),
+			UpdatedAt:    topology.UpdatedAt,
 		})
 	}
 	s.mu.RUnlock()

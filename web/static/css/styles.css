@@ -65,11 +65,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .brand small { display: block; margin-top: 6px; font-family: var(--display); font-size: 8px; letter-spacing: .24em; color: var(--cyan); }
 .brand-mark { width: 28px; height: 28px; border: 1px solid #4e646a; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 5px; transform: rotate(45deg); }
 .brand-mark i { display: block; background: var(--cyan); opacity: .9; box-shadow: 0 0 8px var(--cyan); }
-.topology-picker { width: 244px; padding: 8px 10px 7px 14px; border-right: 1px solid var(--line); }
+.topology-picker { width: 282px; padding: 8px 10px 7px 14px; border-right: 1px solid var(--line); }
 .topology-picker > span, label > span { display: block; margin-bottom: 4px; font-family: var(--display); font-size: 9px; color: var(--muted); letter-spacing: .13em; }
 .topology-picker > span { display: flex; justify-content: space-between; gap: 10px; }
 .topology-picker > span b { color: var(--cyan); font-size: 7px; font-weight: 700; letter-spacing: .1em; }
-.topology-picker-control { display: grid; grid-template-columns: minmax(0, 1fr) 30px; align-items: center; gap: 6px; }
+.topology-picker-control { display: grid; grid-template-columns: minmax(0, 1fr) 30px 30px; align-items: center; gap: 6px; }
 select, input, textarea {
   width: 100%;
   border: 1px solid #35464b;
@@ -82,6 +82,7 @@ textarea { resize: vertical; }
 .topology-picker select { min-width: 0; border: 0; padding: 1px 24px 1px 0; font-family: var(--display); font-size: 14px; letter-spacing: .04em; background: transparent; }
 .topology-picker-control button { width: 30px; min-height: 29px; padding: 0 0 2px; border-color: #3b5c60; border-radius: 7px; background: linear-gradient(145deg, #173431, #102421); color: var(--cyan); font-family: var(--body); font-size: 21px; font-weight: 300; line-height: 1; box-shadow: inset 0 1px rgb(255 255 255 / 5%); }
 .topology-picker-control button:hover { border-color: var(--cyan); background: #1b403b; box-shadow: 0 0 16px rgb(66 217 200 / 14%); }
+#edit-topology-button { padding-bottom: 1px; font-size: 15px; }
 .toolbar { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0 12px; }
 .toolbar button, .toolbar summary { font-size: 10px; }
 .icon-button { width: 34px; padding: 0; font-size: 18px !important; }
@@ -145,6 +146,7 @@ textarea { resize: vertical; }
 .rail-right[hidden] { display: none; }
 .rail-section { padding: 18px; border-bottom: 1px solid var(--line); }
 .overview-panel { padding-top: 22px; background: linear-gradient(145deg, #162226, #11191b); }
+.topology-scope { margin: 5px 0 14px; color: #70cfc5; font-family: var(--display); font-size: 8px; letter-spacing: .13em; line-height: 1.35; }
 .eyebrow { margin: 0 0 7px; color: var(--cyan); font-family: var(--display); font-size: 9px; letter-spacing: .18em; }
 h1, h2, h3, p { margin-top: 0; }
 h1, h2, h3 { font-family: var(--display); letter-spacing: .055em; }
@@ -329,6 +331,10 @@ dialog { color: var(--ink); }
 .panel-dialog header h2 { color: #f3ffff; font-size: clamp(19px, 2.2vw, 23px); line-height: 1; letter-spacing: .075em; }
 .topology-dialog { width: min(650px, calc(100vw - 32px)); }
 .topology-dialog form > label { margin: 18px var(--modal-gutter) 0; }
+.map-scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px var(--modal-gutter) 0; }
+.map-scope-grid label { min-width: 0; }
+.map-scope-grid label > span { margin-bottom: 7px; }
+@media (max-width: 620px) { .map-scope-grid { grid-template-columns: 1fr; } }
 .map-template-field { min-width: 0; margin: 18px var(--modal-gutter) 4px; padding: 0; border: 0; }
 .map-template-field legend { margin-bottom: 8px; color: var(--muted); font-family: var(--display); font-size: 8px; letter-spacing: .14em; }
 .map-template-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }

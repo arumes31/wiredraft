@@ -22,6 +22,33 @@ func TestNewDemo(t *testing.T) {
 	}
 }
 
+func TestTopologyValidateOrganizationLocationAssignment(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		organization string
+		location     string
+		wantError    bool
+	}{
+		{name: "legacy map remains unassigned"},
+		{name: "organization owns location", organization: "Example Corp", location: "Vienna DC1"},
+		{name: "organization without location", organization: "Example Corp", wantError: true},
+		{name: "location without organization", location: "Vienna DC1", wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			topology := mustDemo(t)
+			topology.Organization = test.organization
+			topology.Location = test.location
+			err := topology.Validate()
+			if (err != nil) != test.wantError {
+				t.Fatalf("Validate() error = %v, wantError = %t", err, test.wantError)
+			}
+		})
+	}
+}
+
 func TestTopologyValidateOccupiedPort(t *testing.T) {
 	t.Parallel()
 	topology := mustDemo(t)

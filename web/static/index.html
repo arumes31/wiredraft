@@ -18,6 +18,7 @@
       <span>ACTIVE MAP <b id="topology-count">0 MAPS</b></span>
       <div class="topology-picker-control">
         <select id="topology-select" aria-label="Active topology"></select>
+        <button id="edit-topology-button" type="button" aria-label="Edit active map organization and location" title="Edit active map">✎</button>
         <button id="add-topology-button" type="button" aria-label="Create another map" title="Create another map">+</button>
       </div>
     </div>
@@ -68,6 +69,7 @@
       <section class="rail-section overview-panel">
         <p class="eyebrow">LIVE TOPOLOGY</p>
         <h1 id="topology-name">Loading map…</h1>
+        <p id="topology-scope" class="topology-scope">UNASSIGNED ORGANIZATION · LOCATION</p>
         <div class="overview-stats">
           <span><b id="rack-count">0</b>RACKS</span>
           <span id="device-count-stat"><b id="device-count">0</b>UNITS<small id="physical-device-count"></small></span>
@@ -143,16 +145,22 @@
   <dialog id="topology-dialog" class="panel-dialog topology-dialog" aria-labelledby="topology-dialog-title">
     <form id="topology-form" method="dialog">
       <header><div><p class="eyebrow">MAP CONTROL</p><h2 id="topology-dialog-title">CREATE NETWORK MAP</h2></div><button type="button" class="dialog-close" data-close="topology-dialog" aria-label="Close create map dialog">×</button></header>
-      <p class="dialog-note">Create an independent topology. Each map keeps its own racks, devices, cables, VLANs, comments, and documentation.</p>
+      <p id="topology-dialog-note" class="dialog-note">Create an independent topology inside one organization and location.</p>
       <label><span>MAP NAME</span><input name="name" maxlength="120" required autocomplete="off"></label>
-      <fieldset class="map-template-field">
+      <div class="map-scope-grid">
+        <label><span>ORGANIZATION</span><input name="organization" maxlength="120" list="organization-options" required autocomplete="organization" placeholder="e.g. ACME NETWORKS"></label>
+        <label><span>LOCATION</span><input name="location" maxlength="120" list="location-options" required autocomplete="off" placeholder="e.g. VIENNA DC1"></label>
+      </div>
+      <datalist id="organization-options"></datalist>
+      <datalist id="location-options"></datalist>
+      <fieldset id="map-template-field" class="map-template-field">
         <legend>STARTING POINT</legend>
         <div class="map-template-grid">
           <label><input type="radio" name="template" value="blank" checked><span><i>EMPTY RAILS</i><b>BLANK WORKSPACE</b><small>Default VLAN with an empty canvas ready for your own racks and devices.</small></span></label>
           <label><input type="radio" name="template" value="demo"><span><i>REFERENCE BUILD</i><b>STARTER TOPOLOGY</b><small>Preloaded racks, devices, cables, VLANs, and link-group examples.</small></span></label>
         </div>
       </fieldset>
-      <footer><button type="button" class="secondary" data-close="topology-dialog">CANCEL</button><button value="create" class="primary">CREATE + OPEN MAP</button></footer>
+      <footer><button type="button" class="secondary" data-close="topology-dialog">CANCEL</button><button id="topology-submit-button" value="create" class="primary">CREATE + OPEN MAP</button></footer>
     </form>
   </dialog>
 

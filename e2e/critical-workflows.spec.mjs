@@ -23,6 +23,8 @@ test("creates, switches, and remembers another network map", async ({ page, requ
   const originalName = await page.locator("#topology-name").textContent();
   const before = await request.get("/api/v1/topologies").then((response) => response.json());
   const mapName = `E2E ${testInfo.project.name.toUpperCase()} BLANK MAP`;
+  const organization = "E2E NETWORK LABS";
+  const location = `${testInfo.project.name.toUpperCase()} LOCATION`;
 
   await page.locator("#add-topology-button").click();
   const dialog = page.locator("#topology-dialog");
@@ -30,11 +32,14 @@ test("creates, switches, and remembers another network map", async ({ page, requ
   await expect(dialog.locator('[name="template"][value="blank"]')).toBeChecked();
   await expect(dialog.locator('[name="template"][value="demo"]')).toHaveCount(1);
   await dialog.locator('[name="name"]').fill(mapName);
+  await dialog.locator('[name="organization"]').fill(organization);
+  await dialog.locator('[name="location"]').fill(location);
   await dialog.locator('button[value="create"]').click();
   await expect(dialog).not.toBeVisible();
   await expect(page.locator("#topology-name")).toHaveText(mapName);
   await expect(page.locator("#rack-count")).toHaveText("0");
   await expect(page.locator("#device-count")).toHaveText("0");
+  await expect(page.locator("#topology-scope")).toHaveText(`${organization} · ${location}`);
 
   let created;
   await expect.poll(async () => {
@@ -43,7 +48,17 @@ test("creates, switches, and remembers another network map", async ({ page, requ
     return Boolean(created);
   }).toBe(true);
   expect(created).toBeTruthy();
+  expect(created.organization).toBe(organization);
+  expect(created.location).toBe(location);
   await expect(page.locator("#topology-count")).toHaveText(`${before.length + 1} MAPS`);
+
+  await page.locator("#edit-topology-button").click();
+  await expect(dialog.locator("#map-template-field")).toBeHidden();
+  await expect(dialog.locator('[name="organization"]')).toHaveValue(organization);
+  await dialog.locator('[name="location"]').fill(`${location} EDITED`);
+  await dialog.locator('button[value="save"]').click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator("#topology-scope")).toHaveText(`${organization} · ${location} EDITED`);
 
   await page.locator("#topology-select").selectOption(originalID);
   await expect(page.locator("#topology-name")).toHaveText(originalName);

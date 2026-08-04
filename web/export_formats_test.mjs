@@ -61,7 +61,7 @@ assert.equal(xrefEntries.length, 6, "PDF must index every indirect object");
 xrefEntries.forEach((offset, index) => assert.equal(pdfText.slice(offset, offset + 7), `${index + 1} 0 obj`, `xref entry ${index + 1} must point at its object`));
 
 const topology = {
-  name: "Core <A> & Edge", racks: [], devices: [], links: [], vlans: [],
+  name: "Core <A> & Edge", organization: "Example Corp", location: "Vienna DC1", racks: [], devices: [], links: [], vlans: [],
   notes: "safe </script><script>alert(1)</script>",
   documentationLinks: [{ targetKind: "topology", label: "Runbook", url: "https://docs.example.test/runbook" }],
 };
@@ -74,6 +74,8 @@ assert.ok(html.startsWith("<!doctype html>"), "HTML export should be a standalon
 assert.match(html, /<title>Core &lt;A&gt; &amp; Edge · Netdiagram export<\/title>/, "HTML title must be escaped");
 assert.match(html, /<svg role="img" aria-label="Core &lt;A&gt; &amp; Edge network topology"/, "HTML must embed the accessible topology SVG");
 assert.match(html, /<b>0<\/b>RACKS[^]*<b>0<\/b>DEVICES[^]*<b>0<\/b>CABLES[^]*<b>0<\/b>VLANS/, "HTML should include topology totals");
+assert.match(html, /Example Corp \/ Vienna DC1 · Portable physical topology report/,
+  "standalone reports must retain their organization and location assignment");
 assert.match(html, /id="netdiagram-topology" type="application\/json"/, "HTML must embed restorable source data as inert JSON");
 assert.equal(html.includes("</script><script>alert(1)</script>"), false, "embedded JSON must not break out of its data block");
 assert.match(html, /safe \\u003c\/script\\u003e\\u003cscript\\u003ealert\(1\)\\u003c\/script\\u003e/, "HTML must retain escaped source data");
@@ -160,6 +162,7 @@ assert.match(layeredSVG, /data-layer="panel-rear-map"[^>]*stroke-dasharray="6 4"
   "SVG backend runs must retain the shared 6/4 dash and 75-percent opacity");
 
 const configuredTopology = {
+  organization: "Example Corp", location: "Vienna DC1",
   name: "Vienna Core & Edge",
   revision: 17,
   racks: [
@@ -202,6 +205,8 @@ const configuredTopology = {
 };
 const workbook = buildConfigurationDocument(configuredTopology, new Date("2026-08-04T12:00:00.000Z"));
 assert.ok(workbook.startsWith("<!doctype html>"), "configuration export should be a standalone document");
+assert.match(workbook, /Example Corp \/ Vienna DC1 · Inventory/,
+  "configuration workbooks must identify their organization and location");
 for (const section of ["Inventory", "Port configuration", "VLAN configuration", "Connected links", "Trunks and link groups", "Switch systems", "Firewall clusters"]) {
   assert.match(workbook, new RegExp(`>${section}<`), `configuration workbook must include ${section}`);
 }

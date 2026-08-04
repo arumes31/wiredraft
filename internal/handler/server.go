@@ -100,8 +100,10 @@ func (s *Server) listTopologies(w http.ResponseWriter, _ *http.Request) {
 }
 
 type createTopologyRequest struct {
-	Name     string `json:"name"`
-	Template string `json:"template"`
+	Name         string `json:"name"`
+	Organization string `json:"organization"`
+	Location     string `json:"location"`
+	Template     string `json:"template"`
 }
 
 func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
@@ -124,6 +126,8 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 	if strings.TrimSpace(input.Name) != "" {
 		topology.Name = strings.TrimSpace(input.Name)
 	}
+	topology.Organization = strings.TrimSpace(input.Organization)
+	topology.Location = strings.TrimSpace(input.Location)
 	created, err := s.store.Create(topology)
 	if err != nil {
 		s.fail(w, err)

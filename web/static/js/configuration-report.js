@@ -2,6 +2,7 @@ import { firewallClusterModeLabel, firewallClusterRole } from "./firewall-cluste
 import { switchSystemModeLabel } from "./switch-systems.js";
 
 export function buildConfigurationDocument(topology, generatedAt = new Date()) {
+  const topologyScope = [topology?.organization, topology?.location].filter(Boolean).join(" / ") || "UNASSIGNED";
   const racks = [...(topology?.racks || [])];
   const devices = [...(topology?.devices || [])];
   const links = [...(topology?.links || [])];
@@ -185,7 +186,7 @@ export function buildConfigurationDocument(topology, generatedAt = new Date()) {
 </head>
 <body>
   <header class="masthead">
-    <div><p class="eyebrow">NETDIAGRAM · CONFIGURATION WORKBOOK</p><h1>${escapeHTML(topology?.name || "Network topology")}</h1><p class="sub">Inventory · interfaces · VLANs · physical paths · trunks · logical systems</p></div>
+    <div><p class="eyebrow">NETDIAGRAM · CONFIGURATION WORKBOOK</p><h1>${escapeHTML(topology?.name || "Network topology")}</h1><p class="sub">${escapeHTML(topologyScope)} · Inventory · interfaces · VLANs · physical paths · trunks · logical systems</p></div>
     <div class="revision"><span>TOPOLOGY REVISION <b>${escapeHTML(topology?.revision ?? "—")}</b></span><span>GENERATED <b>${escapeHTML(timestamp || "—")}</b></span></div>
   </header>
   <section class="summary" aria-label="Configuration totals">

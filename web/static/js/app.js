@@ -34,13 +34,17 @@ import { ToastQueue } from "./toast-queue.js";
 import { topologySize, topologySizeMessage } from "./topology-size.js";
 import { TopologyMinimap } from "./minimap.js";
 import { renderTopologyTree } from "./topology-tree.js";
-import { ACTIVE_MAP_STORAGE_KEY, nextMapName, preferredTopologyID } from "./maps.js";
+import {
+  ACTIVE_MAP_STORAGE_KEY, nextMapName, organizationLocationOptions, preferredTopologyID, topologyOptionLabel,
+} from "./maps.js";
 
 const state = new AppState();
 api.setRevisionProvider(() => state.topology?.revision);
 const cableMediaTypes = ["CAT5E", "CAT6", "CAT6A", "COAX", "FIBER", "SMF", "MMF", "DAC", "AOC", "TWINAX"];
 const elements = Object.fromEntries([
-  "topology-select", "topology-count", "topology-dialog", "topology-form", "connection-status", "topology-name", "rack-count", "device-count", "physical-device-count", "link-count", "vlan-count",
+  "topology-select", "topology-count", "topology-dialog", "topology-form", "topology-dialog-title", "topology-dialog-note",
+  "topology-submit-button", "map-template-field", "organization-options", "location-options", "edit-topology-button",
+  "connection-status", "topology-name", "topology-scope", "rack-count", "device-count", "physical-device-count", "link-count", "vlan-count",
   "workspace", "selection-inspector", "vlan-palette", "analysis-count", "analysis-list", "stp-count", "stp-list", "inspector-empty", "inspector-content", "zoom-readout",
   "pointer-readout", "toast", "device-dialog", "device-form", "vlan-modal", "vlan-form", "vlan-manager-list",
   "trace-dialog", "trace-form", "rack-dialog", "rack-form", "static-server-dialog", "static-server-form",
@@ -167,10 +171,11 @@ function fillTopologySelect(topologies) {
   elements["topology-select"].replaceChildren(...topologies.map((topology) => {
     const option = document.createElement("option");
     option.value = topology.id;
-    option.textContent = topology.name;
+    option.textContent = topologyOptionLabel(topology);
     return option;
   }));
   elements["topology-count"].textContent = `${topologies.length} MAP${topologies.length === 1 ? "" : "S"}`;
+  refreshTopologyScopeOptions();
 }
 
 function rememberedTopologyID() {
@@ -190,21 +195,82 @@ function rememberTopologyID(id) {
 }
 
 function openTopologyDialog() {
-  elements["topology-form"].reset();
-  elements["topology-form"].elements.name.value = nextMapName(topologySummaries);
+  const form = elements["topology-form"];
+  form.reset();
+  form.dataset.mode = "create";
+  form.elements.name.value = nextMapName(topologySummaries);
+  form.elements.organization.value = state.topology?.organization || organizationLocationOptions(topologySummaries)[0]?.organization || "";
+  form.elements.location.value = "";
+  elements["topology-dialog-title"].textContent = "CREATE NETWORK MAP";
+  elements["topology-dialog-note"].textContent = "Create an independent topology inside one organization and location.";
+  elements["map-template-field"].hidden = false;
+  elements["topology-submit-button"].value = "create";
+  elements["topology-submit-button"].textContent = "CREATE + OPEN MAP";
+  refreshTopologyScopeOptions(form.elements.organization.value);
   elements["topology-dialog"].showModal();
-  requestAnimationFrame(() => elements["topology-form"].elements.name.select());
+  requestAnimationFrame(() => form.elements.name.select());
 }
 
-async function createTopology(event) {
+function openEditTopologyDialog() {
+  if (!state.topology) return;
+  const form = elements["topology-form"];
+  form.reset();
+  form.dataset.mode = "edit";
+  form.elements.name.value = state.topology.name || "";
+  form.elements.organization.value = state.topology.organization || "";
+  form.elements.location.value = state.topology.location || "";
+  elements["topology-dialog-title"].textContent = "EDIT MAP ASSIGNMENT";
+  elements["topology-dialog-note"].textContent = "Assign this map to one organization and one of its locations. An organization may own any number of locations.";
+  elements["map-template-field"].hidden = true;
+  elements["topology-submit-button"].value = "save";
+  elements["topology-submit-button"].textContent = "SAVE MAP ASSIGNMENT";
+  refreshTopologyScopeOptions(form.elements.organization.value);
+  elements["topology-dialog"].showModal();
+  requestAnimationFrame(() => form.elements.organization.focus());
+}
+
+function refreshTopologyScopeOptions(selectedOrganization = "") {
+  const scopes = organizationLocationOptions(topologySummaries);
+  elements["organization-options"].replaceChildren(...scopes.map(({ organization }) => {
+    const option = document.createElement("option");
+    option.value = organization;
+    return option;
+  }));
+  const matching = scopes.find(({ organization }) =>
+    organization.localeCompare(String(selectedOrganization).trim(), undefined, { sensitivity: "accent" }) === 0);
+  const locations = matching?.locations || [...new Set(scopes.flatMap(({ locations: entries }) => entries))].sort();
+  elements["location-options"].replaceChildren(...locations.map((location) => {
+    const option = document.createElement("option");
+    option.value = location;
+    return option;
+  }));
+}
+
+async function submitTopologyDialog(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  const submit = form.querySelector('button[value="create"]');
+  const submit = elements["topology-submit-button"];
   const data = new FormData(form);
+  const metadata = {
+    name: String(data.get("name")).trim(),
+    organization: String(data.get("organization")).trim(),
+    location: String(data.get("location")).trim(),
+  };
   submit.disabled = true;
   try {
+    if (form.dataset.mode === "edit") {
+      const updated = await api.replaceTopology({ ...state.topology, ...metadata });
+      state.setTopology(updated);
+      autosave.markSaved();
+      topologySummaries = await api.listTopologies();
+      fillTopologySelect(topologySummaries);
+      elements["topology-select"].value = updated.id;
+      elements["topology-dialog"].close();
+      toast(`Map assignment saved · ${updated.organization} / ${updated.location}`);
+      return;
+    }
     const created = await api.createTopology({
-      name: String(data.get("name")).trim(),
+      ...metadata,
       template: String(data.get("template")),
     });
     topologySummaries = await api.listTopologies();
@@ -222,6 +288,9 @@ function renderTopology() {
   const topology = state.topology;
   if (!topology) return;
   elements["topology-name"].textContent = topology.name;
+  elements["topology-scope"].textContent = topology.organization && topology.location
+    ? `${topology.organization} · ${topology.location}`
+    : "UNASSIGNED ORGANIZATION · LOCATION";
   elements["rack-count"].textContent = (topology.racks || []).length;
   const logicalCount = logicalDeviceCount(topology);
   elements["device-count"].textContent = logicalCount;
@@ -697,7 +766,9 @@ function renderRearPanelLinkInspector(link, source, target) {
 function bindControls() {
   elements["topology-select"].addEventListener("change", (event) => loadTopology(event.target.value).catch(showError));
   document.getElementById("add-topology-button").addEventListener("click", openTopologyDialog);
-  elements["topology-form"].addEventListener("submit", (event) => createTopology(event).catch(showError));
+  elements["edit-topology-button"].addEventListener("click", openEditTopologyDialog);
+  elements["topology-form"].elements.organization.addEventListener("input", (event) => refreshTopologyScopeOptions(event.target.value));
+  elements["topology-form"].addEventListener("submit", (event) => submitTopologyDialog(event).catch(showError));
   elements["graphics-quality"].addEventListener("change", (event) => {
     const mode = normalizeGraphicsMode(event.target.value);
     canvas.setGraphicsMode(mode);

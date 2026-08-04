@@ -359,6 +359,8 @@ type ShareGrant struct {
 type Topology struct {
 	ID                 string              `json:"id"`
 	Name               string              `json:"name"`
+	Organization       string              `json:"organization,omitempty"`
+	Location           string              `json:"location,omitempty"`
 	Revision           uint64              `json:"revision"`
 	Racks              []Rack              `json:"racks"`
 	Devices            []Device            `json:"devices"`
@@ -377,12 +379,14 @@ type Topology struct {
 
 // Summary is the compact representation returned by topology listings.
 type Summary struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	RackCount   int       `json:"rackCount"`
-	DeviceCount int       `json:"deviceCount"`
-	LinkCount   int       `json:"linkCount"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Organization string    `json:"organization,omitempty"`
+	Location     string    `json:"location,omitempty"`
+	RackCount    int       `json:"rackCount"`
+	DeviceCount  int       `json:"deviceCount"`
+	LinkCount    int       `json:"linkCount"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 // NewID returns a random RFC 4122 version 4 UUID without an external dependency.
@@ -408,6 +412,9 @@ func NewID() (string, error) {
 
 // Normalize initializes slices and canonicalizes derived port fields.
 func (t *Topology) Normalize() {
+	t.Name = strings.TrimSpace(t.Name)
+	t.Organization = strings.TrimSpace(t.Organization)
+	t.Location = strings.TrimSpace(t.Location)
 	if t.Revision == 0 {
 		t.Revision = 1
 	}

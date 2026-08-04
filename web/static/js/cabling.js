@@ -126,6 +126,20 @@ export function assignCableTracks(scene, options = {}) {
     frontDeviceLaneCounts: countFrontDeviceLanes(descriptors),
   };
   const tracks = new Map();
+  const previousTracks = options.previousTracks instanceof Map ? options.previousTracks : null;
+  const rerouteLinkIDs = options.rerouteLinkIDs instanceof Set ? options.rerouteLinkIDs : null;
+  const reusableTracks = new Map();
+  if (previousTracks && rerouteLinkIDs) {
+    for (const descriptor of descriptors) {
+      if (rerouteLinkIDs.has(descriptor.link.id)) continue;
+      const previous = previousTracks.get(descriptor.link.id);
+      if (trackHasRoutingReservations(previous)) reusableTracks.set(descriptor.link.id, previous);
+    }
+    for (const descriptor of descriptors) {
+      const previous = reusableTracks.get(descriptor.link.id);
+      if (previous) reserveTrackRoutingState(previous, descriptor, routingState);
+    }
+  }
 
   const orderedBundleKeys = [...bundles.keys()].sort((left, right) => {
     const leftExplicit = left.startsWith("group:");
@@ -140,6 +154,11 @@ export function assignCableTracks(scene, options = {}) {
     const trackMicroSpacing = tightBundle ? bundleLaneSpacing : microSpacing;
     for (let bundleIndex = 0; bundleIndex < members.length; bundleIndex += 1) {
       const descriptor = members[bundleIndex];
+      const reusable = reusableTracks.get(descriptor.link.id);
+      if (reusable) {
+        tracks.set(descriptor.link.id, reusable);
+        continue;
+      }
       const route = planDescriptorTrack(descriptor, {
         ...routingState,
         bundleIndex,
@@ -180,20 +199,26 @@ function planDescriptorTrack(descriptor, state) {
   let sourceGutterX = null;
   let targetGutterX = null;
   let bridgeY = null;
+  const corridorReservations = [];
+  const allocateCorridor = (key) => {
+    const ordinal = nextOrdinal(state.corridorOrdinals, key);
+    corridorReservations.push({ key, ordinal });
+    return ordinal;
+  };
 
   if (routingPlane === CableRoutingPlane.REAR && sameRack) {
     sourceSide = targetSide = outerFacingRackSide(sourceRack, state.allRackBoxes);
     const corridor = `rack:${rackID(sourceRack)}:${sourceSide}:rear`;
-    const ordinal = nextOrdinal(state.corridorOrdinals, corridor);
+    const ordinal = allocateCorridor(corridor);
     gutterX = outerRackGutter(sourceRack, sourceSide, ordinal, state.trackSpacing, routingPlane, state);
     routeKind = "rear-intra-rack";
   } else if (routingPlane === CableRoutingPlane.REAR && crossRack) {
     sourceSide = outerFacingRackSide(sourceRack, state.allRackBoxes);
     targetSide = outerFacingRackSide(targetRack, state.allRackBoxes);
     const pairKey = canonicalPair(rackID(sourceRack), rackID(targetRack));
-    const sourceOrdinal = nextOrdinal(state.corridorOrdinals, `rack:${rackID(sourceRack)}:${sourceSide}:rear`);
-    const targetOrdinal = nextOrdinal(state.corridorOrdinals, `rack:${rackID(targetRack)}:${targetSide}:rear`);
-    const bridgeOrdinal = nextOrdinal(state.corridorOrdinals, `rack-perimeter:${pairKey}:rear`);
+    const sourceOrdinal = allocateCorridor(`rack:${rackID(sourceRack)}:${sourceSide}:rear`);
+    const targetOrdinal = allocateCorridor(`rack:${rackID(targetRack)}:${targetSide}:rear`);
+    const bridgeOrdinal = allocateCorridor(`rack-perimeter:${pairKey}:rear`);
     sourceGutterX = outerRackGutter(sourceRack, sourceSide, sourceOrdinal, state.trackSpacing, routingPlane, state);
     targetGutterX = outerRackGutter(targetRack, targetSide, targetOrdinal, state.trackSpacing, routingPlane, state);
     bridgeY = perimeterBridgeY(sourceRack, targetRack, state.allRackBoxes, bridgeOrdinal, state.trackSpacing);
@@ -201,9 +226,9 @@ function planDescriptorTrack(descriptor, state) {
   } else if (routingPlane === CableRoutingPlane.REAR) {
     sourceSide = outerFacingDeviceSide(sourceDevice, state.allDeviceBoxes);
     targetSide = outerFacingDeviceSide(targetDevice, state.allDeviceBoxes);
-    const sourceOrdinal = nextOrdinal(state.corridorOrdinals, `device:${sourceDevice.device.id}:${sourceSide}:rear`);
-    const targetOrdinal = nextOrdinal(state.corridorOrdinals, `device:${targetDevice.device.id}:${targetSide}:rear`);
-    const bridgeOrdinal = nextOrdinal(state.corridorOrdinals, `free-perimeter:${descriptor.bundleKey}:rear`);
+    const sourceOrdinal = allocateCorridor(`device:${sourceDevice.device.id}:${sourceSide}:rear`);
+    const targetOrdinal = allocateCorridor(`device:${targetDevice.device.id}:${targetSide}:rear`);
+    const bridgeOrdinal = allocateCorridor(`free-perimeter:${descriptor.bundleKey}:rear`);
     sourceGutterX = outerDeviceGutter(sourceDevice, sourceSide, sourceOrdinal, state.trackSpacing, routingPlane, state);
     targetGutterX = outerDeviceGutter(targetDevice, targetSide, targetOrdinal, state.trackSpacing, routingPlane, state);
     bridgeY = perimeterBridgeY(sourceDevice, targetDevice, state.allDeviceBoxes, bridgeOrdinal, state.trackSpacing);
@@ -215,7 +240,7 @@ function planDescriptorTrack(descriptor, state) {
       microLaneAvailable(state, targetDevice, preferred, targetRow);
     sourceSide = targetSide = preferredAvailable ? preferred : alternate;
     const corridor = `rack:${rackID(sourceRack)}:${sourceSide}:front`;
-    const ordinal = nextOrdinal(state.corridorOrdinals, corridor);
+    const ordinal = allocateCorridor(corridor);
     gutterX = outerRackGutter(sourceRack, sourceSide, ordinal, state.trackSpacing, routingPlane, state);
     routeKind = "intra-rack";
   } else if (crossRack) {
@@ -229,7 +254,7 @@ function planDescriptorTrack(descriptor, state) {
       microLaneAvailable(state, targetDevice, targetSide, targetRow);
     if (adjacent && preferredAvailable) {
       const pairKey = canonicalPair(rackID(sourceRack), rackID(targetRack));
-      const ordinal = nextOrdinal(state.corridorOrdinals, `rack-pair:${pairKey}`);
+      const ordinal = allocateCorridor(`rack-pair:${pairKey}`);
       gutterX = interRackChannel(
         sourceRackBox,
         targetRackBox,
@@ -244,9 +269,9 @@ function planDescriptorTrack(descriptor, state) {
         targetSide = oppositeSide(targetSide);
       }
       const pairKey = canonicalPair(rackID(sourceRack), rackID(targetRack));
-      const sourceOrdinal = nextOrdinal(state.corridorOrdinals, `rack:${rackID(sourceRack)}:${sourceSide}:front`);
-      const targetOrdinal = nextOrdinal(state.corridorOrdinals, `rack:${rackID(targetRack)}:${targetSide}:front`);
-      const bridgeOrdinal = nextOrdinal(state.corridorOrdinals, `rack-perimeter:${pairKey}:front`);
+      const sourceOrdinal = allocateCorridor(`rack:${rackID(sourceRack)}:${sourceSide}:front`);
+      const targetOrdinal = allocateCorridor(`rack:${rackID(targetRack)}:${targetSide}:front`);
+      const bridgeOrdinal = allocateCorridor(`rack-perimeter:${pairKey}:front`);
       sourceGutterX = outerRackGutter(sourceRackBox, sourceSide, sourceOrdinal, state.trackSpacing, routingPlane, state);
       targetGutterX = outerRackGutter(targetRackBox, targetSide, targetOrdinal, state.trackSpacing, routingPlane, state);
       bridgeY = perimeterBridgeY(sourceRackBox, targetRackBox, state.allRackBoxes, bridgeOrdinal, state.trackSpacing);
@@ -259,13 +284,13 @@ function planDescriptorTrack(descriptor, state) {
     targetSide = sourceCenter <= targetCenter ? "left" : "right";
     const gap = horizontalDeviceGap(sourceDevice, targetDevice);
     if (gap && verticalChannelClear(gap.center, sourceDevice, targetDevice, state.allDeviceBoxes)) {
-      const ordinal = nextOrdinal(state.corridorOrdinals, `free-gap:${descriptor.bundleKey}`);
+      const ordinal = allocateCorridor(`free-gap:${descriptor.bundleKey}`);
       gutterX = gap.center + centeredOffset(ordinal, state.bundleSize, state.trackSpacing);
       routeKind = "free-canvas-gutter";
     } else {
-      const sourceOrdinal = nextOrdinal(state.corridorOrdinals, `device:${sourceDevice.device.id}:${sourceSide}:front`);
-      const targetOrdinal = nextOrdinal(state.corridorOrdinals, `device:${targetDevice.device.id}:${targetSide}:front`);
-      const bridgeOrdinal = nextOrdinal(state.corridorOrdinals, `free-perimeter:${descriptor.bundleKey}:front`);
+      const sourceOrdinal = allocateCorridor(`device:${sourceDevice.device.id}:${sourceSide}:front`);
+      const targetOrdinal = allocateCorridor(`device:${targetDevice.device.id}:${targetSide}:front`);
+      const bridgeOrdinal = allocateCorridor(`free-perimeter:${descriptor.bundleKey}:front`);
       sourceGutterX = outerDeviceGutter(sourceDevice, sourceSide, sourceOrdinal, state.trackSpacing, routingPlane, state);
       targetGutterX = outerDeviceGutter(targetDevice, targetSide, targetOrdinal, state.trackSpacing, routingPlane, state);
       bridgeY = perimeterBridgeY(sourceDevice, targetDevice, state.allDeviceBoxes, bridgeOrdinal, state.trackSpacing);
@@ -310,8 +335,43 @@ function planDescriptorTrack(descriptor, state) {
       sourceGutterX: finalSourceGutter,
       targetGutterX: finalTargetGutter,
       bridgeY,
+      corridorReservations,
     },
   };
+}
+
+function trackHasRoutingReservations(track) {
+  return track && Array.isArray(track.corridorReservations) &&
+    Number.isFinite(track.sourceMicroLaneY) && Number.isFinite(track.targetMicroLaneY);
+}
+
+function reserveTrackRoutingState(track, descriptor, state) {
+  reserveEndpointRoutingState(
+    descriptor.sourceDevice,
+    track.sourceSide,
+    track.sourceRow,
+    track.sourceMicroLaneY,
+    state,
+  );
+  reserveEndpointRoutingState(
+    descriptor.targetDevice,
+    track.targetSide,
+    track.targetRow,
+    track.targetMicroLaneY,
+    state,
+  );
+  for (const reservation of track.corridorReservations) {
+    reserveOrdinal(state.corridorOrdinals, reservation.key, reservation.ordinal);
+  }
+}
+
+function reserveEndpointRoutingState(deviceBox, side, row, y, state) {
+  const yKey = `${deviceBox.device.id}:${side}`;
+  const usedY = state.microY.get(yKey) || new Set();
+  usedY.add(coordinateKey(y));
+  state.microY.set(yKey, usedY);
+  const rowKey = `${deviceBox.device.id}:${side}:${row}`;
+  state.microRows.set(rowKey, (state.microRows.get(rowKey) || 0) + 1);
 }
 
 function endpointLead(portBox, deviceBox, side, lane, gutterX) {
@@ -678,10 +738,27 @@ export function distanceToRoute(point, route) {
 export function routesWithCrossingBridges(routes = [], options = {}) {
   const endpointClearance = Math.max(8, Number(options.endpointClearance) || BRIDGE_ENDPOINT_CLEARANCE);
   const radius = clamp(Number(options.radius) || CABLE_JUMPER_RADIUS, 4, 6);
-  const decorated = routes.map((route) => route ? { ...route, bridges: [] } : route);
+  const previousRoutes = Array.isArray(options.previousRoutes) ? options.previousRoutes : null;
+  const affectedIndices = options.affectedIndices instanceof Set ? new Set(options.affectedIndices) : null;
+  if (previousRoutes && affectedIndices) {
+    for (let index = 0; index < routes.length; index += 1) {
+      if (!previousRoutes[index]) affectedIndices.add(index);
+    }
+  }
+  const incremental = Boolean(previousRoutes && affectedIndices);
+  const decorated = routes.map((route, index) => {
+    if (!route) return route;
+    if (!incremental || affectedIndices.has(index)) return { ...route, bridges: [] };
+    const bridges = (previousRoutes[index]?.bridges || [])
+      .filter((bridge) => !affectedIndices.has(bridge.underRouteIndex))
+      .map((bridge) => ({ ...bridge, crossing: { ...bridge.crossing }, apex: { ...bridge.apex } }));
+    return { ...route, bridges };
+  });
   const metrics = routes.map(routeMetrics);
   for (let leftIndex = 0; leftIndex < routes.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < routes.length; rightIndex += 1) {
+      if (incremental && !affectedIndices.has(leftIndex) && !affectedIndices.has(rightIndex)) continue;
+      if (options.stats) options.stats.pairsExamined = (options.stats.pairsExamined || 0) + 1;
       const leftSegments = routeSegments(routes[leftIndex]);
       const rightSegments = routeSegments(routes[rightIndex]);
       for (let leftSegmentIndex = 0; leftSegmentIndex < leftSegments.length; leftSegmentIndex += 1) {
@@ -840,9 +917,28 @@ function distanceToSegment(point, start, end) {
 }
 
 function nextOrdinal(registry, key) {
-  const ordinal = registry.get(key) || 0;
-  registry.set(key, ordinal + 1);
+  const entry = ordinalRegistryEntry(registry, key);
+  let ordinal = entry.next;
+  while (entry.used.has(ordinal)) ordinal += 1;
+  entry.used.add(ordinal);
+  entry.next = ordinal + 1;
   return ordinal;
+}
+
+function reserveOrdinal(registry, key, ordinal) {
+  const entry = ordinalRegistryEntry(registry, key);
+  const value = Math.max(0, Number(ordinal) || 0);
+  entry.used.add(value);
+  while (entry.used.has(entry.next)) entry.next += 1;
+}
+
+function ordinalRegistryEntry(registry, key) {
+  const existing = registry.get(key);
+  if (existing && typeof existing === "object") return existing;
+  const entry = { next: Number(existing) || 0, used: new Set() };
+  for (let ordinal = 0; ordinal < entry.next; ordinal += 1) entry.used.add(ordinal);
+  registry.set(key, entry);
+  return entry;
 }
 
 function centeredOffset(index, count, spacing) {

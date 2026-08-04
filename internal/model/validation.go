@@ -26,6 +26,17 @@ func (t Topology) Validate() error {
 	if strings.TrimSpace(t.Name) == "" || len(t.Name) > 120 {
 		return errors.New("topology name must contain 1 to 120 characters")
 	}
+	organization := strings.TrimSpace(t.Organization)
+	location := strings.TrimSpace(t.Location)
+	if len(organization) > 120 {
+		return errors.New("topology organization must not exceed 120 characters")
+	}
+	if len(location) > 120 {
+		return errors.New("topology location must not exceed 120 characters")
+	}
+	if (organization == "") != (location == "") {
+		return errors.New("topology organization and location must be assigned together")
+	}
 	if t.CreatedAt.IsZero() || t.UpdatedAt.IsZero() {
 		return errors.New("topology timestamps must be set")
 	}

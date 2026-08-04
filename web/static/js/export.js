@@ -143,7 +143,7 @@ export function buildHTMLDocument(topology, engine, generatedAt = new Date()) {
 </head>
 <body>
   <header>
-    <section><p class="eyebrow">NETDIAGRAM · STANDALONE EXPORT</p><h1 class="title">${escapeHTML(topology.name)}</h1><p class="subtitle">Portable physical topology report · source data embedded</p></section>
+    <section><p class="eyebrow">NETDIAGRAM · STANDALONE EXPORT</p><h1 class="title">${escapeHTML(topology.name)}</h1><p class="subtitle">${escapeHTML([topology.organization, topology.location].filter(Boolean).join(" / ") || "UNASSIGNED")} · Portable physical topology report · source data embedded</p></section>
     <section class="stats" aria-label="Topology totals"><span><b>${counts.racks}</b>RACKS</span><span><b>${counts.devices}</b>DEVICES</span><span><b>${counts.links}</b>CABLES</span><span><b>${counts.vlans}</b>VLANS</span></section>
   </header>
   <main>${svg}</main>
