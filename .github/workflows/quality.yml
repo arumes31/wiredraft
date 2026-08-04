@@ -124,7 +124,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
       - name: Initialize PostgreSQL schema
-        run: docker exec --interactive "${{ job.services.postgres.id }}" psql --username wiredraft --dbname wiredraft --set ON_ERROR_STOP=1 < db/migrations/0001_initial.sql
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: docker exec --interactive "$POSTGRES_CONTAINER_ID" psql --username wiredraft --dbname wiredraft --set ON_ERROR_STOP=1 < db/migrations/0001_initial.sql
       - name: Install browser runtime
         run: npx playwright install --with-deps "$BROWSER"
       - name: Run browser tests
