@@ -146,7 +146,7 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	statusResponse := performJSONRequest(t, handler, http.MethodGet, "/api/v1/auth/status", nil, cookie)
 	var status authStatusResponse
 	decodeResponse(t, statusResponse, &status)
-	if !status.Authenticated || !status.Principal.IsAdmin() || status.CSRFToken != verified.Session.CSRFToken || len(status.AvailableOrganizations) == 0 {
+	if !status.Authenticated || !status.IsAdmin() || status.CSRFToken != verified.Session.CSRFToken || len(status.AvailableOrganizations) == 0 {
 		t.Fatalf("authenticated status = %#v", status)
 	}
 
