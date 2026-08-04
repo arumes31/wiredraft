@@ -75,66 +75,18 @@ docker pull ghcr.io/arumes31/wiredraft:latest
 
 Available tags include `latest`, `main`, `sha-<commit>`, `v<version>`, `<version>`, and `<major>.<minor>` according to the triggering branch or release tag. Use a version or digest instead of `latest` for repeatable production deployments.
 
-The application does not run schema migrations itself. For a complete deployment, save the following as `compose.ghcr.yml` in a WireDraft checkout so PostgreSQL can mount `db/migrations`:
+The repository includes a standalone [GHCR Compose stack](docker-compose.ghcr.yml) with both the application and PostgreSQL. It mounts `db/migrations` into new PostgreSQL containers, keeps the database on a named volume, waits for database readiness, and runs the application with a read-only filesystem and dropped Linux capabilities.
 
-```yaml
-name: wiredraft
-
-services:
-  postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: wiredraft
-      POSTGRES_USER: wiredraft
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./db/migrations:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wiredraft -d wiredraft"]
-      interval: 5s
-      timeout: 4s
-      retries: 12
-    restart: unless-stopped
-
-  wiredraft:
-    image: ghcr.io/arumes31/wiredraft:latest
-    ports:
-      - "8080:8080"
-    environment:
-      PORT: "8080"
-      PGHOST: postgres
-      PGPORT: "5432"
-      PGDATABASE: wiredraft
-      PGUSER: wiredraft
-      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      WIREDRAFT_ADMIN_USER: ${WIREDRAFT_ADMIN_USER:-admin}
-      WIREDRAFT_ADMIN_PASSWORD: ${WIREDRAFT_ADMIN_PASSWORD:?set WIREDRAFT_ADMIN_PASSWORD in .env}
-      WIREDRAFT_ADMIN_TOTP_SECRET: ${WIREDRAFT_ADMIN_TOTP_SECRET:-}
-      WIREDRAFT_GUEST_ENABLED: ${WIREDRAFT_GUEST_ENABLED:-true}
-      WIREDRAFT_COOKIE_SECURE: ${WIREDRAFT_COOKIE_SECURE:-false}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "/wiredraft", "-healthcheck"]
-      interval: 15s
-      timeout: 4s
-      start_period: 5s
-      retries: 3
-    restart: unless-stopped
-
-volumes:
-  postgres-data:
-```
-
-Start that deployment with:
+Start it from a WireDraft checkout:
 
 ```sh
 cp .env.example .env
 # Replace the credentials in .env before continuing.
-docker compose -f compose.ghcr.yml up -d
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
 ```
+
+Set `WIREDRAFT_IMAGE` in `.env` to pin a release tag or digest without editing the Compose file, for example `WIREDRAFT_IMAGE=ghcr.io/arumes31/wiredraft:1.2.3`.
 
 The published runtime image is `FROM scratch`, contains only the statically linked server, runs as numeric user `10001`, and has no shell or package manager. Its built-in `-healthcheck` command probes `/api/v1/health` without adding a second binary.
 

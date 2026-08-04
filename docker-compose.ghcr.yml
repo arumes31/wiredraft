@@ -1,0 +1,58 @@
+name: wiredraft
+
+# Production-oriented example using the published multi-architecture image.
+# Copy .env.example to .env and replace every credential before starting.
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_DB: wiredraft
+      POSTGRES_USER: wiredraft
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wiredraft -d wiredraft"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+    restart: unless-stopped
+
+  wiredraft:
+    image: ${WIREDRAFT_IMAGE:-ghcr.io/arumes31/wiredraft:latest}
+    pull_policy: always
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: wiredraft
+      PGUSER: wiredraft
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      WIREDRAFT_ADMIN_USER: ${WIREDRAFT_ADMIN_USER:-admin}
+      WIREDRAFT_ADMIN_PASSWORD: ${WIREDRAFT_ADMIN_PASSWORD:?set WIREDRAFT_ADMIN_PASSWORD in .env}
+      WIREDRAFT_ADMIN_TOTP_SECRET: ${WIREDRAFT_ADMIN_TOTP_SECRET:-}
+      WIREDRAFT_GUEST_ENABLED: ${WIREDRAFT_GUEST_ENABLED:-true}
+      WIREDRAFT_COOKIE_SECURE: ${WIREDRAFT_COOKIE_SECURE:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/wiredraft", "-healthcheck"]
+      interval: 15s
+      timeout: 4s
+      start_period: 5s
+      retries: 3
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
