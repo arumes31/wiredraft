@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -180,4 +182,164 @@ func TestSecretEncryptionRoundTrip(t *testing.T) {
 	if _, err := openSecret(key, tampered); err == nil {
 		t.Fatal("tampered ciphertext was accepted")
 	}
+}
+
+func TestManagerAccountAndSessionLifecycle(t *testing.T) {
+	t.Parallel()
+	manager, err := New(t.TempDir(), Config{
+		AdminUsername: "admin", AdminPassword: testPassword, GuestEnabled: true, CookieSecure: true,
+	}, []string{"legacy", "legacy", " "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.GuestEnabled() || !manager.CookieSecure() {
+		t.Fatalf("manager flags = guest %v, secure %v", manager.GuestEnabled(), manager.CookieSecure())
+	}
+	if users := manager.Users(); len(users) != 1 || users[0].Username != "admin" {
+		t.Fatalf("bootstrap users = %#v", users)
+	}
+	user, err := manager.CreateUser(t.Context(), "  Vienna.User  ", "another sufficiently long password", []string{"Vienna", "vienna", " Berlin "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.Username != "Vienna.User" || !slices.Equal(user.Organizations, []string{"Berlin", "Vienna"}) {
+		t.Fatalf("created user = %#v", user)
+	}
+	if _, err := manager.CreateUser(t.Context(), "vienna.user", "another sufficiently long password", []string{"Vienna"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate username error = %v, want ErrConflict", err)
+	}
+	if !manager.CanCreateInOrganization(Principal{Role: RoleAdmin}, "Anywhere") ||
+		!manager.CanCreateInOrganization(Principal{Role: RoleGuest}, "Guest") ||
+		!manager.CanCreateInOrganization(Principal{Role: RoleUser, Organizations: []string{"Vienna"}}, " vienna ") ||
+		manager.CanCreateInOrganization(Principal{Role: RoleUser, Organizations: []string{"Vienna"}}, "Berlin") {
+		t.Fatal("organization creation authorization is inconsistent")
+	}
+
+	guest, err := manager.NewGuestSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved, ok := manager.Session(guest.Token); !ok || !resolved.Principal.IsGuest() {
+		t.Fatalf("guest session = %#v, exists = %v", resolved, ok)
+	}
+	manager.Logout(guest.Token)
+	if _, ok := manager.Session(guest.Token); ok {
+		t.Fatal("logged-out session still resolves")
+	}
+
+	manager.mu.Lock()
+	userSession, err := manager.newPrincipalSessionLocked(Principal{
+		UserID: user.ID, Username: user.Username, Role: RoleUser, Organizations: user.Organizations,
+	}, manager.now())
+	manager.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := manager.UpdateUser(t.Context(), user.ID, []string{"Graz"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(updated.Organizations, []string{"Graz"}) {
+		t.Fatalf("updated organizations = %#v", updated.Organizations)
+	}
+	if session, ok := manager.Session(userSession.Token); !ok || !slices.Equal(session.Principal.Organizations, []string{"Graz"}) {
+		t.Fatalf("live session organizations = %#v, exists = %v", session.Principal.Organizations, ok)
+	}
+	if _, err := manager.UpdateUser(t.Context(), bootstrapAdminID, []string{"Admin"}, true); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("bootstrap update error = %v, want ErrForbidden", err)
+	}
+	if _, err := manager.UpdateUser(t.Context(), "missing", []string{"Admin"}, true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing update error = %v, want ErrNotFound", err)
+	}
+	if _, err := manager.UpdateUser(t.Context(), user.ID, nil, false); err == nil {
+		t.Fatal("empty organization update was accepted")
+	}
+	if _, err := manager.UpdateUser(t.Context(), user.ID, []string{"Graz"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := manager.Session(userSession.Token); ok {
+		t.Fatal("disabling an account did not revoke its sessions")
+	}
+	if err := manager.AddGuestTopology(t.Context(), " "); err == nil {
+		t.Fatal("empty guest topology id was accepted")
+	}
+	if err := manager.AddGuestTopology(t.Context(), "legacy"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagerValidationAndExpiryEdges(t *testing.T) {
+	t.Parallel()
+	if remoteHost("EXAMPLE.COM:443") != "example.com" || remoteHost(" HostOnly ") != "hostonly" {
+		t.Fatal("remote host normalization failed")
+	}
+	for _, username := range []string{"ab", strings.Repeat("a", 81), "bad\x00name"} {
+		if err := validateUsername(username); err == nil {
+			t.Fatalf("validateUsername(%q) succeeded", username)
+		}
+	}
+	if err := validateUsername("valid.user"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := normalizeOrganizations(nil); err == nil {
+		t.Fatal("empty organizations were accepted")
+	}
+	if _, err := normalizeOrganizations([]string{strings.Repeat("x", 121)}); err == nil {
+		t.Fatal("oversized organization was accepted")
+	}
+	many := make([]string, 65)
+	for index := range many {
+		many[index] = fmt.Sprintf("org-%02d", index)
+	}
+	if _, err := normalizeOrganizations(many); err == nil {
+		t.Fatal("too many organizations were accepted")
+	}
+	if got := normalizeIDs([]string{" b ", "a", "b", ""}); !slices.Equal(got, []string{"a", "b"}) {
+		t.Fatalf("normalizeIDs() = %#v", got)
+	}
+
+	passwordHash, err := hashPassword(testPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validUser := persistedUser{ID: "user", Username: "User", UsernameKey: "user", Role: RoleUser, PasswordHash: passwordHash}
+	tests := []struct {
+		name  string
+		state persistentState
+	}{
+		{name: "invalid identity", state: persistentState{Users: []persistedUser{{ID: "", Username: "User", UsernameKey: "user", Role: RoleUser, PasswordHash: passwordHash}}}},
+		{name: "duplicate id", state: persistentState{Users: []persistedUser{validUser, {ID: "user", Username: "Other", UsernameKey: "other", Role: RoleUser, PasswordHash: passwordHash}}}},
+		{name: "duplicate username", state: persistentState{Users: []persistedUser{validUser, {ID: "other", Username: "USER", UsernameKey: "user", Role: RoleUser, PasswordHash: passwordHash}}}},
+		{name: "invalid role", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleGuest, PasswordHash: passwordHash}}}},
+		{name: "invalid password hash", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, PasswordHash: "invalid"}}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if err := validatePersistentState(test.state, make([]byte, 32)); err == nil {
+				t.Fatal("validatePersistentState() succeeded")
+			}
+		})
+	}
+
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	manager := newManager(persistentState{Users: []persistedUser{validUser}}, make([]byte, 32), Config{}, func(context.Context, persistentState) error { return nil })
+	manager.now = func() time.Time { return now }
+	manager.sessions["expired"] = Session{Token: "expired", ExpiresAt: now}
+	manager.challenges["expired"] = pendingChallenge{Token: "expired", UserID: validUser.ID, ExpiresAt: now}
+	manager.loginAttempts["expired"] = loginAttempt{StartedAt: now.Add(-loginAttemptWindow)}
+	if _, ok := manager.Session("expired"); ok {
+		t.Fatal("expired session resolves")
+	}
+	if len(manager.challenges) != 0 || len(manager.loginAttempts) != 0 {
+		t.Fatalf("expired transient state was not pruned: challenges=%d attempts=%d", len(manager.challenges), len(manager.loginAttempts))
+	}
+	manager.challenges["limited"] = pendingChallenge{Token: "limited", UserID: validUser.ID, ExpiresAt: now.Add(time.Minute)}
+	for range maxChallengeTries {
+		manager.failChallenge("limited")
+	}
+	if _, exists := manager.challenges["limited"]; exists {
+		t.Fatal("exhausted challenge was not removed")
+	}
+	manager.failChallenge("missing")
 }

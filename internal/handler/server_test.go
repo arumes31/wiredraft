@@ -303,6 +303,26 @@ func TestSwitchSystemCRUDAndDevicePruning(t *testing.T) {
 	if topology.SwitchSystems[0].Mode != model.SwitchSystemModeMCLAG {
 		t.Fatalf("updated switch system mode = %q, want MC-LAG", topology.SwitchSystems[0].Mode)
 	}
+	topology = requestTopology(
+		t,
+		handler,
+		http.MethodDelete,
+		"/api/v1/topologies/"+topology.ID+"/switch-systems/"+topology.SwitchSystems[0].ID,
+		nil,
+		http.StatusOK,
+	)
+	if len(topology.SwitchSystems) != 0 {
+		t.Fatalf("switch systems after direct delete = %#v", topology.SwitchSystems)
+	}
+	system.ID = ""
+	topology = requestTopology(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/topologies/"+topology.ID+"/switch-systems",
+		system,
+		http.StatusCreated,
+	)
 
 	topology = requestTopology(
 		t,
@@ -393,6 +413,26 @@ func TestFirewallClusterCRUDAndActiveMemberPruning(t *testing.T) {
 	if topology.FirewallClusters[0].Mode != model.FirewallClusterModeActiveActive {
 		t.Fatalf("updated cluster mode = %q, want active-active", topology.FirewallClusters[0].Mode)
 	}
+	topology = requestTopology(
+		t,
+		handler,
+		http.MethodDelete,
+		"/api/v1/topologies/"+topology.ID+"/firewall-clusters/"+topology.FirewallClusters[0].ID,
+		nil,
+		http.StatusOK,
+	)
+	if len(topology.FirewallClusters) != 0 {
+		t.Fatalf("firewall clusters after direct delete = %#v", topology.FirewallClusters)
+	}
+	cluster.ID = ""
+	topology = requestTopology(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/topologies/"+topology.ID+"/firewall-clusters",
+		cluster,
+		http.StatusCreated,
+	)
 
 	cluster = topology.FirewallClusters[0]
 	cluster.Mode = model.FirewallClusterModeActivePassive

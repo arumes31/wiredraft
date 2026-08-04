@@ -84,6 +84,61 @@ func TestCommentsDocumentationAndReadOnlyShares(t *testing.T) {
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("shared mutation status = %d, want 405", response.Code)
 	}
+
+	commentsPath := "/api/v1/topologies/" + topology.ID + "/comments"
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, commentsPath, nil))
+	var threads []model.CommentThread
+	if err := json.Unmarshal(response.Body.Bytes(), &threads); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || len(threads) != 3 {
+		t.Fatalf("list comments status/count = %d/%d", response.Code, len(threads))
+	}
+	topology = requestTopology(t, handler, http.MethodPut, commentsPath+"/"+threads[0].ID, updateCommentThreadRequest{Resolved: true}, http.StatusOK)
+	if !topology.CommentThreads[0].Resolved {
+		t.Fatal("comment thread was not resolved")
+	}
+	topology = requestTopology(t, handler, http.MethodDelete, commentsPath+"/"+threads[2].ID, nil, http.StatusOK)
+	if len(topology.CommentThreads) != 2 {
+		t.Fatalf("comment threads after delete = %d, want 2", len(topology.CommentThreads))
+	}
+
+	documentationPath := "/api/v1/topologies/" + topology.ID + "/documentation-links"
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, documentationPath, nil))
+	var documentationLinks []model.DocumentationLink
+	if err := json.Unmarshal(response.Body.Bytes(), &documentationLinks); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || len(documentationLinks) != 1 {
+		t.Fatalf("list documentation status/count = %d/%d", response.Code, len(documentationLinks))
+	}
+	topology = requestTopology(t, handler, http.MethodDelete, documentationPath+"/"+documentationLinks[0].ID, nil, http.StatusOK)
+	if len(topology.DocumentationLinks) != 0 {
+		t.Fatal("documentation link was not deleted")
+	}
+
+	sharesPath := "/api/v1/topologies/" + topology.ID + "/shares"
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, sharesPath, nil))
+	var shares []shareGrantResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &shares); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || len(shares) != 1 || shares[0].Token != "" {
+		t.Fatalf("listed shares = %#v; status = %d", shares, response.Code)
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodDelete, sharesPath+"/"+shares[0].ID, nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete share status = %d, want 204", response.Code)
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, share.Path, nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("revoked share status = %d, want 404", response.Code)
+	}
 }
 
 func TestDeletingTopologyObjectsPrunesTheirCommentAnchors(t *testing.T) {

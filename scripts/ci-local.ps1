@@ -48,7 +48,7 @@ Invoke-Gate 'Go formatting' {
 Invoke-Gate 'Go vet' { go vet ./... }
 Invoke-Gate 'golangci-lint' { golangci-lint run --timeout=5m ./... }
 Invoke-Gate 'Go race and coverage tests' { go test -race -covermode=atomic "-coverprofile=$coverageFile" ./... }
-Invoke-Gate 'Go coverage floor' { go run ./cmd/checkcoverage -profile $coverageFile -minimum 60 }
+Invoke-Gate 'Go coverage floor' { go run ./cmd/checkcoverage -profile $coverageFile -minimum 70 }
 Invoke-Gate 'Topology JSON fuzzing' { go test ./internal/model -run='^$' -fuzz=FuzzTopologyJSON "-fuzztime=${FuzzSeconds}s" }
 Invoke-Gate 'Request JSON fuzzing' { go test ./internal/handler -run='^$' -fuzz=FuzzDecodeJSON "-fuzztime=${FuzzSeconds}s" }
 Invoke-Gate 'Go vulnerability scan' { go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./... }

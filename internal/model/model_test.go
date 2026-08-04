@@ -23,6 +23,23 @@ func TestNewDemo(t *testing.T) {
 	}
 }
 
+func TestTopologyCloneIsIndependent(t *testing.T) {
+	t.Parallel()
+	topology, err := NewDemo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloned, err := topology.Clone()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloned.Devices[0].Name = "Changed"
+	cloned.Devices[0].Ports[0].Label = "Changed"
+	if topology.Devices[0].Name == "Changed" || topology.Devices[0].Ports[0].Label == "Changed" {
+		t.Fatal("Clone() shares mutable device data with its source")
+	}
+}
+
 func TestTopologyValidateOrganizationLocationAssignment(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

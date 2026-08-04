@@ -142,6 +142,60 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	if user.TOTPConfigured || len(user.Organizations) != 1 {
 		t.Fatalf("created user = %#v", user)
 	}
+
+	statusResponse := performJSONRequest(t, handler, http.MethodGet, "/api/v1/auth/status", nil, cookie)
+	var status authStatusResponse
+	decodeResponse(t, statusResponse, &status)
+	if !status.Authenticated || !status.Principal.IsAdmin() || status.CSRFToken != verified.Session.CSRFToken || len(status.AvailableOrganizations) == 0 {
+		t.Fatalf("authenticated status = %#v", status)
+	}
+
+	usersResponse := performJSONRequest(t, handler, http.MethodGet, "/api/v1/admin/users", nil, cookie)
+	if usersResponse.Code != http.StatusOK {
+		t.Fatalf("list users status = %d; body = %s", usersResponse.Code, usersResponse.Body.String())
+	}
+	var usersPayload struct {
+		Users         []auth.UserView `json:"users"`
+		Organizations []string        `json:"organizations"`
+	}
+	decodeResponse(t, usersResponse, &usersPayload)
+	if len(usersPayload.Users) != 2 || len(usersPayload.Organizations) == 0 {
+		t.Fatalf("users payload = %#v", usersPayload)
+	}
+
+	update := newJSONRequest(t, http.MethodPut, "/api/v1/admin/users/"+user.ID, updateUserRequest{
+		Organizations: []string{"Guest"}, Disabled: true,
+	}, cookie)
+	update.Header.Set("Origin", "http://example.com")
+	update.Header.Set("X-CSRF-Token", verified.Session.CSRFToken)
+	updatedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(updatedResponse, update)
+	if updatedResponse.Code != http.StatusOK {
+		t.Fatalf("update account status = %d; body = %s", updatedResponse.Code, updatedResponse.Body.String())
+	}
+	var updated auth.UserView
+	decodeResponse(t, updatedResponse, &updated)
+	if !updated.Disabled || len(updated.Organizations) != 1 || updated.Organizations[0] != "Guest" {
+		t.Fatalf("updated user = %#v", updated)
+	}
+
+	logout := newJSONRequest(t, http.MethodPost, "/api/v1/auth/logout", nil, cookie)
+	logout.Header.Set("Origin", "http://example.com")
+	logout.Header.Set("X-CSRF-Token", verified.Session.CSRFToken)
+	logoutResponse := httptest.NewRecorder()
+	handler.ServeHTTP(logoutResponse, logout)
+	if logoutResponse.Code != http.StatusNoContent || len(logoutResponse.Result().Cookies()) == 0 || logoutResponse.Result().Cookies()[0].MaxAge != -1 {
+		t.Fatalf("logout response = status %d, cookies %#v", logoutResponse.Code, logoutResponse.Result().Cookies())
+	}
+	statusResponse = performJSONRequest(t, handler, http.MethodGet, "/api/v1/auth/status", nil, cookie)
+	decodeResponse(t, statusResponse, &status)
+	if status.Authenticated {
+		t.Fatal("logged-out session remains authenticated")
+	}
+	loginPage := performJSONRequest(t, handler, http.MethodGet, "/login", nil, nil)
+	if loginPage.Code != http.StatusOK || !bytes.Contains(loginPage.Body.Bytes(), []byte("Secure Access")) {
+		t.Fatalf("login page status/body = %d/%q", loginPage.Code, loginPage.Body.String())
+	}
 }
 
 func TestOrganizationUserOnlySeesAssignedMaps(t *testing.T) {

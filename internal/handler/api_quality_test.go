@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -53,6 +54,74 @@ func TestAPIIntegrationLifecycle(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !json.Valid(response.Body.Bytes()) {
 		t.Fatalf("analysis status/body = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestTopologyReplacementVLANLifecycleAndTrace(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t)
+	topology := requestTopology(t, handler, http.MethodPost, "/api/v1/topologies", map[string]string{
+		"name": "Lifecycle", "template": "demo",
+	}, http.StatusCreated)
+	topology.Name = "Lifecycle updated"
+	topology = requestTopology(t, handler, http.MethodPut, "/api/v1/topologies/"+topology.ID, topology, http.StatusOK)
+	if topology.Name != "Lifecycle updated" {
+		t.Fatalf("replacement topology name = %q", topology.Name)
+	}
+
+	vlansPath := "/api/v1/topologies/" + topology.ID + "/vlans"
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, vlansPath, nil))
+	var vlans []model.VLAN
+	if err := json.Unmarshal(response.Body.Bytes(), &vlans); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || len(vlans) < 2 {
+		t.Fatalf("VLAN list status/count = %d/%d", response.Code, len(vlans))
+	}
+	vlanIndex := slices.IndexFunc(vlans, func(vlan model.VLAN) bool { return vlan.ID == 20 })
+	if vlanIndex < 0 {
+		t.Fatal("demo topology is missing VLAN 20")
+	}
+	vlans[vlanIndex].Name = "Users updated"
+	topology = requestTopology(t, handler, http.MethodPut, vlansPath+"/20", vlans[vlanIndex], http.StatusOK)
+	if !slices.ContainsFunc(topology.VLANs, func(vlan model.VLAN) bool { return vlan.ID == 20 && vlan.Name == "Users updated" }) {
+		t.Fatalf("updated VLANs = %#v", topology.VLANs)
+	}
+
+	tracePath := fmt.Sprintf(
+		"/api/v1/topologies/%s/trace?source=%s&target=%s&vlan=%d",
+		topology.ID,
+		topology.Devices[0].Ports[0].ID,
+		topology.Devices[3].Ports[0].ID,
+		1,
+	)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, tracePath, nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("trace status = %d; body = %s", response.Code, response.Body.String())
+	}
+
+	topology = requestTopology(t, handler, http.MethodDelete, vlansPath+"/20", nil, http.StatusOK)
+	if slices.ContainsFunc(topology.VLANs, func(vlan model.VLAN) bool { return vlan.ID == 20 }) {
+		t.Fatal("VLAN 20 was not deleted")
+	}
+	for _, device := range topology.Devices {
+		for _, port := range device.Ports {
+			if port.NativeVLAN == 20 || slices.Contains(port.AllowedVLANs, 20) {
+				t.Fatalf("port %q retains deleted VLAN 20: %#v", port.ID, port)
+			}
+		}
+	}
+	for _, current := range topology.Links {
+		if current.PrimaryVLAN == 20 || slices.Contains(current.VLANIDs, 20) {
+			t.Fatalf("link %q retains deleted VLAN 20: %#v", current.ID, current)
+		}
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodDelete, vlansPath+"/1", nil))
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("delete VLAN 1 status = %d, want 400", response.Code)
 	}
 }
 

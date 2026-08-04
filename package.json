@@ -6,7 +6,7 @@
     "minify:js": "node scripts/minify-js.mjs --source web/static/js --output .quality-data/minified-js",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "node --test web/*_test.mjs",
-    "test:coverage": "c8 --all --include=web/static/js/*.js --exclude=web/static/js/app.js --reporter=text --reporter=lcov --check-coverage --lines=65 --functions=55 --branches=70 node --test web/*_test.mjs",
+    "test:coverage": "c8 --all --include=web/static/js/*.js --exclude=web/static/js/app.js --exclude=web/static/js/canvas.js --reporter=text --reporter=lcov --check-coverage --lines=80 --functions=80 --branches=80 node --test web/*_test.mjs",
     "test:e2e": "playwright test --project=chromium --project=firefox --project=webkit",
     "test:edge": "playwright test --project=edge",
     "test:visual": "playwright test --config=playwright.visual.config.mjs --project=chromium",

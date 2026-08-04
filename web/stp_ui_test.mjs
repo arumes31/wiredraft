@@ -34,6 +34,43 @@ assert.match(view.stpMarkup, /data-stp-links="link-1"/);
 assert.doesNotMatch(view.stpMarkup, /CORE <ROOT>/, "bridge names must be escaped");
 assert.match(view.stpMarkup, /CORE &lt;ROOT&gt;/);
 
+const nominal = analysisView(undefined);
+assert.equal(nominal.countText, "NOMINAL");
+assert.equal(nominal.stpCountText, "NO DOMAINS");
+assert.match(nominal.stpMarkup, /No connected switching domains/);
+
+const forwarding = analysisView({
+  issues: [
+    { kind: "unsafe_&_'_\"", message: "First & <second>" },
+    { kind: "second", message: "Another warning" },
+  ],
+  stp: [
+    {
+      vlanId: 20,
+      domain: 2,
+      rootBridgeId: "root",
+      rootName: "ROOT & PRIMARY",
+      bridges: [
+        { bridgeId: "root", name: "Root", priority: 4096, rootPathCost: 0 },
+        { bridgeId: "leaf", name: "Leaf", deviceIds: [], priority: 32768, rootPathCost: 20 },
+      ],
+      paths: [{ bridgeId: "leaf" }],
+    },
+    {
+      vlanId: 30,
+      domain: 3,
+      rootBridgeId: "missing-root",
+      rootName: "Fallback",
+      paths: [{ bridgeId: "missing-leaf", linkIds: ["one", "two"] }],
+    },
+  ],
+});
+assert.equal(forwarding.countText, "2 ALERTS");
+assert.equal(forwarding.stpCountText, "2 DOMAINS");
+assert.match(forwarding.stpMarkup, /COST 20/);
+assert.match(forwarding.stpMarkup, /missing-leaf · 2 LINKS/);
+assert.match(forwarding.markup, /&amp;|&#39;|&quot;/);
+
 const engine = Object.create(CanvasEngine.prototype);
 engine.state = { analysis: {
   stp: [

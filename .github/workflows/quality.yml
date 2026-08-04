@@ -34,7 +34,7 @@ jobs:
       - name: Test with race detector and coverage
         run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
       - name: Enforce coverage floor
-        run: go run ./cmd/checkcoverage -profile coverage.out -minimum 60
+        run: go run ./cmd/checkcoverage -profile coverage.out -minimum 70
       - name: Fuzz topology JSON
         run: go test ./internal/model -run=^$ -fuzz=FuzzTopologyJSON -fuzztime=20s
       - name: Fuzz request JSON
