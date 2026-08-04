@@ -6,14 +6,14 @@ import {
   GRAPHICS_STORAGE_KEY, GraphicsMode, graphicsProfileSummary, normalizeGraphicsMode,
 } from "./graphics-quality.js";
 import {
-  TopologyCollaboration, absoluteShareURL, commentAnchorLabel, commentPreview, commentThreadsForAnchor,
-  isRevisionConflict, selectedCommentAnchor, validateDocumentationURL,
+  TopologyCollaboration, absoluteShareURL, isRevisionConflict, validateDocumentationURL,
 } from "./collaboration.js";
+import { commentThreadsForAnchor, selectedCommentAnchor } from "./plan-comments.js";
 import {
   ServerCardTypes, defaultServerCards, instantiateGenericServerBack, serverCardType, serverSlotCapacity,
 } from "./server-cards.js";
 import {
-  isRearPanelLink, patchPanelDevices, planPatchPanelMapping,
+  isRearPanelLink, panelMapAvailability, patchPanelDevices, planPatchPanelMapping,
 } from "./patch-panels.js";
 import { usedRackUnits } from "./rack.js";
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./link-groups.js";
@@ -57,8 +57,8 @@ const elements = Object.fromEntries([
   "graphics-quality", "graphics-quality-detail", "export-menu",
   "autosave-menu", "autosave-enabled", "autosave-interval", "save-state-label", "loading-skeleton",
   "topology-tree", "topology-size-warning", "topology-minimap", "annotation-dialog", "annotation-form",
-  "collaboration-dialog", "comments-list", "comment-form", "documentation-list", "documentation-form", "documentation-preview",
-  "share-list", "share-form", "collaboration-target",
+  "resources-dialog", "documentation-list", "documentation-form", "documentation-preview",
+  "share-list", "share-form", "resource-target",
 ].map((id) => [id, document.getElementById(id)]));
 
 const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state, {
@@ -125,7 +125,7 @@ state.addEventListener("change", ({ detail }) => {
     renderNavigator();
   }
   if (detail.kind === "analysis" || detail.kind === "topology") renderAnalysis();
-  if (detail.kind === "topology" && elements["collaboration-dialog"]?.open) renderCollaboration();
+  if (detail.kind === "topology" && elements["resources-dialog"]?.open) renderResources();
 });
 autosave.addEventListener("status", ({ detail }) => {
   renderSaveStatus(detail);
@@ -446,20 +446,59 @@ function renderDocumentationInspector(selection) {
 function renderCommentInspector(selection) {
   const anchor = selectedCommentAnchor(selection);
   if (!anchor) return;
-  const allThreads = commentThreadsForAnchor(state.topology, anchor.kind, anchor.targetId, { includeResolved: true });
-  const preview = commentPreview(state.topology, anchor.kind, anchor.targetId, { maxThreads: 2, maxBodyLength: 96 });
-  const resolvedCount = allThreads.filter((thread) => thread.resolved).length;
+  const threads = commentThreadsForAnchor(state.topology, anchor.kind, anchor.targetId, { includeResolved: true });
+  const resolvedCount = threads.filter((thread) => thread.resolved).length;
+  const openCount = threads.length - resolvedCount;
   const section = document.createElement("section");
   section.className = "inspector-comments";
   section.innerHTML = `
-    <div class="section-heading"><h3>COMMENTS</h3><span>${preview.count} OPEN${resolvedCount ? ` · ${resolvedCount} RESOLVED` : ""}</span></div>
-    <div class="inspector-comment-preview">
-      ${preview.entries.length ? preview.entries.map((entry) => `<p><b>${escapeHTML(entry.author)}</b><span>${escapeHTML(entry.body)}</span></p>`).join("") : `<p class="is-empty"><span>No open notes on this ${escapeHTML(anchor.kind)}.</span></p>`}
-      ${preview.remaining ? `<em>+${preview.remaining} MORE OPEN THREAD${preview.remaining === 1 ? "" : "S"}</em>` : ""}
+    <div class="section-heading"><h3>PLAN COMMENTS</h3><span>${openCount} ACTIVE${resolvedCount ? ` · ${resolvedCount} RESOLVED` : ""}</span></div>
+    <p class="inspector-comment-persistence"><i aria-hidden="true"></i><span><b>STORED WITH THIS MAP</b>Comments are part of the persistent plan and its JSON backup.</span></p>
+    <div class="inspector-comment-list">
+      ${threads.length ? threads.map((thread) => `<article class="inspector-comment-thread${thread.resolved ? " is-resolved" : ""}">
+        <header><span>${thread.resolved ? "RESOLVED" : "ACTIVE"}</span><time datetime="${escapeHTML(thread.updatedAt || "")}">${escapeHTML(planCommentTimestamp(thread.updatedAt))}</time></header>
+        <div>${(thread.messages || []).map((message) => `<p><b>${escapeHTML(message.author)}</b><span>${escapeHTML(message.body)}</span></p>`).join("")}</div>
+        <footer><button type="button" data-plan-comment-resolve="${thread.id}">${thread.resolved ? "REOPEN" : "RESOLVE"}</button><button type="button" class="danger" data-plan-comment-delete="${thread.id}">DELETE</button></footer>
+      </article>`).join("") : `<p class="inspector-comment-empty">No comments on this ${escapeHTML(anchor.kind)} yet.</p>`}
     </div>
-    <button type="button" class="secondary inspector-comment-add">ADD COMMENT</button>`;
-  section.querySelector(".inspector-comment-add").addEventListener("click", () => openCollaboration({ focusComment: true }).catch(showError));
+    <form class="inspector-comment-form">
+      <label><span>AUTHOR</span><input name="author" maxlength="80" value="Operator" autocomplete="name" required></label>
+      <label><span>NEW COMMENT</span><textarea name="body" maxlength="4000" rows="3" placeholder="Add an operational note to this ${escapeHTML(anchor.kind)}…" required></textarea></label>
+      <button class="primary">ADD TO PLAN</button>
+    </form>`;
+  section.querySelector(".inspector-comment-form").addEventListener("submit", (event) => savePlanComment(event, anchor).catch(showError));
+  section.querySelector(".inspector-comment-list").addEventListener("click", (event) => handlePlanCommentAction(event).catch(showError));
   elements["inspector-content"].append(section);
+}
+
+function planCommentTimestamp(value) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.valueOf())) return "SAVED IN PLAN";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+async function savePlanComment(event, anchor) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const topology = await api.createComment(state.topology.id, {
+    anchor,
+    author: String(form.get("author")).trim(),
+    body: String(form.get("body")).trim(),
+  });
+  state.setTopology(topology);
+  toast("Comment stored in plan");
+}
+
+async function handlePlanCommentAction(event) {
+  const resolveID = event.target.closest("[data-plan-comment-resolve]")?.dataset.planCommentResolve;
+  const deleteID = event.target.closest("[data-plan-comment-delete]")?.dataset.planCommentDelete;
+  if (!resolveID && !deleteID) return;
+  const thread = (state.topology.commentThreads || []).find((item) => item.id === (resolveID || deleteID));
+  const topology = deleteID
+    ? await api.deleteComment(state.topology.id, deleteID)
+    : await api.updateComment(state.topology.id, resolveID, { resolved: !thread?.resolved });
+  state.setTopology(topology);
+  toast(deleteID ? "Comment removed from plan" : thread?.resolved ? "Comment reopened" : "Comment resolved");
 }
 
 function renderRackInspector(rackID) {
@@ -746,11 +785,15 @@ function renderLinkInspector(linkID) {
 }
 
 function renderRearPanelLinkInspector(link, source, target) {
+  const channelType = link.rearChannelType === "tube" ? "TUBE / BÜNDELADER" : link.rearChannelType === "discrete" ? "DISCRETE BUNDLE" : "AUTO-DERIVED";
+  const channelMemberCount = link.rearChannelId
+    ? state.topology.links.filter((candidate) => candidate.rearChannelId === link.rearChannelId).length
+    : 1;
   elements["inspector-content"].innerHTML = `
     <div class="inspector-title"><p class="eyebrow">PASSIVE REAR TERMINATION</p><h3>${escapeHTML(link.cableType)}</h3><p>${escapeHTML(source?.device.name || "Unknown")} ↔ ${escapeHTML(target?.device.name || "Unknown")}</p></div>
-    <div class="metric-grid"><span>SOURCE BACKPORT<b>${escapeHTML(source?.port.label || "—")}</b></span><span>TARGET BACKPORT<b>${escapeHTML(target?.port.label || "—")}</b></span><span>TERMINATION<b>REAR</b></span><span>FRONT JACKS<b>AVAILABLE SEPARATELY</b></span></div>
+    <div class="metric-grid"><span>SOURCE BACKPORT<b>${escapeHTML(source?.port.label || "—")}</b></span><span>TARGET BACKPORT<b>${escapeHTML(target?.port.label || "—")}</b></span><span>CHANNEL<b>${escapeHTML(link.rearChannelName || "LEGACY / AUTO")}</b></span><span>CONSTRUCTION<b>${channelType}</b></span><span>STRANDS<b>${channelMemberCount}</b></span><span>TERMINATION<b>REAR</b></span><span>FRONT JACKS<b>AVAILABLE SEPARATELY</b></span></div>
     <section class="rear-map-inspector">
-      <header><span>PERMANENT LINK</span><b>FRONT JACKS REMAIN CABLEABLE</b></header>
+      <header><span>PERMANENT LINK</span><b>${link.rearChannelType === "tube" ? "ONE TUBE · PANEL-END FAN-OUT" : "FRONT JACKS REMAIN CABLEABLE"}</b></header>
       <div><span><i>SOURCE · REAR</i><b>${escapeHTML(source?.device.name || "Unknown panel")}</b><em>${escapeHTML(source?.port.label || "—")}</em></span><strong>→</strong><span><i>TARGET · REAR</i><b>${escapeHTML(target?.device.name || "Unknown panel")}</b><em>${escapeHTML(target?.port.label || "—")}</em></span></div>
       <p>${escapeHTML(link.notes || "Panel backports are mapped one-to-one.")}</p>
     </section>
@@ -789,7 +832,7 @@ function bindControls() {
   document.getElementById("patch-panel-map-button").addEventListener("click", openPatchPanelMapDialog);
   document.getElementById("vlan-button").addEventListener("click", () => elements["vlan-modal"].showModal());
   document.getElementById("trace-button").addEventListener("click", () => elements["trace-dialog"].showModal());
-  document.getElementById("collaboration-button").addEventListener("click", () => openCollaboration().catch(showError));
+  document.getElementById("resources-button").addEventListener("click", () => openResources().catch(showError));
   document.getElementById("undo-button").addEventListener("click", () => undo());
   document.getElementById("redo-button").addEventListener("click", () => redo());
   document.getElementById("save-now-button").addEventListener("click", () => saveNow().catch(showError));
@@ -825,10 +868,8 @@ function bindControls() {
   elements["patch-panel-map-form"].addEventListener("input", renderPatchPanelMappingPreview);
   elements["patch-panel-map-form"].addEventListener("change", renderPatchPanelMappingPreview);
   elements["annotation-form"].addEventListener("submit", saveTextAnnotation);
-  elements["comment-form"].addEventListener("submit", (event) => saveComment(event).catch(showError));
   elements["documentation-form"].addEventListener("submit", (event) => saveDocumentationLink(event).catch(showError));
   elements["share-form"].addEventListener("submit", (event) => saveShare(event).catch(showError));
-  elements["comments-list"].addEventListener("click", (event) => handleCommentAction(event).catch(showError));
   elements["documentation-list"].addEventListener("click", (event) => handleDocumentationAction(event).catch(showError));
   elements["share-list"].addEventListener("click", (event) => handleShareAction(event).catch(showError));
   elements["vlan-form"].addEventListener("submit", saveVLAN);
@@ -935,86 +976,52 @@ function saveTextAnnotation(event) {
   selectCanvasTool("select");
 }
 
-async function openCollaboration({ focusComment = false } = {}) {
+async function openResources() {
   shareEntries = await api.listShares(state.topology.id);
   createdShareURL = "";
-  renderCollaboration();
-  elements["collaboration-dialog"].showModal();
-  if (focusComment) requestAnimationFrame(() => elements["comment-form"].elements.body.focus());
+  renderResources();
+  elements["resources-dialog"].showModal();
 }
 
-function collaborationTarget() {
+function resourceTarget() {
   const selection = state.selection;
   if (!selection || !["rack", "device", "port", "link"].includes(selection.type)) return { targetKind: "topology", targetId: state.topology.id, label: state.topology.name };
-  const anchor = selectedCommentAnchor(selection);
-  const label = anchor ? commentAnchorLabel(state.topology, anchor) : `${selection.type.toUpperCase()} · ${selection.id.slice(0, 8)}`;
-  return { targetKind: selection.type, targetId: selection.id, label };
+  return { targetKind: selection.type, targetId: selection.id, label: resourceTargetLabel(selection) };
 }
 
-function commentAnchor() {
-  const selectedAnchor = selectedCommentAnchor(state.selection);
-  if (selectedAnchor) return selectedAnchor;
-  if (state.selection?.type === "annotation") {
-    const annotation = (state.topology.annotations || []).find((item) => item.id === state.selection.id);
-    if (annotation) return { kind: "canvas", x: annotation.x1, y: annotation.y1 };
+function resourceTargetLabel(selection) {
+  if (selection.type === "rack") {
+    const rack = (state.topology.racks || []).find((item) => item.id === selection.id);
+    return `RACK · ${rack?.name || selection.id.slice(0, 8)}`;
   }
-  const viewport = canvas.viewportWorldRect();
-  return { kind: "canvas", x: Math.round(viewport.x + viewport.width / 2), y: Math.round(viewport.y + viewport.height / 2) };
+  if (selection.type === "device") {
+    const device = (state.topology.devices || []).find((item) => item.id === selection.id);
+    return `DEVICE · ${device?.name || selection.id.slice(0, 8)}`;
+  }
+  if (selection.type === "port") {
+    const found = findPort(state.topology, selection.id);
+    return `PORT · ${found ? `${found.device.name} / ${found.port.label}` : selection.id.slice(0, 8)}`;
+  }
+  const link = (state.topology.links || []).find((item) => item.id === selection.id);
+  const source = link && findPort(state.topology, link.sourcePortId);
+  const target = link && findPort(state.topology, link.targetPortId);
+  return `LINK · ${source && target ? `${source.device.name}:${source.port.label} → ${target.device.name}:${target.port.label}` : selection.id.slice(0, 8)}`;
 }
 
-function renderCollaboration() {
+function renderResources() {
   if (!state.topology) return;
-  const target = collaborationTarget();
-  elements["collaboration-target"].textContent = target.label;
-  const activeAnchor = selectedCommentAnchor(state.selection);
-  const threads = [...(state.topology.commentThreads || [])].sort((left, right) => {
-    const leftActive = activeAnchor && left.anchor.kind === activeAnchor.kind && left.anchor.targetId === activeAnchor.targetId;
-    const rightActive = activeAnchor && right.anchor.kind === activeAnchor.kind && right.anchor.targetId === activeAnchor.targetId;
-    return Number(rightActive) - Number(leftActive) || String(right.updatedAt || "").localeCompare(String(left.updatedAt || ""));
-  });
-  elements["comments-list"].innerHTML = threads.length ? threads.map((thread) => {
-    const anchor = commentAnchorLabel(state.topology, thread.anchor);
-    const active = activeAnchor && thread.anchor.kind === activeAnchor.kind && thread.anchor.targetId === activeAnchor.targetId;
-    return `<article class="collaboration-card${thread.resolved ? " is-resolved" : ""}${active ? " is-active-anchor" : ""}">
-      <header><span>${escapeHTML(anchor)}</span><b>${thread.resolved ? "RESOLVED" : `${thread.messages.length} MESSAGE${thread.messages.length === 1 ? "" : "S"}`}</b></header>
-      ${thread.messages.map((message) => `<p><strong>${escapeHTML(message.author)}</strong>${escapeHTML(message.body)}</p>`).join("")}
-      <footer><button type="button" data-comment-resolve="${thread.id}">${thread.resolved ? "REOPEN" : "RESOLVE"}</button><button type="button" class="danger" data-comment-delete="${thread.id}">DELETE</button></footer>
-    </article>`;
-  }).join("") : `<p class="collaboration-empty">No comments yet.</p>`;
+  const target = resourceTarget();
+  elements["resource-target"].textContent = target.label;
 
   const documents = state.topology.documentationLinks || [];
-  elements["documentation-list"].innerHTML = documents.length ? documents.map((item) => `<article class="collaboration-card">
+  elements["documentation-list"].innerHTML = documents.length ? documents.map((item) => `<article class="resource-card">
     <header><span>${escapeHTML(item.targetKind.toUpperCase())}</span><b>${escapeHTML(item.label)}</b></header>
     <p class="document-url">${escapeHTML(item.url)}</p>
     <footer><button type="button" data-document-embed="${item.id}">EMBED</button><a href="${escapeHTML(item.url)}" target="_blank" rel="noopener noreferrer">OPEN ↗</a><button type="button" class="danger" data-document-delete="${item.id}">DELETE</button></footer>
-  </article>`).join("") : `<p class="collaboration-empty">No documentation attached.</p>`;
+  </article>`).join("") : `<p class="resources-empty">No documentation attached.</p>`;
 
-  const created = createdShareURL ? `<article class="collaboration-card share-created"><header><span>NEW LINK · COPY NOW</span><b>SECRET SHOWN ONCE</b></header><input readonly value="${escapeHTML(createdShareURL)}"><footer><button type="button" data-share-copy="${escapeHTML(createdShareURL)}">COPY LINK</button></footer></article>` : "";
-  elements["share-list"].innerHTML = created + (shareEntries.length ? shareEntries.map((share) => `<article class="collaboration-card"><header><span>${escapeHTML(share.name)}</span><b>${share.expiresAt ? `EXPIRES ${escapeHTML(new Date(share.expiresAt).toLocaleString())}` : "NO EXPIRY"}</b></header><footer><button type="button" class="danger" data-share-delete="${share.id}">REVOKE</button></footer></article>`).join("") : `<p class="collaboration-empty">No active read-only shares.</p>`);
-}
-
-async function saveComment(event) {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  const topology = await api.createComment(state.topology.id, {
-    anchor: commentAnchor(), author: String(form.get("author")).trim(), body: String(form.get("body")).trim(),
-  });
-  state.setTopology(topology);
-  event.currentTarget.elements.body.value = "";
-  renderCollaboration();
-  toast("Comment added");
-}
-
-async function handleCommentAction(event) {
-  const resolveID = event.target.closest("[data-comment-resolve]")?.dataset.commentResolve;
-  const deleteID = event.target.closest("[data-comment-delete]")?.dataset.commentDelete;
-  if (!resolveID && !deleteID) return;
-  const thread = (state.topology.commentThreads || []).find((item) => item.id === (resolveID || deleteID));
-  const topology = deleteID
-    ? await api.deleteComment(state.topology.id, deleteID)
-    : await api.updateComment(state.topology.id, resolveID, { resolved: !thread?.resolved });
-  state.setTopology(topology);
-  renderCollaboration();
+  const created = createdShareURL ? `<article class="resource-card share-created"><header><span>NEW LINK · COPY NOW</span><b>SECRET SHOWN ONCE</b></header><input readonly value="${escapeHTML(createdShareURL)}"><footer><button type="button" data-share-copy="${escapeHTML(createdShareURL)}">COPY LINK</button></footer></article>` : "";
+  elements["share-list"].innerHTML = created + (shareEntries.length ? shareEntries.map((share) => `<article class="resource-card"><header><span>${escapeHTML(share.name)}</span><b>${share.expiresAt ? `EXPIRES ${escapeHTML(new Date(share.expiresAt).toLocaleString())}` : "NO EXPIRY"}</b></header><footer><button type="button" class="danger" data-share-delete="${share.id}">REVOKE</button></footer></article>`).join("") : `<p class="resources-empty">No active read-only shares.</p>`);
 }
 
 async function saveDocumentationLink(event) {
@@ -1022,13 +1029,13 @@ async function saveDocumentationLink(event) {
   const form = new FormData(event.currentTarget);
   const url = String(form.get("url")).trim();
   if (!validateDocumentationURL(url)) throw new Error("Documentation URL must be credential-free HTTP(S)");
-  const target = collaborationTarget();
+  const target = resourceTarget();
   const topology = await api.createDocumentationLink(state.topology.id, {
     targetKind: target.targetKind, targetId: target.targetId, label: String(form.get("label")).trim(), url,
   });
   state.setTopology(topology);
   event.currentTarget.reset();
-  renderCollaboration();
+  renderResources();
   toast("Documentation link attached");
 }
 
@@ -1043,7 +1050,7 @@ async function handleDocumentationAction(event) {
   if (deleteID) {
     state.setTopology(await api.deleteDocumentationLink(state.topology.id, deleteID));
     elements["documentation-preview"].hidden = true;
-    renderCollaboration();
+    renderResources();
   }
 }
 
@@ -1059,7 +1066,7 @@ async function saveShare(event) {
   state.setTopology(await api.getTopology(state.topology.id));
   shareEntries = await api.listShares(state.topology.id);
   event.currentTarget.reset();
-  renderCollaboration();
+  renderResources();
   toast("Read-only share created");
 }
 
@@ -1074,7 +1081,7 @@ async function handleShareAction(event) {
     await api.deleteShare(state.topology.id, deleteID);
     state.setTopology(await api.getTopology(state.topology.id));
     shareEntries = await api.listShares(state.topology.id);
-    renderCollaboration();
+    renderResources();
     toast("Read-only share revoked");
   }
 }
@@ -1223,19 +1230,26 @@ async function installPatchPanel(event) {
 }
 
 function refreshPatchPanelControls() {
-  const panels = patchPanelDevices(state.topology);
-  document.getElementById("patch-panel-map-button").disabled = panels.length < 2;
+  const availability = panelMapAvailability(state.topology);
+  const button = document.getElementById("patch-panel-map-button");
+  button.dataset.ready = String(availability.ready);
+  button.title = availability.message;
+  button.setAttribute("aria-label", availability.ready ? "Open Panel Map" : `Panel Map unavailable. ${availability.message}`);
   if (!elements["patch-panel-map-dialog"].open) return;
   fillPatchPanelSelects();
   renderPatchPanelMappingPreview();
 }
 
 function openPatchPanelMapDialog() {
-  if (patchPanelDevices(state.topology).length < 2) {
-    showError(new Error("Install at least two patch panels before creating a range map"));
+  const availability = panelMapAvailability(state.topology);
+  if (!availability.ready) {
+    notifications.push(`PANEL MAP UNAVAILABLE · ${availability.message}`, "error");
     return;
   }
   elements["patch-panel-map-form"].reset();
+  elements["patch-panel-map-form"].elements.rearChannelId.value = crypto.randomUUID();
+  const rearChannelIDs = new Set((state.topology.links || []).map((link) => link.rearChannelId).filter(Boolean));
+  elements["patch-panel-map-form"].elements.rearChannelName.value = `CHANNEL ${String(rearChannelIDs.size + 1).padStart(2, "0")}`;
   fillPatchPanelSelects(true);
   renderPatchPanelMappingPreview();
   elements["patch-panel-map-dialog"].showModal();
@@ -1262,9 +1276,13 @@ function renderPatchPanelMappingPreview() {
   elements["patch-map-target-end"].textContent = Number.isFinite(calculatedEnd) ? String(calculatedEnd) : "—";
   try {
     const plan = planPatchPanelMapping(state.topology, Object.fromEntries(new FormData(form)));
-    elements["patch-map-count"].textContent = `${plan.links.length} REAR RUN${plan.links.length === 1 ? "" : "S"}`;
-    elements["patch-map-pairs"].innerHTML = plan.sourcePorts.map((port, index) =>
-      `<span><b>${escapeHTML(plan.source.name)}</b><em><small>REAR</small>${escapeHTML(port.label)}</em><i>↔</i><em><small>REAR</small>${escapeHTML(plan.targetPorts[index].label)}</em><b>${escapeHTML(plan.target.name)}</b></span>`).join("");
+    const channelType = plan.links[0]?.rearChannelType === "tube" ? "TUBE / BÜNDELADER" : "DISCRETE BUNDLE";
+    const channelLabel = `${plan.channels.length} ${plan.channels.length === 1 ? channelType : channelType === "TUBE / BÜNDELADER" ? "TUBES / BÜNDELADER" : "DISCRETE BUNDLES"}`;
+    elements["patch-map-count"].textContent = `${plan.links.length} REAR RUN${plan.links.length === 1 ? "" : "S"} · ${channelLabel}`;
+    elements["patch-map-pairs"].innerHTML = plan.sourcePorts.map((port, index) => {
+      const channel = plan.channels.find((candidate) => index >= candidate.memberStartIndex && index <= candidate.memberEndIndex);
+      return `<span><b>${escapeHTML(plan.source.name)}</b><em><small>REAR</small>${escapeHTML(port.label)}</em><i>↔</i><em><small>REAR</small>${escapeHTML(plan.targetPorts[index].label)}</em><b>${escapeHTML(plan.target.name)}</b><u>${escapeHTML(channel?.rearChannelName || "LEGACY CHANNEL")}</u></span>`;
+    }).join("");
     elements["patch-map-error"].textContent = "";
     elements["create-patch-map-button"].disabled = false;
     return plan;

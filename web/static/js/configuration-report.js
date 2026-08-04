@@ -93,6 +93,7 @@ export function buildConfigurationDocument(topology, generatedAt = new Date()) {
       vlanList((link.vlanIds || []).filter((id) => Number(id) !== Number(link.primaryVlan)), vlansByID),
       group ? `${groupMode(group.mode)} · ${group.name}` : "—",
       group ? groupMemberRole(group, link.id) : "—",
+      linkSide(link, "source") === "rear" ? rearChannelLabel(link) : "—",
       link.notes || "—",
     ];
   });
@@ -153,7 +154,7 @@ export function buildConfigurationDocument(topology, generatedAt = new Date()) {
     reportSection("vlans", "LAYER 2 REGISTER", "VLAN configuration", "Broadcast domains and every port or physical path carrying each VLAN.",
       ["VLAN", "Name", "Color", "Description", "Native ports", "Tagged ports", "Physical paths"], vlanRows),
     reportSection("links", "PHYSICAL PATCH SCHEDULE", "Connected links", "Exact device:port → device:port paths, termination planes, cable media, VLAN profile, and group role.",
-      ["#", "Kind", "Source device:port", "Target device:port", "Cable", "Negotiated speed", "Native VLAN", "Tagged VLANs", "Group", "Role", "Notes"], linkRows),
+      ["#", "Kind", "Source device:port", "Target device:port", "Cable", "Negotiated speed", "Native VLAN", "Tagged VLANs", "Group", "Role", "Rear channel", "Notes"], linkRows),
     reportSection("groups", "AGGREGATION REGISTER", "Trunks and link groups", "Trunk, LACP, MC-LAG, and failover membership with primary/backup and VLAN configuration.",
       ["Group", "Mode", "Members", "Physical member paths", "Preferred / primary", "Native VLANs", "Tagged VLANs", "Notes"], groupRows),
     reportSection("switch-systems", "LOGICAL SWITCHING", "Switch systems", "Physical switch chassis counted as stacks, VSF, StackWise, VSS, IRF, Virtual Chassis, or MC-LAG systems.",
@@ -250,6 +251,12 @@ function logicalMembership(deviceID, systems, clusters) {
 
 function linkSide(link, endpoint) {
   return String(link?.[`${endpoint}Side`] || "front").toLowerCase();
+}
+
+function rearChannelLabel(link) {
+  if (!link.rearChannelId) return "AUTO-DERIVED LEGACY CHANNEL";
+  const construction = link.rearChannelType === "tube" ? "TUBE / BÜNDELADER" : "DISCRETE BUNDLE";
+  return `${construction} · ${link.rearChannelName || "UNNAMED"}`;
 }
 
 function linkForPortSide(links, portID, side) {

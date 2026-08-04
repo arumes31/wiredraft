@@ -234,6 +234,10 @@ export function buildSVGDocument(topology, engine) {
       link, group, route, path, basePath, palette, role, dash,
       badges: linkEndpointBadges(topology, link, translated),
       rearMapping: isRearPanelLink(link),
+      rearChannelSheath: baseRoute.rearChannelSheath ? {
+        ...baseRoute.rearChannelSheath,
+        route: translateRoute(baseRoute.rearChannelSheath.route, offsetX, offsetY),
+      } : null,
     });
   }
   for (const device of topology.devices) {
@@ -313,7 +317,19 @@ export function buildSVGDocument(topology, engine) {
     }
     parts.push(`</g>`);
   }
-  for (const entry of renderedLinks) parts.push(...svgCableElements(entry));
+  for (const entry of renderedLinks.filter((candidate) => candidate.rearMapping)) {
+    parts.push(...svgCableElements(entry));
+  }
+  const renderedRearSheaths = new Set();
+  for (const entry of renderedLinks.filter((candidate) => candidate.rearMapping)) {
+    const sheath = entry.rearChannelSheath;
+    if (!sheath || renderedRearSheaths.has(sheath.key)) continue;
+    renderedRearSheaths.add(sheath.key);
+    parts.push(...svgRearChannelSheathElements(sheath));
+  }
+  for (const entry of renderedLinks.filter((candidate) => !candidate.rearMapping)) {
+    parts.push(...svgCableElements(entry));
+  }
   for (let upperIndex = 0; upperIndex < renderedLinks.length; upperIndex += 1) {
     const upperEntry = renderedLinks[upperIndex];
     for (let bridgeIndex = 0; bridgeIndex < (upperEntry.route.bridges || []).length; bridgeIndex += 1) {
@@ -321,7 +337,7 @@ export function buildSVGDocument(topology, engine) {
       const underEntry = renderedLinks[bridge.underRouteIndex];
       if (!underEntry || underEntry === upperEntry) continue;
       const clipID = `bridge-underpass-${upperIndex}-${bridgeIndex}`;
-      parts.push(`<defs><clipPath id="${clipID}"><circle cx="${bridge.crossing.x + offsetX}" cy="${bridge.crossing.y + offsetY}" r="${bridge.openingRadius || 5}"/></clipPath></defs>`);
+      parts.push(`<defs><clipPath id="${clipID}"><circle cx="${bridge.crossing.x + offsetX}" cy="${bridge.crossing.y + offsetY}" r="${bridge.openingRadius || 8}"/></clipPath></defs>`);
       parts.push(`<g data-layer="bridge-jumper" data-under-link="${escapeXML(underEntry.link.id)}" clip-path="url(#${clipID})">`);
       parts.push(...svgCableElements(upperEntry));
       parts.push(`</g>`);
@@ -406,7 +422,7 @@ export function svgRoutePath(route) {
       continue;
     }
     for (const bridge of bridges) {
-      const radius = bridge.radius || 5;
+      const radius = bridge.radius || 4;
       commands.push(`H${bridge.crossing.x - direction * radius}`);
       commands.push(`A${radius} ${radius} 0 0 ${direction > 0 ? 1 : 0} ${bridge.crossing.x + direction * radius} ${bridge.crossing.y}`);
     }
@@ -417,9 +433,10 @@ export function svgRoutePath(route) {
 
 function svgCableElements(entry) {
   if (entry.rearMapping) {
+    const channel = entry.route?.rearChannelKey ? ` data-channel="${escapeXML(entry.route.rearChannelKey)}" data-channel-type="${escapeXML(entry.route.rearChannelType || "derived")}" data-strand-index="${entry.route.rearStrandIndex ?? 0}"` : "";
     return [
-      `<path data-layer="panel-rear-map-casing" data-route-kind="${entry.route?.routeKind || "orthogonal"}" data-bundle-index="${entry.route?.bundleIndex ?? 0}" d="${entry.path}" fill="none" stroke="#020505" stroke-width="${RearPanelLinkVisual.casingWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${RearPanelLinkVisual.casingOpacity}"/>`,
-      `<path data-layer="panel-rear-map" d="${entry.path}" fill="none" stroke="${RearPanelLinkVisual.color}" stroke-width="${RearPanelLinkVisual.strokeWidth}" stroke-linecap="butt" stroke-linejoin="round" stroke-dasharray="${RearPanelLinkVisual.dash.join(" ")}" opacity="${RearPanelLinkVisual.opacity}"/>`,
+      `<path data-layer="panel-rear-map-casing" data-route-kind="${entry.route?.routeKind || "orthogonal"}" data-bundle-index="${entry.route?.bundleIndex ?? 0}"${channel} d="${entry.path}" fill="none" stroke="#020505" stroke-width="${RearPanelLinkVisual.casingWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${RearPanelLinkVisual.casingOpacity}"/>`,
+      `<path data-layer="panel-rear-map"${channel} d="${entry.path}" fill="none" stroke="${RearPanelLinkVisual.color}" stroke-width="${RearPanelLinkVisual.strokeWidth}" stroke-linecap="butt" stroke-linejoin="round" stroke-dasharray="${RearPanelLinkVisual.dash.join(" ")}" opacity="${RearPanelLinkVisual.opacity}"/>`,
     ];
   }
   const dash = entry.dash?.length ? ` stroke-dasharray="${entry.dash.join(" ")}"` : "";
@@ -438,6 +455,18 @@ function svgCableElements(entry) {
     elements.push(`<path data-layer="cable-vlan" data-vlan="${channel.id}" d="${entry.path}" fill="none" stroke="${channel.color}" stroke-width="2.65" stroke-linecap="butt" stroke-linejoin="round" stroke-dasharray="${pattern.dash.join(" ")}" stroke-dashoffset="${pattern.offset}"/>`);
   });
   return elements;
+}
+
+function svgRearChannelSheathElements(sheath) {
+  const path = svgRoutePath(sheath.route);
+  const key = escapeXML(sheath.key);
+  const name = escapeXML(sheath.name || "AUTO TUBE");
+  return [
+    `<path data-layer="rear-channel-sheath-outline" data-channel="${key}" data-channel-type="tube" d="${path}" fill="none" stroke="#020607" stroke-width="${sheath.width + 4}" stroke-linecap="round" stroke-linejoin="round" opacity=".82"/>`,
+    `<path data-layer="rear-channel-sheath" data-channel="${key}" data-channel-name="${name}" data-channel-type="tube" data-strands="${sheath.strandCount}" d="${path}" fill="none" stroke="${RearPanelLinkVisual.color}" stroke-width="${sheath.width + 1}" stroke-linecap="round" stroke-linejoin="round" opacity=".78"/>`,
+    `<path data-layer="rear-channel-sheath-core" data-channel="${key}" d="${path}" fill="none" stroke="#152326" stroke-width="${Math.max(2, sheath.width - 2)}" stroke-linecap="round" stroke-linejoin="round" opacity=".94"/>`,
+    `<path data-layer="rear-channel-sheath-trace" data-channel="${key}" d="${path}" fill="none" stroke="#e6bd72" stroke-width="1.25" stroke-linecap="butt" stroke-linejoin="round" stroke-dasharray="9 5" opacity=".72"/>`,
+  ];
 }
 
 function escapeXML(value) {

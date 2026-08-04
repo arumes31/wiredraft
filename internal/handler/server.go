@@ -240,7 +240,7 @@ func (s *Server) deleteRack(w http.ResponseWriter, request *http.Request) {
 			device.RackUnit = 0
 		}
 		topology.Racks = append(topology.Racks[:index], topology.Racks[index+1:]...)
-		pruneCollaborationReferences(topology)
+		pruneAttachedPlanReferences(topology)
 		return nil
 	})
 	if err != nil {
@@ -321,7 +321,7 @@ func (s *Server) deleteDevice(w http.ResponseWriter, request *http.Request) {
 		pruneLinkGroups(topology)
 		pruneSwitchSystems(topology)
 		pruneFirewallClusters(topology)
-		pruneCollaborationReferences(topology)
+		pruneAttachedPlanReferences(topology)
 		return nil
 	})
 	if err != nil {
@@ -620,7 +620,7 @@ func (s *Server) deleteLink(w http.ResponseWriter, request *http.Request) {
 		topology.Links = append(topology.Links[:index], topology.Links[index+1:]...)
 		deactivateUnlinkedEndpointPorts(topology, removedLink)
 		pruneLinkGroups(topology)
-		pruneCollaborationReferences(topology)
+		pruneAttachedPlanReferences(topology)
 		return nil
 	})
 	if err != nil {
@@ -1546,7 +1546,7 @@ func pruneFirewallClusters(topology *model.Topology) {
 	topology.FirewallClusters = clusters
 }
 
-func pruneCollaborationReferences(topology *model.Topology) {
+func pruneAttachedPlanReferences(topology *model.Topology) {
 	racks := make(map[string]struct{}, len(topology.Racks))
 	devices := make(map[string]struct{}, len(topology.Devices))
 	ports := make(map[string]struct{})

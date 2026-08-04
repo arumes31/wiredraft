@@ -92,13 +92,19 @@ test("canvas routing reuses metadata-only updates and replans one moved endpoint
   const incremental = engine.cableTrackPlan(scene.links);
   assert.notEqual(incremental, first);
   assert.deepEqual(engine.lastRoutingStats, {
-    mode: "incremental",
+    mode: "full",
     totalLinks: 3,
-    reroutedLinks: 2,
+    reroutedLinks: 3,
     crossingPairs: 3,
   });
-  assert.equal(incremental.tracks.get("link-2").route, first.tracks.get("link-2").route,
-    "a route outside both the old and new obstacle bounds must remain untouched");
+  assert.notEqual(incremental.tracks.get("link-2").route, first.tracks.get("link-2").route,
+    "moving one shared-spine member must re-rank every lane in that spine");
+
+  scene.links[0].cableType = "FIBER";
+  const mediaReplanned = engine.cableTrackPlan(scene.links);
+  assert.equal(engine.lastRoutingStats.mode, "full",
+    "routing media changes must invalidate derived rear channel and sheath assignments");
+  assert.notEqual(mediaReplanned.tracks.get("link-0").route, incremental.tracks.get("link-0").route);
 });
 
 function routingScene() {

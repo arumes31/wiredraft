@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// CommentAnchorKind identifies what a discussion is attached to.
+// CommentAnchorKind identifies what a persistent plan comment is attached to.
 type CommentAnchorKind string
 
 // Supported comment anchor kinds.
@@ -219,19 +219,31 @@ const (
 	LinkEndpointSideRear  LinkEndpointSide = "rear"
 )
 
+// RearChannelType identifies how permanent-link strands are physically grouped.
+type RearChannelType string
+
+// Supported rear structured-wiring channel constructions.
+const (
+	RearChannelTypeTube     RearChannelType = "tube"
+	RearChannelTypeDiscrete RearChannelType = "discrete"
+)
+
 // Link connects exactly two physical port termination planes.
 type Link struct {
-	ID             string           `json:"id"`
-	SourceDeviceID string           `json:"sourceDeviceId"`
-	SourcePortID   string           `json:"sourcePortId"`
-	SourceSide     LinkEndpointSide `json:"sourceSide,omitempty"`
-	TargetDeviceID string           `json:"targetDeviceId"`
-	TargetPortID   string           `json:"targetPortId"`
-	TargetSide     LinkEndpointSide `json:"targetSide,omitempty"`
-	CableType      string           `json:"cableType"`
-	VLANIDs        []int            `json:"vlanIds"`
-	PrimaryVLAN    int              `json:"primaryVlan"`
-	Notes          string           `json:"notes"`
+	ID              string           `json:"id"`
+	SourceDeviceID  string           `json:"sourceDeviceId"`
+	SourcePortID    string           `json:"sourcePortId"`
+	SourceSide      LinkEndpointSide `json:"sourceSide,omitempty"`
+	TargetDeviceID  string           `json:"targetDeviceId"`
+	TargetPortID    string           `json:"targetPortId"`
+	TargetSide      LinkEndpointSide `json:"targetSide,omitempty"`
+	CableType       string           `json:"cableType"`
+	RearChannelID   string           `json:"rearChannelId,omitempty"`
+	RearChannelName string           `json:"rearChannelName,omitempty"`
+	RearChannelType RearChannelType  `json:"rearChannelType,omitempty"`
+	VLANIDs         []int            `json:"vlanIds"`
+	PrimaryVLAN     int              `json:"primaryVlan"`
+	Notes           string           `json:"notes"`
 }
 
 // EffectiveSourceSide returns front for legacy links that predate termination planes.
@@ -308,7 +320,7 @@ type VLAN struct {
 	Description string `json:"description"`
 }
 
-// CommentAnchor locates a discussion without coupling comments to rendering details.
+// CommentAnchor locates a persistent plan comment without coupling it to rendering details.
 type CommentAnchor struct {
 	Kind     CommentAnchorKind `json:"kind"`
 	TargetID string            `json:"targetId,omitempty"`
@@ -316,7 +328,7 @@ type CommentAnchor struct {
 	Y        float64           `json:"y,omitempty"`
 }
 
-// CommentMessage is one entry in a topology discussion thread.
+// CommentMessage is one entry in a persistent topology comment thread.
 type CommentMessage struct {
 	ID        string    `json:"id"`
 	Author    string    `json:"author"`
@@ -325,7 +337,7 @@ type CommentMessage struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-// CommentThread groups a root comment and its ordered replies at one anchor.
+// CommentThread stores a root plan comment and its ordered replies at one anchor.
 type CommentThread struct {
 	ID        string           `json:"id"`
 	Anchor    CommentAnchor    `json:"anchor"`
@@ -475,6 +487,8 @@ func (t *Topology) Normalize() {
 	}
 	for linkIndex := range t.Links {
 		link := &t.Links[linkIndex]
+		link.RearChannelID = strings.TrimSpace(link.RearChannelID)
+		link.RearChannelName = strings.TrimSpace(link.RearChannelName)
 		// Panel Map links created before endpoint planes existed used this stable
 		// note prefix. Upgrade only those generated links; an intentional front
 		// patch cord between panels remains a front connection.

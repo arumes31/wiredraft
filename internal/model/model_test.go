@@ -2,6 +2,7 @@ package model
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -92,6 +93,103 @@ func TestTopologyRejectsRearTerminationOnActiveDevice(t *testing.T) {
 	topology.Links[0].SourceSide = LinkEndpointSideRear
 	if err := topology.Validate(); err == nil {
 		t.Fatal("Validate() error = nil, want non-panel rear termination error")
+	}
+}
+
+func TestTopologyValidateRearChannelMetadata(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		configure func(*testing.T, *Link)
+		wantError bool
+	}{
+		{name: "legacy rear mapping without channel"},
+		{
+			name: "tube channel",
+			configure: func(t *testing.T, link *Link) {
+				link.RearChannelID = mustID(t)
+				link.RearChannelName = "Bündelader 01"
+				link.RearChannelType = RearChannelTypeTube
+			},
+		},
+		{
+			name: "invalid channel id",
+			configure: func(_ *testing.T, link *Link) {
+				link.RearChannelID = "channel-1"
+				link.RearChannelType = RearChannelTypeDiscrete
+			},
+			wantError: true,
+		},
+		{
+			name: "unknown channel type",
+			configure: func(t *testing.T, link *Link) {
+				link.RearChannelID = mustID(t)
+				link.RearChannelType = "loom"
+			},
+			wantError: true,
+		},
+		{
+			name: "channel name too long",
+			configure: func(t *testing.T, link *Link) {
+				link.RearChannelID = mustID(t)
+				link.RearChannelName = strings.Repeat("x", 121)
+				link.RearChannelType = RearChannelTypeTube
+			},
+			wantError: true,
+		},
+		{
+			name: "front link with rear channel",
+			configure: func(t *testing.T, link *Link) {
+				link.SourceSide = LinkEndpointSideFront
+				link.TargetSide = LinkEndpointSideFront
+				link.RearChannelID = mustID(t)
+				link.RearChannelType = RearChannelTypeDiscrete
+			},
+			wantError: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			topology := mustDemo(t)
+			link := &topology.Links[0]
+			for index := range topology.Devices {
+				if topology.Devices[index].ID == link.SourceDeviceID || topology.Devices[index].ID == link.TargetDeviceID {
+					topology.Devices[index].Category = DeviceCategoryPatchPanel
+				}
+			}
+			link.SourceSide = LinkEndpointSideRear
+			link.TargetSide = LinkEndpointSideRear
+			if test.configure != nil {
+				test.configure(t, link)
+			}
+			err := topology.Validate()
+			if (err != nil) != test.wantError {
+				t.Fatalf("Validate() error = %v, wantError = %t", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestTopologyRejectsInconsistentRearChannelMembers(t *testing.T) {
+	t.Parallel()
+	topology := mustDemo(t)
+	for index := range topology.Devices {
+		topology.Devices[index].Category = DeviceCategoryPatchPanel
+	}
+	channelID := mustID(t)
+	for index := range topology.Links[:2] {
+		link := &topology.Links[index]
+		link.SourceSide = LinkEndpointSideRear
+		link.TargetSide = LinkEndpointSideRear
+		link.RearChannelID = channelID
+		link.RearChannelName = "TUBE A"
+		link.RearChannelType = RearChannelTypeTube
+	}
+	topology.Links[1].RearChannelName = "TUBE B"
+	if err := topology.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want inconsistent rear channel error")
 	}
 }
 

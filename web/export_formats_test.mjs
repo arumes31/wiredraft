@@ -31,8 +31,8 @@ assert.match(exportJS, /data-layer="panel-rear-map"[^]*stroke-width="\$\{RearPan
 const crossingHorizontal = routeFromPoints([{ x: 0, y: 50 }, { x: 100, y: 50 }]);
 const crossingVertical = routeFromPoints([{ x: 50, y: 0 }, { x: 50, y: 100 }]);
 const [, exportedHorizontal] = routesWithCrossingBridges([crossingVertical, crossingHorizontal]);
-assert.match(svgRoutePath(exportedHorizontal), /H45 A5 5 0 0 1 55 50 H100/,
-  "the static SVG path must replace the horizontal crossing span with a 5px semicircular arc");
+assert.match(svgRoutePath(exportedHorizontal), /H46 A4 4 0 0 1 54 50 H100/,
+  "the static SVG path must replace the horizontal crossing span with a 4px semicircular arc");
 
 const badgeTopology = {
   racks: [{ id: "rack-a", name: "RACK A01" }, { id: "rack-b", name: "RACK B01" }],
@@ -150,6 +150,7 @@ const layeredSVG = buildSVGDocument({
   links: [{
     ...staticTopology.links[0],
     id: "static-rear-map",
+    cableType: "FIBER",
     sourceSide: "rear",
     targetSide: "rear",
   }, ...staticTopology.links],
@@ -160,6 +161,13 @@ assert.ok(rearLayerIndex >= 0 && frontLayerIndex > rearLayerIndex,
   "SVG exports must paint backend structured wiring below every solid front cable");
 assert.match(layeredSVG, /data-layer="panel-rear-map"[^>]*stroke-dasharray="6 4"[^>]*opacity="0\.75"/,
   "SVG backend runs must retain the shared 6/4 dash and 75-percent opacity");
+const sheathIndex = layeredSVG.indexOf('data-layer="rear-channel-sheath"');
+assert.ok(sheathIndex > rearLayerIndex && sheathIndex < frontLayerIndex,
+  "tube sheaths must cover the common rear-strand run while remaining below every front cable");
+assert.match(layeredSVG, /data-layer="rear-channel-sheath"[^>]*data-channel-type="tube"[^>]*data-strands="1"/,
+  "static exports must retain tube channel semantics for traceable documentation");
+assert.match(layeredSVG, /data-layer="rear-channel-sheath-core"[^>]*opacity="\.94"/,
+  "static exports must render the shared tube as an opaque thick run instead of exposed parallel strands");
 
 const configuredTopology = {
   organization: "Example Corp", location: "Vienna DC1",

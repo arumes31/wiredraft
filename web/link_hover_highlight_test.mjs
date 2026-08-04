@@ -5,6 +5,7 @@ import { cableBezier, routeFromPoints, routesWithCrossingBridges } from "./stati
 import {
   cableHoverAlphaFactor, CanvasEngine, deviceHoverFrameInterval, hoverNeedsAnimation,
 } from "./static/js/canvas.js";
+import { patchPanelPathIndex } from "./static/js/patch-panels.js";
 
 const engine = Object.create(CanvasEngine.prototype);
 const palette = { nativeColor: "#42d9c8", isRainbow: false, channels: [] };
@@ -68,6 +69,8 @@ focusEngine.state = { topology: {
     { id: "left", sourcePortId: "a1", targetPortId: "b1" },
     { id: "right", sourcePortId: "a2", targetPortId: "c1" },
     { id: "unrelated", sourcePortId: "d1", targetPortId: "e1" },
+    { id: "rear-one", sourcePortId: "p1", targetPortId: "q1", sourceSide: "rear", targetSide: "rear", rearChannelId: "tube-1" },
+    { id: "rear-two", sourcePortId: "p2", targetPortId: "q2", sourceSide: "rear", targetSide: "rear", rearChannelId: "tube-1" },
   ],
   devices: [
     { id: "device-a", ports: [{ id: "a1" }, { id: "a2" }] },
@@ -100,6 +103,34 @@ assert.equal(focusEngine.hoverFocusLinkIDs(), indexedGroupLinks,
 focusEngine.hoveredLink = { link: { id: "unrelated" } };
 assert.deepEqual([...focusEngine.hoverFocusLinkIDs()], ["unrelated"],
   "hovering an ungrouped cable must retain single-link focus");
+focusEngine.hoveredLink = { link: focusEngine.state.topology.links.find((link) => link.id === "rear-one") };
+assert.deepEqual([...focusEngine.hoverFocusLinkIDs()].sort(), ["rear-one", "rear-two"],
+  "hovering one structured-wiring strand must focus its complete tube or discrete channel");
+
+const panelPathTopology = {
+  devices: [
+    { id: "source-switch", category: "Switch", ports: [{ id: "source-port" }] },
+    { id: "panel-a", category: "PatchPanel", ports: [{ id: "panel-a-port-1" }] },
+    { id: "panel-b", category: "PatchPanel", ports: [{ id: "panel-b-port-1" }] },
+    { id: "target-switch", category: "Switch", ports: [{ id: "target-port" }] },
+  ],
+  links: [
+    { id: "path-in", sourcePortId: "source-port", targetPortId: "panel-a-port-1" },
+    {
+      id: "path-rear", sourcePortId: "panel-a-port-1", targetPortId: "panel-b-port-1",
+      sourceSide: "rear", targetSide: "rear",
+    },
+    { id: "path-out", sourcePortId: "panel-b-port-1", targetPortId: "target-port" },
+  ],
+  linkGroups: [],
+};
+const panelPathFocusEngine = Object.create(CanvasEngine.prototype);
+panelPathFocusEngine.state = { topology: panelPathTopology };
+panelPathFocusEngine.groupLinkIDsByLink = new Map();
+panelPathFocusEngine.patchPanelPathLinkIDsByLink = patchPanelPathIndex(panelPathTopology);
+panelPathFocusEngine.hoveredLink = { link: panelPathTopology.links[0] };
+assert.deepEqual([...panelPathFocusEngine.hoverFocusLinkIDs()].sort(), ["path-in", "path-out", "path-rear"],
+  "hovering a cable into a patch panel must highlight its rear map and the cable continuing to the next device");
 
 const layoutEngine = Object.create(CanvasEngine.prototype);
 layoutEngine.sceneDirty = true;
@@ -201,8 +232,8 @@ const jumperContext = {
 };
 CanvasEngine.prototype.strokeCurve.call({ activeGraphicsProfile: { glows: false } }, jumperContext, jumperRoute, "#fff", 3);
 assert.deepEqual(jumperPathCalls.find(({ kind }) => kind === "arc"), {
-  kind: "arc", x: 50, y: 50, radius: 5, start: Math.PI, end: Math.PI * 2, anticlockwise: false,
-}, "canvas paths must draw the horizontal crossing as a real 5px semicircle");
+  kind: "arc", x: 50, y: 50, radius: 4, start: Math.PI, end: Math.PI * 2, anticlockwise: false,
+}, "canvas paths must draw the horizontal crossing as a real 4px semicircle");
 
 const drawEngine = Object.create(CanvasEngine.prototype);
 drawEngine.state = {

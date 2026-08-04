@@ -3,12 +3,14 @@ import {
   orderedCableLinks, pointOnRoute, routeSegments, routesWithCrossingBridges, segmentIntersectsRectangle,
 } from "./cabling.js";
 import { EmptyCanvasAction, emptyCanvasAction } from "./canvas-interactions.js";
-import { commentPreviewLines } from "./collaboration.js";
+import { commentPreviewLines } from "./plan-comments.js";
 import { resolveFaceplateTemplate } from "./faceplate.js";
 import { groupAccent, linkGroupPortBadges, peerLinkIDs, summarizeLinkGroup } from "./link-group-display.js";
 import { linkVLANPalette, vlanBandPattern } from "./link-vlan-colors.js";
 import { layoutEndpointBadges, linkEndpointBadges } from "./link-end-labels.js";
-import { isPortSideOccupied, isRearPanelLink, LinkEndpointSide, RearPanelLinkVisual } from "./patch-panels.js";
+import {
+  isPortSideOccupied, isRearPanelLink, LinkEndpointSide, patchPanelPathIndex, RearPanelLinkVisual,
+} from "./patch-panels.js";
 import { cableLabelVisibility, curveLabelCandidates, placeCableLabels, pointerBubblePlacement, radialCandidates } from "./label-layout.js";
 import { findPort } from "./state.js";
 import { connectorKind, connectorSize, portDescriptionPlacement, portLinkLEDColor } from "./termination.js";
@@ -64,6 +66,7 @@ export class CanvasEngine {
     this.linksByDevice = new Map();
     this.groupByLink = new Map();
     this.groupLinkIDsByLink = new Map();
+    this.patchPanelPathLinkIDsByLink = new Map();
     this.vlanByID = new Map();
     this.orderedLinks = [];
     this.linkCurves = [];
@@ -420,6 +423,7 @@ export class CanvasEngine {
     this.linksByDevice = new Map();
     this.groupByLink = new Map();
     this.groupLinkIDsByLink = new Map();
+    this.patchPanelPathLinkIDsByLink = new Map();
     this.vlanByID = new Map();
     this.orderedLinks = [];
     const topology = this.state.topology;
@@ -479,6 +483,7 @@ export class CanvasEngine {
       this.portBoxesByDevice.set(device.id, devicePortBoxes);
     }
     this.vlanByID = new Map((topology.vlans || []).map((vlan) => [vlan.id, vlan]));
+    this.patchPanelPathLinkIDsByLink = patchPanelPathIndex(topology);
     const liveLinkIDs = new Set((topology.links || []).map((link) => link.id));
     for (const group of topology.linkGroups || []) {
       const memberLinkIDs = new Set((group.linkIds || []).filter((linkID) => liveLinkIDs.has(linkID)));
@@ -624,8 +629,8 @@ export class CanvasEngine {
       `${group.id}:${group.mode}:${group.linkIds.join(",")}:${group.primaryLinkId || ""}`).join("|");
     const structureKey = `${(this.state.topology?.racks || []).map((rack) => rack.id).join(",")}|${
       (this.state.topology?.devices || []).map((device) => `${device.id}:${device.rackId || "free"}:${
-        (device.ports || []).map((port) => `${port.id}:${port.label}`).join(",")}`).join("|")}|${orderedLinks.map((link) =>
-      `${link.id}:${link.sourcePortId}:${link.sourceSide || "front"}:${link.targetPortId}:${link.targetSide || "front"}`).join("|")}|${groupSignature}`;
+        (device.ports || []).map((port) => `${port.id}:${port.portIndex || 0}:${port.label}:${port.type}:${port.mediaType || ""}`).join(",")}`).join("|")}|${orderedLinks.map((link) =>
+      `${link.id}:${link.sourcePortId}:${link.sourceSide || "front"}:${link.targetPortId}:${link.targetSide || "front"}:${link.cableType}:${link.rearChannelId || ""}:${link.rearChannelType || ""}`).join("|")}|${groupSignature}`;
     if (this.trackPlanCache?.structureKey === structureKey && this.trackPlanCache?.geometryKey === this.routingGeometryKey) {
       this.lastRoutingStats = {
         mode: "reused", totalLinks: orderedLinks.length, reroutedLinks: 0, crossingPairs: 0,
@@ -697,8 +702,27 @@ export class CanvasEngine {
           segmentIntersectsRectangle(segment.source, segment.target, expand(bounds, 10))));
       if (crossesChangedObstacle) affected.add(linkID);
     }
-    for (const linkID of [...affected]) {
-      for (const memberID of this.groupLinkIDsByLink.get(linkID) || []) affected.add(memberID);
+    // Span-ranked lanes are a shared-spine invariant. If one route in a spine
+    // moves, every route reserving that spine must be reconsidered so a stale
+    // cached ordinal cannot leave a longer span inside a shorter one.
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const linkID of [...affected]) {
+        for (const memberID of this.groupLinkIDsByLink.get(linkID) || []) {
+          if (!affected.has(memberID)) { affected.add(memberID); expanded = true; }
+        }
+      }
+      const affectedSpines = new Set([...affected].flatMap((linkID) =>
+        this.trackPlanCache?.tracks.get(linkID)?.route?.verticalSpineKeys || []));
+      if (!affectedSpines.size) continue;
+      for (const [linkID, track] of this.trackPlanCache?.tracks || []) {
+        if (affected.has(linkID)) continue;
+        if ((track.route.verticalSpineKeys || []).some((key) => affectedSpines.has(key))) {
+          affected.add(linkID);
+          expanded = true;
+        }
+      }
     }
     const liveLinkIDs = new Set(orderedLinks.map((link) => link.id));
     return new Set([...affected].filter((linkID) => liveLinkIDs.has(linkID)));
@@ -731,6 +755,16 @@ export class CanvasEngine {
     const rearHoverIsolation = showInteractionHighlights && this.rearHoverIsolationActive(topology);
     const deviceHover = Boolean(this.hoveredDevice?.device.id);
     this.linkCurves = [];
+    let rearChannelSheathsDrawn = false;
+    const drawRearChannelSheaths = () => {
+      if (rearChannelSheathsDrawn) return;
+      rearChannelSheathsDrawn = true;
+      this.drawRearChannelSheaths(ctx, trackPlan.tracks, {
+        hoverFocusLinkIDs,
+        hasHoverFocus,
+        rearHoverIsolation,
+      });
+    };
     for (const link of orderedLinks) {
       const source = portMap.get(link.sourcePortId);
       const target = portMap.get(link.targetPortId);
@@ -750,6 +784,9 @@ export class CanvasEngine {
       const selectedPeer = selectedPeerLinkIDs.has(link.id);
       const traced = this.state.traceLinkIDs.has(link.id);
       const rearMapping = isRearPanelLink(link);
+      // Rear strands are painted first as panel-end fan-outs. Their shared tube
+      // then covers the common run before any solid front cable is painted.
+      if (!rearMapping) drawRearChannelSheaths();
       const thickness = rearMapping ? RearPanelLinkVisual.strokeWidth :
         baseCurve.tightBundle ? Math.min(speedThickness, 1.5) : speedThickness;
       const vlanPalette = linkVLANPalette(topology, link);
@@ -803,12 +840,29 @@ export class CanvasEngine {
       }
       if (warnings.has(link.id)) this.drawWarning(ctx, pointOnRoute(curve, .57), hoverAlphaFactor);
     }
+    drawRearChannelSheaths();
     this.drawBridgeJumpers(ctx, time, profile);
     for (const linkID of this.routeCache.keys()) if (!activeLinkIDs.has(linkID)) this.routeCache.delete(linkID);
     if (showInteractionHighlights) this.drawHoveredLinkHighlight(ctx, time, hoverFocusLinkIDs);
     this.drawLinkGroupPortBadges(ctx, topology);
     this.drawCableLabels(ctx, topology, vlanMap, showAllLabels);
     if (showAllLabels) this.drawExportEndpointLabels(ctx, topology);
+  }
+
+  drawRearChannelSheaths(ctx, tracks, { hoverFocusLinkIDs, hasHoverFocus, rearHoverIsolation }) {
+    const rendered = new Set();
+    for (const { route } of tracks.values()) {
+      const sheath = route.rearChannelSheath;
+      if (!sheath || rendered.has(sheath.key)) continue;
+      rendered.add(sheath.key);
+      const focused = sheath.linkIds.some((linkID) => hoverFocusLinkIDs.has(linkID));
+      const alphaFactor = rearHoverIsolation || !hasHoverFocus || focused ? 1 : .2;
+      if (focused) this.strokeCurve(ctx, sheath.route, "#ffd786", sheath.width + 10, .17, { glow: true, lineCap: "round" });
+      this.strokeCurve(ctx, sheath.route, "#020607", sheath.width + 4, .82 * alphaFactor, { lineCap: "round" });
+      this.strokeCurve(ctx, sheath.route, RearPanelLinkVisual.color, sheath.width + 1, .78 * alphaFactor, { lineCap: "round" });
+      this.strokeCurve(ctx, sheath.route, "#152326", Math.max(2, sheath.width - 2), .94 * alphaFactor, { lineCap: "round" });
+      this.strokeCurve(ctx, sheath.route, "#e6bd72", 1.25, .72 * alphaFactor, { dash: [9, 5], lineCap: "butt" });
+    }
   }
 
   drawBridgeJumpers(ctx, time, profile = this.activeGraphicsProfile || QUALITY_FALLBACK) {
@@ -893,15 +947,26 @@ export class CanvasEngine {
 
   hoverFocusLinkIDs(topology = this.state?.topology) {
     if (this.hoveredLink?.link.id) {
-      const linkID = this.hoveredLink.link.id;
+      const hoveredLink = this.hoveredLink.link;
+      const linkID = hoveredLink.id;
       const indexedMembers = this.groupLinkIDsByLink?.get(linkID);
-      if (indexedMembers) return indexedMembers;
-      if (!topology) return new Set([linkID]);
-      const group = (topology.linkGroups || []).find((candidate) => candidate.linkIds?.includes(linkID));
-      if (!group) return new Set([linkID]);
-      const liveLinkIDs = new Set((topology.links || []).map((link) => link.id));
-      const memberLinkIDs = new Set((group.linkIds || []).filter((memberID) => liveLinkIDs.has(memberID)));
-      return memberLinkIDs.size ? memberLinkIDs : new Set([linkID]);
+      let focusedLinkIDs = indexedMembers;
+      if (!focusedLinkIDs && !topology) focusedLinkIDs = new Set([linkID]);
+      if (!focusedLinkIDs && hoveredLink.rearChannelId) {
+        const channelMembers = new Set(topology.links
+          .filter((link) => link.rearChannelId === hoveredLink.rearChannelId)
+          .map((link) => link.id));
+        if (channelMembers.size) focusedLinkIDs = channelMembers;
+      }
+      if (!focusedLinkIDs && topology) {
+        const group = (topology.linkGroups || []).find((candidate) => candidate.linkIds?.includes(linkID));
+        if (group) {
+          const liveLinkIDs = new Set((topology.links || []).map((link) => link.id));
+          const memberLinkIDs = new Set((group.linkIds || []).filter((memberID) => liveLinkIDs.has(memberID)));
+          if (memberLinkIDs.size) focusedLinkIDs = memberLinkIDs;
+        }
+      }
+      return this.expandPatchPanelHoverFocus(focusedLinkIDs || new Set([linkID]));
     }
     if (!topology) return new Set();
     if (this.hoveredPort?.port.id) {
@@ -919,6 +984,20 @@ export class CanvasEngine {
         portIDs.has(link.sourcePortId) || portIDs.has(link.targetPortId)).map((link) => link.id));
     }
     return new Set();
+  }
+
+  expandPatchPanelHoverFocus(linkIDs) {
+    const pathIndex = this.patchPanelPathLinkIDsByLink;
+    if (!pathIndex?.size) return linkIDs;
+    const pathSets = [...linkIDs]
+      .map((linkID) => pathIndex.get(linkID))
+      .filter((pathLinkIDs) => pathLinkIDs?.size > 1);
+    if (!pathSets.length) return linkIDs;
+    const expanded = new Set(linkIDs);
+    for (const pathLinkIDs of pathSets) {
+      for (const linkID of pathLinkIDs) expanded.add(linkID);
+    }
+    return expanded;
   }
 
   drawVLANColors(ctx, curve, palette, thickness, time, alpha, dash = []) {
@@ -967,7 +1046,7 @@ export class CanvasEngine {
       }
       const direction = segment.target.x >= segment.source.x ? 1 : -1;
       for (const bridge of bridges) {
-        const radius = bridge.radius || 5;
+        const radius = bridge.radius || 4;
         ctx.lineTo(bridge.crossing.x - direction * radius, bridge.crossing.y);
         ctx.arc(
           bridge.crossing.x,
@@ -1575,6 +1654,7 @@ export class CanvasEngine {
           lines = [
             `REAR PANEL MAP · ${link.cableType}`,
             endpoints,
+            `${link.rearChannelName || "AUTO CHANNEL"} · ${link.rearChannelType === "tube" ? "TUBE / BÜNDELADER" : link.rearChannelType === "discrete" ? "DISCRETE BUNDLE" : "DERIVED BY MEDIA"}`,
             "FRONT JACKS REMAIN INDEPENDENT",
           ];
           accent = "#f0b35a";

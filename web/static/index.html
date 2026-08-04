@@ -31,10 +31,10 @@
       <button id="add-device-button">+ DEVICE</button>
       <button id="add-server-button">+ SERVER</button>
       <button id="add-patch-panel-button">+ PANEL</button>
-      <button id="patch-panel-map-button">REAR MAP</button>
+      <button id="patch-panel-map-button">PANEL MAP</button>
       <button id="vlan-button">VLAN MATRIX</button>
       <button id="trace-button">TRACE PATH</button>
-      <button id="collaboration-button">COLLAB</button>
+      <button id="resources-button">RESOURCES</button>
       <details id="export-menu" class="export-menu">
         <summary aria-haspopup="menu">EXPORT</summary>
         <div class="export-popover" role="menu" aria-label="Export and restore options">
@@ -174,23 +174,14 @@
     </form>
   </dialog>
 
-  <dialog id="collaboration-dialog" class="panel-dialog wide-dialog collaboration-dialog" aria-labelledby="collaboration-dialog-title">
+  <dialog id="resources-dialog" class="panel-dialog wide-dialog resources-dialog" aria-labelledby="resources-dialog-title">
     <div class="dialog-shell">
-      <header><div><p class="eyebrow">SHARED OPERATIONS</p><h2 id="collaboration-dialog-title">COMMENTS · DOCS · READ-ONLY SHARES</h2></div><button type="button" class="dialog-close" data-close="collaboration-dialog" aria-label="Close collaboration dialog">×</button></header>
-      <p class="dialog-note">Changes use revision checks and live topology events. The active anchor is <b id="collaboration-target">TOPOLOGY</b>.</p>
-      <div class="collaboration-grid">
-        <section class="collaboration-pane">
-          <div class="section-heading"><h3>ANCHORED COMMENTS</h3><span>THREADS</span></div>
-          <div id="comments-list" class="collaboration-list"></div>
-          <form id="comment-form" class="compact-form">
-            <label><span>AUTHOR</span><input name="author" maxlength="80" value="Operator" required></label>
-            <label><span>COMMENT</span><textarea name="body" maxlength="4000" rows="3" required></textarea></label>
-            <button class="primary">ADD COMMENT AT ACTIVE ANCHOR</button>
-          </form>
-        </section>
-        <section class="collaboration-pane">
+      <header><div><p class="eyebrow">MAP RESOURCES</p><h2 id="resources-dialog-title">DOCUMENTATION · READ-ONLY SHARES</h2></div><button type="button" class="dialog-close" data-close="resources-dialog" aria-label="Close map resources dialog">×</button></header>
+      <p class="dialog-note">Attach references to the active plan target or create a read-only review link. Active target: <b id="resource-target">TOPOLOGY</b>.</p>
+      <div class="resources-grid">
+        <section class="resources-pane">
           <div class="section-heading"><h3>DOCUMENTATION</h3><span>EMBED + OPEN</span></div>
-          <div id="documentation-list" class="collaboration-list"></div>
+          <div id="documentation-list" class="resources-list"></div>
           <iframe id="documentation-preview" class="documentation-preview" title="Embedded documentation preview" loading="lazy" hidden></iframe>
           <form id="documentation-form" class="compact-form">
             <label><span>LABEL</span><input name="label" maxlength="120" required placeholder="Vendor guide / runbook"></label>
@@ -198,9 +189,9 @@
             <button class="primary">ATTACH DOCUMENT</button>
           </form>
         </section>
-        <section class="collaboration-pane">
+        <section class="resources-pane">
           <div class="section-heading"><h3>READ-ONLY SHARES</h3><span>TOKENIZED</span></div>
-          <div id="share-list" class="collaboration-list"></div>
+          <div id="share-list" class="resources-list"></div>
           <form id="share-form" class="compact-form">
             <label><span>SHARE NAME</span><input name="name" maxlength="80" placeholder="NOC review"></label>
             <label><span>EXPIRES AT (OPTIONAL)</span><input name="expiresAt" type="datetime-local"></label>
@@ -208,7 +199,7 @@
           </form>
         </section>
       </div>
-      <footer><button type="button" class="secondary" data-close="collaboration-dialog">DONE</button></footer>
+      <footer><button type="button" class="secondary" data-close="resources-dialog">DONE</button></footer>
     </div>
   </dialog>
 
@@ -298,6 +289,13 @@
           <div><label><span>START PORT</span><input name="targetStart" type="number" min="1" value="1" required></label><label><span>CALCULATED END</span><output id="patch-map-target-end">6</output></label></div>
         </fieldset>
       </div>
+      <section class="rear-channel-config" aria-labelledby="rear-channel-config-title">
+        <div><p class="eyebrow">OVERHEAD CORRIDOR CHANNEL</p><h3 id="rear-channel-config-title">PHYSICAL GROUPING</h3><small>Split the selected rear range into named tubes. Strands fan out only at each panel.</small></div>
+        <input name="rearChannelId" type="hidden">
+        <label><span>CHANNEL CONSTRUCTION</span><select name="rearChannelType" required><option value="auto" selected>AUTO BY MEDIA</option><option value="tube">TUBE / BÜNDELADER · 2.5PX</option><option value="discrete">DISCRETE BUNDLE · 4PX</option></select></label>
+        <label><span>STRANDS PER CHANNEL</span><select name="rearChannelGroupSize" required><option value="all" selected>ALL SELECTED RUNS</option><option value="1">1 · SINGLE MICRODUCT</option><option value="2">2 STRANDS</option><option value="4">4 STRANDS</option><option value="6">6 STRANDS</option><option value="8">8 STRANDS</option><option value="12">12 STRANDS</option><option value="24">24 STRANDS</option></select></label>
+        <label><span>CHANNEL NAME</span><input name="rearChannelName" maxlength="120" value="CHANNEL 01" required></label>
+      </section>
       <section class="patch-map-preview" aria-live="polite">
         <div class="section-heading"><h3>REAR TERMINATION PREVIEW</h3><span id="patch-map-count">0 REAR RUNS</span></div>
         <div id="patch-map-pairs" class="patch-map-pairs"></div>

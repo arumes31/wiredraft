@@ -155,6 +155,12 @@ func (t Topology) Validate() error {
 
 	linkIDs := make(map[string]struct{}, len(t.Links))
 	occupiedTerminations := make(map[string]string, len(t.Links)*2)
+	type rearChannelRecord struct {
+		panelPair string
+		name      string
+		typeName  RearChannelType
+	}
+	rearChannels := make(map[string]rearChannelRecord)
 	for _, link := range t.Links {
 		if err := link.Validate(deviceIDs, ports, vlanIDs); err != nil {
 			return fmt.Errorf("validating link %q: %w", link.ID, err)
@@ -169,6 +175,21 @@ func (t Topology) Validate() error {
 			return fmt.Errorf("duplicate link id %q", link.ID)
 		}
 		linkIDs[link.ID] = struct{}{}
+		if link.RearChannelID != "" {
+			sourceDeviceID, targetDeviceID := link.SourceDeviceID, link.TargetDeviceID
+			if sourceDeviceID > targetDeviceID {
+				sourceDeviceID, targetDeviceID = targetDeviceID, sourceDeviceID
+			}
+			record := rearChannelRecord{
+				panelPair: sourceDeviceID + "\x00" + targetDeviceID,
+				name:      strings.TrimSpace(link.RearChannelName),
+				typeName:  link.RearChannelType,
+			}
+			if existing, exists := rearChannels[link.RearChannelID]; exists && existing != record {
+				return fmt.Errorf("rear channel %q has inconsistent panel pair, name, or type", link.RearChannelID)
+			}
+			rearChannels[link.RearChannelID] = record
+		}
 		terminations := []struct {
 			portID string
 			side   LinkEndpointSide
@@ -278,7 +299,7 @@ func (annotation Annotation) Validate() error {
 	return nil
 }
 
-// Validate checks an anchored threaded discussion and all messages.
+// Validate checks an anchored persistent plan comment and all messages.
 func (thread CommentThread) Validate(deviceIDs map[string]struct{}, ports map[string]Port, linkIDs map[string]struct{}) error {
 	if !idPattern.MatchString(thread.ID) {
 		return errors.New("thread id must be a version 4 uuid")
@@ -567,6 +588,21 @@ func (l Link) Validate(deviceIDs map[string]struct{}, ports map[string]Port, vla
 	}
 	if (l.EffectiveSourceSide() == LinkEndpointSideRear) != (l.EffectiveTargetSide() == LinkEndpointSideRear) {
 		return errors.New("rear panel mappings must terminate rear-to-rear")
+	}
+	hasRearChannel := l.RearChannelID != "" || l.RearChannelName != "" || l.RearChannelType != ""
+	if hasRearChannel && !l.IsRearPanelConnection() {
+		return errors.New("rear channel metadata requires a rear panel mapping")
+	}
+	if hasRearChannel {
+		if !idPattern.MatchString(l.RearChannelID) {
+			return errors.New("rear channel id must be a version 4 uuid")
+		}
+		if !slices.Contains([]RearChannelType{RearChannelTypeTube, RearChannelTypeDiscrete}, l.RearChannelType) {
+			return fmt.Errorf("unknown rear channel type %q", l.RearChannelType)
+		}
+		if len(strings.TrimSpace(l.RearChannelName)) > 120 {
+			return errors.New("rear channel name must not exceed 120 characters")
+		}
 	}
 	if _, exists := deviceIDs[l.SourceDeviceID]; !exists {
 		return errors.New("source device does not exist")

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
-  assignCableTracks, cableDashPattern, CableRoutingPlane, CABLE_JUMPER_RADIUS, cableRole, CABLE_TRACK_SPACING,
+  assignCableTracks, BACKEND_CHANNEL_GAP, BACKEND_DISCRETE_STRAND_SPACING, BACKEND_TUBE_STRAND_SPACING,
+  cableDashPattern, CableRoutingPlane, CABLE_JUMPER_RADIUS, cableRole, CABLE_TRACK_SPACING,
   FACEPLATE_MICRO_LANE_SPACING, distanceToRoute, orderedCableLinks, pointOnRoute,
   routeFromPoints, routeSegments, routesWithCrossingBridges, routeWithCrossingBridges, segmentIntersectsRectangle,
   TRUNK_BUNDLE_LANE_SPACING,
@@ -104,6 +105,70 @@ assert.equal(crossTracks.every(({ gutterX }) => gutterX > rackA.x + rackA.width 
   "cross-rack channels must stay inside the gap between racks");
 assert.equal(Math.abs(crossTracks[1].gutterX - crossTracks[0].gutterX), CABLE_TRACK_SPACING,
   "cross-rack bundle lanes need the fixed track pitch");
+
+const spanRack = rack("span-rack", 1900);
+const spanSourceDevice = device("span-source", spanRack, 100);
+const spanShortTarget = device("span-short-target", spanRack, 330);
+const spanMediumTarget = device("span-medium-target", spanRack, 600);
+const spanLongTarget = device("span-long-target", spanRack, 900);
+const spanSourcePorts = [
+  port(spanSourceDevice, "span-source-long", spanRack.x + 620, 130),
+  port(spanSourceDevice, "span-source-short", spanRack.x + 585, 134),
+  port(spanSourceDevice, "span-source-medium", spanRack.x + 550, 138),
+];
+const spanTargetPorts = [
+  port(spanLongTarget, "span-target-long", spanRack.x + 620, 930),
+  port(spanShortTarget, "span-target-short", spanRack.x + 620, 360),
+  port(spanMediumTarget, "span-target-medium", spanRack.x + 620, 630),
+];
+const spanLinks = [
+  link("span-long", spanSourcePorts[0], spanTargetPorts[0]),
+  link("span-short", spanSourcePorts[1], spanTargetPorts[1]),
+  link("span-medium", spanSourcePorts[2], spanTargetPorts[2]),
+];
+const spanTracks = assignCableTracks({
+  links: spanLinks,
+  portBoxes: [...spanSourcePorts, ...spanTargetPorts],
+  deviceBoxes: [spanSourceDevice, spanShortTarget, spanMediumTarget, spanLongTarget],
+  rackBoxes: [spanRack],
+});
+const [longSpanTrack, shortSpanTrack, mediumSpanTrack] = spanLinks.map(({ id }) => spanTracks.get(id));
+assert.deepEqual(
+  [shortSpanTrack, mediumSpanTrack, longSpanTrack].map(({ spineLaneIndex }) => spineLaneIndex),
+  [0, 1, 2],
+  "span sorting must allocate the shortest shared-spine link to the innermost lane",
+);
+assert.ok(shortSpanTrack.gutterX < mediumSpanTrack.gutterX && mediumSpanTrack.gutterX < longSpanTrack.gutterX,
+  "right-side shared spines must expand away from the rack as vertical spans grow");
+assert.deepEqual(
+  [shortSpanTrack, mediumSpanTrack, longSpanTrack].map(({ verticalSpan }) => verticalSpan),
+  [226, 492, 800],
+  "routes must retain their measured source-to-target vertical span for diagnostics",
+);
+
+const mixedRack = rack("mixed-span-rack", 2800);
+const mixedSource = device("mixed-span-source", mixedRack, 100);
+const mixedTargets = [
+  device("mixed-span-short", mixedRack, 320),
+  device("mixed-span-medium", mixedRack, 560),
+  device("mixed-span-long", mixedRack, 860),
+];
+const mixedSources = [0, 1, 2].map((index) =>
+  port(mixedSource, `mixed-source-${index}`, mixedRack.x + 620 - index * 30, 130 + index * 4));
+const mixedTargetPorts = mixedTargets.map((target, index) =>
+  port(target, `mixed-target-${index}`, mixedRack.x + 620, target.y + 30));
+const mixedLinks = mixedSources.map((source, index) => link(`mixed-${index}`, source, mixedTargetPorts[index]));
+const mixedTracks = assignCableTracks({
+  links: [mixedLinks[2], mixedLinks[1], mixedLinks[0]],
+  portBoxes: [...mixedSources, ...mixedTargetPorts],
+  deviceBoxes: [mixedSource, ...mixedTargets],
+  rackBoxes: [mixedRack],
+  linkGroups: [{ id: "mixed-tight-group", mode: "LACP", linkIds: [mixedLinks[0].id, mixedLinks[2].id] }],
+});
+const mixedGutters = mixedLinks.map(({ id }) => mixedTracks.get(id).gutterX);
+assert.deepEqual(mixedGutters.slice(1).map((gutterX, index) => gutterX - mixedGutters[index]), [9, 9],
+  "mixed 5px and 9px lane pitches must reserve non-overlapping physical offsets in span order");
+assert.deepEqual(mixedLinks.map(({ id }) => mixedTracks.get(id).spineLaneIndex), [0, 1, 2]);
 
 const explicitTrunkTracks = assignCableTracks({
   links: sameRackLinks,
@@ -244,6 +309,11 @@ assert.notEqual(frontPanelTrack.bundleKey, rearPanelTrack.bundleKey,
   "front and rear runs between the same devices must be separate bundles");
 assert.equal(frontPanelTrack.sourceSide, "left");
 assert.equal(rearPanelTrack.sourceSide, "left", "rear patch-panel exits must face the outer rack edge");
+assert.equal(rearPanelTrack.targetSide, "right", "same-rack rear runs must descend through a separate destination breakout");
+assert.equal(rearPanelTrack.routeKind, "rear-intra-rack-overhead");
+assert.ok(rearPanelTrack.bridgeY < rackA.y, "same-rack rear mappings must also use the overhead corridor");
+assert.ok(rearPanelTrack.sourceGutterX < rackA.x && rearPanelTrack.targetGutterX > rackA.x + rackA.width,
+  "same-rack rear mappings must keep all vertical travel in the two outer gutters");
 assert.ok(rearPanelTrack.gutterX < frontPanelTrack.gutterX,
   "the backend lane bank must be farther outside the rack than every primary lane");
 assert.ok(Math.abs(rearPanelTrack.gutterX - frontPanelTrack.gutterX) >= CABLE_TRACK_SPACING * 3,
@@ -275,18 +345,97 @@ const multiRearTracks = assignCableTracks({
 assert.equal(new Set(multiRearLinks.map(({ id }) => multiRearTracks.get(id).sourceGutterX)).size, 2,
   "backend routes from one rack to different rack pairs must keep unique vertical X tracks");
 
+const channelSource = device("channel-source", rackA, 420, "PatchPanel");
+const channelTarget = device("channel-target", rackB, 620, "PatchPanel");
+const channelPorts = [];
+const channelLinks = [];
+for (let index = 0; index < 12; index += 1) {
+  const sourcePort = port(channelSource, `channel-source-${index + 1}`, 90 + index * 24, 450, String(index + 1));
+  const targetPort = port(channelTarget, `channel-target-${index + 1}`, 990 + index * 24, 650, String(index + 1));
+  sourcePort.port.portIndex = index + 1;
+  targetPort.port.portIndex = index + 1;
+  channelPorts.push(sourcePort, targetPort);
+  channelLinks.push({
+    ...link(`channel-link-${index + 1}`, sourcePort, targetPort),
+    sourceSide: "rear",
+    targetSide: "rear",
+    cableType: index < 8 ? "FIBER" : "CAT6A",
+    rearChannelId: `channel-${Math.floor(index / 4) + 1}`,
+    rearChannelName: index < 4 ? "TUBE 1–4" : index < 8 ? "TUBE 5–8" : "BUNDLE 9–12",
+    rearChannelType: index < 8 ? "tube" : "discrete",
+  });
+}
+const channelTracks = assignCableTracks({
+  links: channelLinks,
+  portBoxes: channelPorts,
+  deviceBoxes: [channelSource, channelTarget],
+  rackBoxes: [rackA, rackB],
+});
+const channelTrackList = channelLinks.map(({ id }) => channelTracks.get(id));
+assert.equal(new Set(channelTrackList.map(({ rearCorridorKey }) => rearCorridorKey)).size, 1,
+  "one source/target panel pair must own one consolidated overhead corridor");
+assert.deepEqual(channelTrackList.map(({ rearChannelIndex }) => rearChannelIndex),
+  [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],
+  "contiguous four-port blocks must remain distinct inner channels");
+assert.deepEqual(channelTrackList.map(({ rearChannelType }) => rearChannelType),
+  ["tube", "tube", "tube", "tube", "tube", "tube", "tube", "tube", "discrete", "discrete", "discrete", "discrete"]);
+assert.equal(new Set(channelTrackList.slice(0, 8).map(({ strandSpacing }) => strandSpacing)).has(BACKEND_TUBE_STRAND_SPACING), true);
+assert.equal(new Set(channelTrackList.slice(8).map(({ strandSpacing }) => strandSpacing)).has(BACKEND_DISCRETE_STRAND_SPACING), true);
+for (const [start, spacing] of [[0, BACKEND_TUBE_STRAND_SPACING], [4, BACKEND_TUBE_STRAND_SPACING], [8, BACKEND_DISCRETE_STRAND_SPACING]]) {
+  const members = channelTrackList.slice(start, start + 4);
+  assert.deepEqual(members.slice(1).map((track, index) => Math.abs(track.sourceGutterX - members[index].sourceGutterX)),
+    [spacing, spacing, spacing], "strands must retain their channel-specific tight pitch along the source spine");
+  assert.deepEqual(members.slice(1).map((track, index) => Math.abs(track.bridgeY - members[index].bridgeY)),
+    [spacing, spacing, spacing], "strands must retain their channel-specific tight pitch through the overhead corridor");
+}
+const firstTubeSheath = channelTrackList[0].rearChannelSheath;
+const secondTubeSheath = channelTrackList[4].rearChannelSheath;
+const tubeBoundaryGap = Math.abs(channelTrackList[4].rearChannelCenterOffset - channelTrackList[0].rearChannelCenterOffset) -
+  firstTubeSheath.width / 2 - secondTubeSheath.width / 2;
+assert.equal(tubeBoundaryGap, BACKEND_CHANNEL_GAP,
+  "tube sheath boundaries must retain the configured 8px physical clearance");
+const tubeToDiscreteGap = Math.abs(channelTrackList[8].bridgeY - channelTrackList[7].bridgeY) -
+  (secondTubeSheath.width - BACKEND_TUBE_STRAND_SPACING * 3) / 2;
+assert.equal(tubeToDiscreteGap, BACKEND_CHANNEL_GAP,
+  "tube boundaries and discrete strands must retain the configured 8px physical clearance");
+assert.equal(BACKEND_CHANNEL_GAP, 8, "rear tubes must use the requested compact 8px boundary gap");
+assert.equal(new Set(channelTrackList.map(({ sourceGutterX }) => sourceGutterX)).size, channelTrackList.length,
+  "the consolidated source spine must remain a compact bank of unique individual tracks");
+assert.equal(channelTrackList.every(({ bridgeY }) => bridgeY < Math.min(rackA.y, rackB.y)), true,
+  "all rear channels must use the overhead routing corridor");
+assert.equal(new Set(channelTrackList.slice(0, 8).map(({ rearChannelSheath }) => rearChannelSheath?.key)).size, 2,
+  "each tube channel must expose one shared sheath without merging its strands");
+assert.equal(channelTrackList.slice(0, 8).every(({ rearChannelSheath }) => rearChannelSheath?.strandCount === 4), true);
+assert.equal(firstTubeSheath.route.points[0].x, channelSource.x,
+  "the thick tube must begin at the source panel edge so only the on-panel strands fan out");
+assert.equal(firstTubeSheath.route.points.at(-1).x, channelTarget.x + channelTarget.width,
+  "the thick tube must reach the target panel edge before splitting into individual strands");
+assert.ok(firstTubeSheath.width > BACKEND_TUBE_STRAND_SPACING,
+  "the shared tube run must be visibly thicker than an individual rear strand");
+assert.equal(channelTrackList.slice(8).every(({ rearChannelSheath }) => rearChannelSheath === undefined), true,
+  "discrete bundles must remain loose cables without an outer sheath");
+for (const track of channelTrackList) {
+  assert.equal(track.routeKind, "rear-inter-rack-overhead");
+  assert.equal(routeSegments(track).some((segment) => segment.source.y === track.bridgeY && segment.target.y === track.bridgeY), true,
+    "each strand must traverse horizontally in its own overhead slot");
+  assert.equal(routeSegments(track).some((segment) => segment.source.x === track.targetGutterX && segment.target.x === track.targetGutterX), true,
+    "each strand must break out vertically at its target gutter coordinate");
+}
+
 const horizontal = routeFromPoints([{ x: 0, y: 50 }, { x: 100, y: 50 }]);
 const vertical = routeFromPoints([{ x: 50, y: 0 }, { x: 50, y: 100 }]);
 const bridged = routeWithCrossingBridges(horizontal, [vertical]);
 assert.equal(bridged.bridges.length, 1, "right-angle crossings should create jumper metadata");
 assert.equal(bridged.bridges[0].jumperArc, true);
-assert.equal(bridged.bridges[0].radius, CABLE_JUMPER_RADIUS, "the jumper bow needs a compact 5px radius");
+assert.equal(bridged.bridges[0].radius, CABLE_JUMPER_RADIUS, "the jumper bow needs a compact 4px radius");
 assert.deepEqual(bridged.bridges[0].apex, { x: 50, y: 50 - CABLE_JUMPER_RADIUS });
 assert.deepEqual(bridged.points, horizontal.points, "a bridge must preserve the reserved Manhattan track geometry");
 const [verticalFirst, horizontalSecond] = routesWithCrossingBridges([vertical, horizontal]);
 assert.equal(verticalFirst.bridges.length, 0, "vertical tracks must never own a jumper bow");
 assert.equal(horizontalSecond.bridges.length, 1, "horizontal tracks must own the bow even when routed later");
 assert.equal(horizontalSecond.bridges[0].underRouteIndex, 0);
+const compactBridge = routeWithCrossingBridges(horizontal, [vertical], { radius: 3 });
+assert.equal(compactBridge.bridges[0].radius, 3, "dense layouts may reduce bridge bows to the permitted 3px radius");
 const rearHorizontal = routeFromPoints([{ x: 0, y: 70 }, { x: 100, y: 70 }], { routingPlane: CableRoutingPlane.REAR });
 const frontVertical = routeFromPoints([{ x: 50, y: 20 }, { x: 50, y: 120 }], { routingPlane: CableRoutingPlane.FRONT });
 const [rearUnderFront, frontOverRear] = routesWithCrossingBridges([rearHorizontal, frontVertical]);

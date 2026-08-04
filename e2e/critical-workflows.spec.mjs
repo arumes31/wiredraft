@@ -79,6 +79,46 @@ test("creates, switches, and remembers another network map", async ({ page, requ
   expect(restoreResponse.ok()).toBe(true);
 });
 
+test("Panel Map explains why zero or one installed panel is insufficient", async ({ page, request }, testInfo) => {
+  const originalID = await page.locator("#topology-select").inputValue();
+  const response = await request.post("/api/v1/topologies", {
+    data: { name: `E2E ${testInfo.project.name.toUpperCase()} PANEL AVAILABILITY`, template: "blank" },
+  });
+  expect(response.ok()).toBe(true);
+  const topology = await response.json();
+  await page.reload();
+  await expect(page.locator("#connection-status")).toHaveAttribute("data-state", "online");
+  await page.locator("#topology-select").selectOption(topology.id);
+  await expect(page.locator("#topology-name")).toHaveText(topology.name);
+
+  const panelMap = page.locator("#patch-panel-map-button");
+  await expect(panelMap).toHaveText("PANEL MAP");
+  await expect(panelMap).toBeEnabled();
+  await panelMap.click();
+  await expect(page.locator("#toast .toast-item[data-kind=error]").first()).toContainText(
+    "No patch panels are installed. Add two with + PANEL before opening Panel Map.",
+  );
+
+  await page.locator("#add-patch-panel-button").click();
+  const installDialog = page.locator("#patch-panel-dialog");
+  await installDialog.locator('[name="name"]').fill("E2E SINGLE PATCH PANEL");
+  await installDialog.locator('button[value="install"]').click();
+  await expect(installDialog).not.toBeVisible();
+  await expect.poll(async () => {
+    const current = await request.get(`/api/v1/topologies/${encodeURIComponent(topology.id)}`).then((result) => result.json());
+    return current.devices.filter((device) => device.category === "PatchPanel").length;
+  }).toBe(1);
+
+  await expect(panelMap).toBeEnabled();
+  await panelMap.click();
+  await expect(page.locator("#toast .toast-item[data-kind=error]").first()).toContainText(
+    "Only one patch panel is installed. Add one more with + PANEL before opening Panel Map.",
+  );
+  await expect(page.locator("#patch-panel-map-dialog")).not.toBeVisible();
+
+  await page.locator("#topology-select").selectOption(originalID);
+});
+
 test("installs access points and browses the edge device families", async ({ page, request }, testInfo) => {
   const topologyID = await page.locator("#topology-select").inputValue();
   const deviceName = `E2E ${testInfo.project.name.toUpperCase()} AP 635`;
@@ -206,17 +246,24 @@ test("installs Generic Patch hardware only through Panel and maps rear ranges", 
   await rearDialog.locator('[name="sourceStart"]').fill("1");
   await rearDialog.locator('[name="sourceEnd"]').fill("2");
   await rearDialog.locator('[name="targetStart"]').fill("1");
-  await expect(rearDialog.locator("#patch-map-count")).toHaveText("2 REAR RUNS");
+  await expect(rearDialog.locator("#patch-map-count")).toHaveText("2 REAR RUNS · 1 TUBE / BÜNDELADER");
+  await expect(rearDialog.locator('[name="rearChannelType"]')).toHaveValue("auto");
+  await rearDialog.locator('[name="rearChannelGroupSize"]').selectOption("1");
+  await expect(rearDialog.locator("#patch-map-count")).toHaveText("2 REAR RUNS · 2 TUBES / BÜNDELADER");
+  await rearDialog.locator('[name="rearChannelName"]').fill("E2E FIBER TUBE");
   await rearDialog.locator('button[value="connect"]').click();
   await expect(rearDialog).not.toBeVisible();
 
+  let mappedRearLinks = [];
   await expect.poll(async () => {
     const response = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`);
     const topology = await response.json();
-    const rearLinks = topology.links.filter((link) => link.sourceSide === "rear" && link.targetSide === "rear" &&
+    mappedRearLinks = topology.links.filter((link) => link.sourceSide === "rear" && link.targetSide === "rear" &&
       [panels[0].id, panels[1].id].includes(link.sourceDeviceId) && [panels[0].id, panels[1].id].includes(link.targetDeviceId));
-    return rearLinks.length;
+    return mappedRearLinks.length;
   }).toBe(2);
+  expect(new Set(mappedRearLinks.map((link) => link.rearChannelId)).size).toBe(2);
+  expect(mappedRearLinks.every((link) => link.rearChannelType === "tube" && link.rearChannelName.startsWith("E2E FIBER TUBE · 0"))).toBe(true);
   await expect(page.locator("#physical-device-count")).not.toHaveText(new RegExp(`^${before}$`));
 });
 
@@ -244,22 +291,29 @@ test("export menu opens below the toolbar and closes after export", async ({ pag
   await expect(menu).not.toHaveAttribute("open", "");
 });
 
-test("anchors comments, embeds documentation, and creates a read-only share", async ({ page, request }) => {
+test("stores plan comments in the inspector and manages map resources", async ({ page, request }) => {
   const topologyID = await page.locator("#topology-select").inputValue();
   const topology = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
   const device = topology.devices[0];
   await page.locator(`[data-tree-type="device"][data-tree-id="${device.id}"]`).click();
-  await expect(page.locator(".inspector-comments")).toContainText("COMMENTS");
-  await page.locator(".inspector-comment-add").click();
-  const dialog = page.locator("#collaboration-dialog");
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator("#collaboration-target")).toContainText(device.name);
-  await expect(dialog.locator('#comment-form [name="body"]')).toBeFocused();
+  const comments = page.locator(".inspector-comments");
+  await expect(comments).toContainText("PLAN COMMENTS");
+  await expect(comments).toContainText("STORED WITH THIS MAP");
+  await comments.locator('[name="author"]').fill("E2E Operator");
+  await comments.locator('[name="body"]').fill("Validate the maintenance path before change window.");
+  await comments.locator(".inspector-comment-form button").click();
+  await expect(comments).toContainText("E2E Operator");
+  await expect(comments).toContainText("Validate the maintenance path before change window.");
 
-  await dialog.locator('#comment-form [name="author"]').fill("E2E Operator");
-  await dialog.locator('#comment-form [name="body"]').fill("Validate the maintenance path before change window.");
-  await dialog.locator("#comment-form button").click();
-  await expect(dialog.locator("#comments-list")).toContainText("E2E Operator");
+  const persisted = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
+  expect(persisted.commentThreads.some((thread) => thread.anchor.targetId === device.id
+    && thread.messages.some((message) => message.body === "Validate the maintenance path before change window."))).toBe(true);
+
+  await page.locator("#resources-button").click();
+  const dialog = page.locator("#resources-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("#resource-target")).toContainText(device.name);
+  await expect(dialog).not.toContainText("ANCHORED COMMENTS");
 
   await dialog.locator('#documentation-form [name="label"]').fill("E2E Runbook");
   await dialog.locator('#documentation-form [name="url"]').fill("https://example.com/runbook");

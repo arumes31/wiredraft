@@ -1,5 +1,7 @@
 # Device, port, and link hover comments
 
+> Inspector workflow superseded by [Persistent inspector plan comments](./2026-08-04-inspector-plan-comments-design.md). The persistent anchor model and hover behavior described here remain current; comment editing no longer opens the Collaboration dialog.
+
 ## Problem
 
 The collaboration model already persists threaded comments, but operators can only anchor them to the canvas, a device, or a link. Port selections fall back to a canvas coordinate, comment creation is only discoverable through the global collaboration dialog, and canvas hover bubbles do not expose the operational notes attached to the object under the pointer.
