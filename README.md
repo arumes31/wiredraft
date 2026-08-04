@@ -1,121 +1,356 @@
 # WireDraft
 
-WireDraft is a browser workstation for designing enterprise rack faceplates, physical port-to-port cabling, and VLAN forwarding maps. One static Go binary embeds the application while PostgreSQL durably stores topology aggregates and authentication state.
+<div align="center">
 
-Its native dialogs, export popover, and status toasts share a responsive industrial control-panel design with sticky actions, accessible titles, visible focus states, and reduced-motion support.
+**Design, cable, validate, and document physical network infrastructure in one browser workspace.**
 
-Hovering any cable redraws its complete source-to-target route above neighboring links with a restrained animated halo while preserving its real native/trunk VLAN colors.
+[![Core CI](https://github.com/arumes31/wiredraft/actions/workflows/quality.yml/badge.svg?branch=main)](https://github.com/arumes31/wiredraft/actions/workflows/quality.yml)
+[![Lint](https://github.com/arumes31/wiredraft/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/arumes31/wiredraft/actions/workflows/lint.yml)
+[![Security](https://github.com/arumes31/wiredraft/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/arumes31/wiredraft/actions/workflows/security.yml)
+[![Supply Chain](https://github.com/arumes31/wiredraft/actions/workflows/supply-chain.yml/badge.svg?branch=main)](https://github.com/arumes31/wiredraft/actions/workflows/supply-chain.yml)
+[![Go version](https://img.shields.io/github/go-mod/go-version/arumes31/wiredraft?logo=go&logoColor=white)](https://go.dev/)
+[![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Farumes31%2Fwiredraft-2496ED?logo=docker&logoColor=white)](https://github.com/arumes31/wiredraft/pkgs/container/wiredraft)
+[![License: MIT](https://img.shields.io/github/license/arumes31/wiredraft)](LICENSE)
 
-## Demo
+[Quick start](#quick-start) · [First use](#first-use) · [GHCR](#run-the-ghcr-image) · [Configuration](#configuration) · [Architecture](#architecture) · [Development](#development)
 
-On first launch, WireDraft creates a working topology with a carrier handoff, firewall, two 24-port switches, four VLANs, and patched uplinks. Add movable racks, drag hardware into a free whole-U position or leave it free-floating, click one port and then another to install a cable, or select any endpoint to edit its switchport configuration.
+</div>
 
-## Getting started
+WireDraft is a self-hosted rack, cabling, and VLAN planning application. A single Go server embeds the browser UI and API; PostgreSQL stores complete topology documents, revision metadata, users, TOTP state, recovery codes, and organization access.
 
-Requirements: Docker, or Go 1.26.5 with PostgreSQL 14 or later.
+![WireDraft rack workspace with physical links](e2e/__screenshots__/rack-faceplates.png)
 
-Apply the SQL files in `db/migrations` to an empty database, set the standard
-`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD` variables (or
-`DATABASE_URL`), then run:
+## Quick start
+
+The included Compose stack builds WireDraft locally, starts PostgreSQL, applies the initial schema to a new database, and retains data in a named volume.
+
+### Requirements
+
+- Docker Engine with Docker Compose v2
+- Git
+
+### Start the stack
 
 ```sh
-WIREDRAFT_ADMIN_PASSWORD='replace-with-a-long-password' go run ./cmd/server
+git clone https://github.com/arumes31/wiredraft.git
+cd wiredraft
+cp .env.example .env
 ```
 
-Open `http://localhost:8080`. Runtime settings can be supplied as environment variables or flags:
+Open `.env` and replace both example passwords. The administrator password must contain at least 12 characters. Then start the services:
 
-The legacy `NETDIAGRAM_*` environment prefix remains supported as a fallback to avoid breaking existing deployments during the product rename. When both forms are present, `WIREDRAFT_*` takes priority.
+```sh
+docker compose up --build -d
+docker compose ps
+```
 
-| Environment | Flag | Default | Purpose |
+Open <http://localhost:8080>. View logs or stop the stack with:
+
+```sh
+docker compose logs -f wiredraft
+docker compose down
+```
+
+`docker compose down` keeps the `postgres-data` volume. Running `docker compose down -v` also deletes the database and is irreversible unless you have a backup.
+
+> On PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
+
+## First use
+
+1. Sign in with `WIREDRAFT_ADMIN_USER` and `WIREDRAFT_ADMIN_PASSWORD` from `.env`.
+2. On the first administrator login, scan the QR code with a TOTP authenticator and enter its current six-digit code. If `WIREDRAFT_ADMIN_TOTP_SECRET` is already set, enrollment is skipped.
+3. Download or copy the one-use recovery codes. They are displayed only when TOTP enrollment completes.
+4. Open the generated demonstration map, or create a topology for an organization and location.
+5. Add racks and devices, connect two ports to create a cable, then configure VLANs, bundles, switch systems, firewall clusters, and documentation links from the inspectors.
+
+Guest access is enabled by default for existing guest-workspace maps. Set `WIREDRAFT_GUEST_ENABLED=false` before startup when anonymous workspace access is not wanted.
+
+## Run the GHCR image
+
+Images are published for `linux/amd64` and `linux/arm64`:
+
+```sh
+docker pull ghcr.io/arumes31/wiredraft:latest
+```
+
+Available tags include `latest`, `main`, `sha-<commit>`, `v<version>`, `<version>`, and `<major>.<minor>` according to the triggering branch or release tag. Use a version or digest instead of `latest` for repeatable production deployments.
+
+The application does not run schema migrations itself. For a complete deployment, save the following as `compose.ghcr.yml` in a WireDraft checkout so PostgreSQL can mount `db/migrations`:
+
+```yaml
+name: wiredraft
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: wiredraft
+      POSTGRES_USER: wiredraft
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wiredraft -d wiredraft"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+    restart: unless-stopped
+
+  wiredraft:
+    image: ghcr.io/arumes31/wiredraft:latest
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: wiredraft
+      PGUSER: wiredraft
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      WIREDRAFT_ADMIN_USER: ${WIREDRAFT_ADMIN_USER:-admin}
+      WIREDRAFT_ADMIN_PASSWORD: ${WIREDRAFT_ADMIN_PASSWORD:?set WIREDRAFT_ADMIN_PASSWORD in .env}
+      WIREDRAFT_ADMIN_TOTP_SECRET: ${WIREDRAFT_ADMIN_TOTP_SECRET:-}
+      WIREDRAFT_GUEST_ENABLED: ${WIREDRAFT_GUEST_ENABLED:-true}
+      WIREDRAFT_COOKIE_SECURE: ${WIREDRAFT_COOKIE_SECURE:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/wiredraft", "-healthcheck"]
+      interval: 15s
+      timeout: 4s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+```
+
+Start that deployment with:
+
+```sh
+cp .env.example .env
+# Replace the credentials in .env before continuing.
+docker compose -f compose.ghcr.yml up -d
+```
+
+The published runtime image is `FROM scratch`, contains only the statically linked server, runs as numeric user `10001`, and has no shell or package manager. Its built-in `-healthcheck` command probes `/api/v1/health` without adding a second binary.
+
+## Features
+
+### Rack and hardware planning
+
+- Multi-rack layouts with 6U–48U frames, numbered rails, whole-U snapping, collision prevention, capacity reporting, free-floating devices, and a navigable minimap.
+- High-DPI faceplates for switches, firewalls, routers, carrier handoffs, modems, access points, servers, patch panels, storage, power, and console equipment.
+- Offline 542-profile hardware catalog with vendor-family layouts and 25 connector types up to 800G OSFP, plus JSON profile import.
+- Generic 1U–4U server rear builder with mixed card bays and independently cableable ports.
+- Copper and fiber patch panels with independent front/rear occupancy, editable rear mappings, and atomic one-to-one panel ranges.
+
+### Physical cabling
+
+- Magnetic port-to-port drafting with precise connector hit testing and automatic endpoint link-state updates.
+- Deterministic orthogonal routing, rack-side/inter-rack gutters, crossing underpasses, bundled device-pair tracks, and separated vertical lanes in dense layouts.
+- Cable media and transceiver metadata for copper, coax, SMF/MMF, DAC, AOC, and twinax.
+- Trunk, LACP, MC-LAG, and failover link groups with shared labels, primary/backup roles, group-wide VLAN editing, and complete-path hover highlighting.
+- Canvas and SVG exports use the same Manhattan route geometry and native/tagged VLAN conductors.
+
+### Layer 2 modeling and analysis
+
+- Access, trunk, hybrid, and unconfigured switchport models with native and tagged VLAN membership.
+- Logical switch systems for generic stacks, Aruba VSF, Cisco StackWise/VSS, Fortinet MC-LAG, Juniper Virtual Chassis, HPE/H3C IRF, and custom fabrics.
+- Active/active and active/passive firewall clusters with active-member selection and safe failover reassignment.
+- Per-VLAN spanning-tree simulation with deterministic root election and Root, Designated, and Blocked port roles.
+- Server-side detection of native VLAN mismatches, tagged VLAN drops, switching loops, invalid bundles, and forwarding paths.
+
+### Collaboration and output
+
+- Revision-aware autosave, manual save, undo/redo, optimistic conflict detection, and per-topology Server-Sent Events.
+- Anchored comment threads, HTTP(S) documentation links, and revocable tokenized read-only shares.
+- Export to A3 PDF, standalone HTML, configuration workbook, PNG, SVG, and JSON; JSON can also be restored as a topology backup.
+- Device inventory for hostname, management IP, serial, asset tag, owner/team, site hierarchy, rack/U position, and STP priority.
+
+### Runtime and security
+
+- Local password and TOTP authentication, one-use recovery codes, opaque host-bound sessions, organization-scoped users, and administrator user management.
+- Strict JSON decoding, request size limits, same-origin and CSRF enforcement, security headers, structured logs, database transactions, and graceful shutdown.
+- Embedded native ES-module frontend with no runtime Node.js dependency; release builds minify modules before `go:embed` compilation.
+- Responsive controls, keyboard-visible focus, reduced-motion support, adaptive graphics quality, bounded frame rates, and suspended rendering for hidden canvases.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Browser] -->|HTML, CSS, ES modules| S[WireDraft Go server]
+    U <-->|REST /api/v1| A[HTTP handlers]
+    U <-->|revisioned SSE| E[SSE broker]
+    S --> A
+    S --> E
+    A --> M[Topology model and analyzer]
+    A --> X[Authentication and authorization]
+    M --> P[(PostgreSQL)]
+    X --> P
+    S -. embeds at build time .-> W[web/static]
+```
+
+WireDraft stores each topology as a validated JSONB aggregate alongside indexed summary and revision fields. Mutations lock the row, enforce the optional `If-Match: "rev-N"` precondition, validate the next aggregate, increment its revision, and commit atomically.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant API as Go API
+    participant DB as PostgreSQL
+    participant SSE as SSE subscribers
+    B->>API: Mutation + If-Match: "rev-N"
+    API->>DB: SELECT ... FOR UPDATE
+    DB-->>API: Document + revision N
+    API->>API: Apply, normalize, validate
+    API->>DB: UPDATE document, revision N+1
+    DB-->>API: Commit
+    API-->>B: Updated topology + ETag
+    API-->>SSE: Publish revision N+1
+```
+
+### Persistent data
+
+| PostgreSQL object | Contents |
+| --- | --- |
+| `topologies` | Complete topology JSONB documents plus name, organization, location, revision, counts, and timestamps |
+| `auth_state` | Users, organization grants, password/TOTP/recovery state, guest workspace membership, and the 32-byte key used to encrypt authenticator secrets |
+| `postgres-data` volume | The complete database used by the included Compose deployment |
+
+Back up PostgreSQL to preserve both topology and authentication state. A JSON export is useful for moving one topology, but it is not a replacement for a database backup.
+
+```sh
+docker compose exec -T postgres pg_dump -U wiredraft -d wiredraft > wiredraft-backup.sql
+```
+
+PostgreSQL runs on `127.0.0.1:5432` in the included development Compose file. Do not expose it publicly. The scripts in `db/migrations` are applied automatically only when PostgreSQL initializes an empty data directory; apply later migrations explicitly to existing databases before starting a newer application version.
+
+## Configuration
+
+WireDraft reads environment variables first and lets command-line flags override the supported server options.
+
+| Environment variable | Flag | Default | Description |
 | --- | --- | --- | --- |
 | `PORT` | `-port` | `8080` | HTTP listen port |
-| `DATABASE_URL` | — | standard `PG*` variables | PostgreSQL connection URL |
+| `DATABASE_URL` | — | empty | PostgreSQL URL; when empty, pgx reads the standard `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, and related variables |
 | `LOG_LEVEL` | `-log-level` | `info` | `debug`, `info`, `warn`, or `error` |
 | `LOG_FORMAT` | `-log-format` | `json` | `json` or `text` |
-| `WIREDRAFT_ADMIN_USER` | — | `admin` | Environment-controlled bootstrap administrator username |
-| `WIREDRAFT_ADMIN_PASSWORD` | — | required | Bootstrap administrator password (minimum 12 characters) |
-| `WIREDRAFT_ADMIN_TOTP_SECRET` | — | empty | Optional Base32 TOTP secret; empty triggers QR enrollment |
-| `WIREDRAFT_GUEST_ENABLED` | — | `true` | Enables the Guest workspace login |
-| `WIREDRAFT_COOKIE_SECURE` | — | `false` | Restricts the session cookie to HTTPS; enable behind TLS |
+| `WIREDRAFT_ADMIN_USER` | — | `admin` | Bootstrap administrator username |
+| `WIREDRAFT_ADMIN_PASSWORD` | — | required | Bootstrap administrator password; minimum 12 characters |
+| `WIREDRAFT_ADMIN_TOTP_SECRET` | — | empty | Optional Base32 TOTP secret; empty starts QR enrollment on first login |
+| `WIREDRAFT_GUEST_ENABLED` | — | `true` | Enables guest-workspace login |
+| `WIREDRAFT_COOKIE_SECURE` | — | `false` | Sends the session cookie only over HTTPS |
+| `HEALTHCHECK_URL` | `-healthcheck-url` | `http://127.0.0.1:8080/api/v1/health` | Target used with `-healthcheck` |
 
-Build a static local binary:
+The legacy `NETDIAGRAM_ADMIN_*`, `NETDIAGRAM_GUEST_ENABLED`, and `NETDIAGRAM_COOKIE_SECURE` variables remain fallback aliases. When both names are set, `WIREDRAFT_*` wins.
+
+### Production checklist
+
+- Use long, unique values for the database and administrator passwords.
+- Disable guest access unless it is intentionally required.
+- Terminate TLS at a trusted reverse proxy and set `WIREDRAFT_COOKIE_SECURE=true`.
+- Keep PostgreSQL on a private network and back up its data volume.
+- Pin the WireDraft image to a release tag or digest and apply database migrations before upgrades.
+- Preserve the `auth_state` row with the rest of the database; its encryption key is required to read stored TOTP secrets.
+
+## HTTP API
+
+The versioned API is rooted at `/api/v1`.
+
+| Area | Routes |
+| --- | --- |
+| Health and authentication | `/health`, `/auth/*`, `/admin/users` |
+| Topologies and inventory | `/topologies`, `/topologies/{id}`, `/racks`, `/devices`, `/ports` |
+| Cabling and logical systems | `/links`, `/link-groups`, `/switch-systems`, `/firewall-clusters` |
+| Network intent | `/vlans`, `/analysis`, `/trace` |
+| Collaboration | `/events`, `/comments`, `/documentation-links`, `/shares` |
+| Public read-only access | `/shared/{topologyId}/{token}` |
+
+Mutations support optimistic concurrency with `If-Match: "rev-N"`. Error responses use `{ "error": "message", "code": 400 }`. The browser client is the current request-body reference, and the persisted domain schema is defined in `internal/model`.
+
+## Development
+
+### Toolchain
+
+- Go 1.26.5 or later
+- PostgreSQL 14 or later
+- Node.js 24 for tests and release-time minification only
+- Docker, PowerShell 7, and the quality tools listed in [CONTRIBUTING.md](CONTRIBUTING.md) for the full CI mirror
+
+Start PostgreSQL from Compose and run the application natively:
+
+```sh
+docker compose up -d postgres
+```
+
+```powershell
+$env:PGHOST = "127.0.0.1"
+$env:PGPORT = "5432"
+$env:PGDATABASE = "wiredraft"
+$env:PGUSER = "wiredraft"
+$env:PGPASSWORD = "the-password-from-.env"
+$env:WIREDRAFT_ADMIN_PASSWORD = "a-long-local-admin-password"
+go run ./cmd/server
+```
+
+Build a static binary:
 
 ```sh
 make build
 ./wiredraft
 ```
 
-## Docker
-
-The WireDraft image is `FROM scratch`, runs as numeric user `10001`, and contains only the stripped static binary. Docker Compose starts a separate PostgreSQL container with a named volume and initializes new databases from `db/migrations`.
+Without `make`:
 
 ```sh
-cp .env.example .env
-# Replace POSTGRES_PASSWORD and WIREDRAFT_ADMIN_PASSWORD before startup.
-docker compose up --build
+go build -trimpath -ldflags="-s -w" -o wiredraft ./cmd/server
 ```
 
-The container has a built-in health probe; no shell or HTTP client is added to the image.
+### Tests and quality gates
 
-Pushes to the default branch and `v*` tags publish provenance- and SBOM-attached `linux/amd64` and `linux/arm64` images to `ghcr.io/<owner>/<repository>`. Docker and release builds minify every embedded JavaScript module before Go compilation; Node.js and esbuild remain build-stage-only dependencies and are absent from the scratch runtime image.
+```sh
+go test ./...
+go test -race ./...
+npm ci
+npm run test:unit
+npm run test:coverage
+npm run test:e2e
+```
 
-## Features
-
-- High-DPI Canvas 2D faceplates for switches, firewalls, routers, modems, patch panels, servers, and access points.
-- Image-informed vector faceplates with sourced vendor-family chassis details, model-specific connector placement, and continuous cable curves drawn directly into every connected port.
-- Integrated multi-rack planning with movable 6U–48U frames, numbered rails, whole-U snapping, collision prevention, capacity reporting, and non-destructive rack removal.
-- Generic 1U–4U server rear builder with dynamically composed mixed card bays, live elevation preview, every supported connector family, and independent multi-device cabling.
-- Dedicated copper/fiber patch-panel installer for every Generic Patch profile, with independent front-jack and rear-termination occupancy plus atomic one-to-one backport range mapping between panels.
-- Offline 541-profile hardware catalog spanning enterprise networking, security, compute, power, KVM/console, storage, wireless, carrier handoffs, broadband/cellular edge, and passive fiber/copper patching, with 25 connector types through 800G OSFP and JSON profile import.
-- Family-first hardware browsing for access points, carrier handoffs, modems/ONTs, LTE/5G routers, switches, firewalls, routers, and infrastructure, with sourced Cisco, Aruba, Fortinet, Ubiquiti, ADTRAN, Teltonika, and generic edge profiles.
-- Pan, 0.1×–5× zoom, viewport-tiled rendering, minimap navigation, collapsible rack/device/VLAN tree, grid-snapped drag ghosts, rack collision zones, selection box, persistent arrows/boxes/text notes, exact port hit testing, steady operational LEDs, and port tooltips.
-- Adaptive `Auto`, `Performance`, `Balanced`, and `Quality` graphics modes persist per browser; static Performance and unfocused Balanced views stop requesting frames, hidden canvases suspend, and cached geometry, bounded frame rates, scaled pixel density, and focused effects reduce GPU use on large maps.
-- Magnetic port-to-port cable drafting, speed-weighted orthogonal tracks, native-VLAN cable colors, animated multi-VLAN rainbow trunks, traffic pulses, warning overlays, and pointer-following speech bubbles with exact rack/device/port endpoints.
-- Newly patched cables atomically set both physical endpoint ports to `up`, so their faceplate link LEDs become active immediately after a successful connection.
-- Unpatching a cable atomically returns both now-unlinked endpoint ports to `down`, while rejected deletes leave the existing operational state untouched.
-- Persistent Trunk, LACP, MC-LAG, and Failover link groups: drag a cable onto another cable to create, extend, or merge a bundle. Failover groups identify one preferred primary cable and mark the remaining members as backups; unusual combinations remain saved and are flagged by the topology analyzer.
-- Group-scoped end-to-end VLAN editing applies one native/tagged profile atomically to every cable and every physical endpoint port in the selected Trunk, LACP, MC-LAG, or Failover group.
-- Persistent logical switch systems for generic stacks, Aruba VSF, Fortinet MC-LAG, Cisco StackWise/VSS, Juniper Virtual Chassis, HPE/H3C IRF, and custom fabrics. Members keep independent faceplates and cable endpoints while inventory totals count the system as one logical unit.
-- Per-VLAN spanning-tree simulation elects a deterministic root, maps Root/Designated/Blocked roles back to every physical member port, traces convergence paths, treats Stack/VSF/MC-LAG peers as one bridge, and collapses Trunk/LACP/MC-LAG bundles plus inactive failover backups correctly.
-- Device inventory records distinguish display name from hostname and include management IP, serial number, asset tag, owner/team, structured site/building/floor/room/rack/U placement, and configurable STP bridge priority.
-- Persistent active/active and active/passive firewall clusters with explicit active-member selection, HA peer highlighting, physical member roles, safe failover reassignment after deletion, and one-unit logical inventory counting.
-- Peer-aware bundle visualization: each link group uses one shared two-line plate with mode-specific endpoint/member details, while deterministic label placement keeps every cable nameplate separated and adds a leader when it must move away from its cable.
-- Individual-track routing groups every common device pair into a deterministic trunk bundle, assigns five-pixel side-by-side gutter channels, and keeps members together until their real endpoint fan-out.
-- Zero-extension faceplate exits turn horizontally at the connector, stagger top/bottom-row micro-lanes inside the host chassis, and confine all inter-device vertical travel to rack-side or inter-rack gutters so no cable crosses an intermediate faceplate.
-- Canvas and SVG exports share strict Manhattan geometry (`H`/`V` only), semantic speed/role accents, native/tagged VLAN conductors, orthogonal crossing underpasses, and cached batch route plans suitable for high-density switches.
-- Source-backed printed interface legends for common FortiGate families (`WAN1`, `WAN2`, `A`, `B`, `DMZ`, `HA`, `MGMT`, `X1`…), sequential physical switch labels, and vendor-family naming for other firewall profiles.
-- Access, trunk, hybrid, and unconfigured port models with native and tagged VLAN membership.
-- Independent port transceiver/media and cable-media editing for CAT5e/CAT6/CAT6A, coax, SMF/MMF, generic fiber, DAC, AOC, and twinax.
-- VLAN manager with safe deletion and automatic fallback of affected native ports to VLAN 1.
-- Server-side native VLAN mismatch, tagged VLAN drop, switching-loop, and forwarding-path analysis; servers remain non-forwarding endpoints when multi-homed.
-- Default-on 30-second autosave with 1/5-minute options, manual save, dirty-title state, optimistic revision checks, and conflict-safe reload of newer shared revisions.
-- Revisioned Server-Sent Events, anchored comment threads, embedded/external HTTP(S) documentation, and cryptographically tokenized revocable read-only shares.
-- Local password + TOTP authentication with encrypted authenticator secrets, one-use recovery codes, opaque host-bound sessions, a default-on Guest workspace for pre-existing maps, and administrator-managed users scoped to one or multiple organizations.
-- Direct A3 PDF, responsive standalone HTML with embedded SVG/source data and documentation links, filterable offline configuration workbook (inventory, ports, VLANs, physical paths, trunks, switch systems, and firewall HA), PNG, standalone SVG, and JSON backup export; JSON restore; keyboard undo/redo and save. Heavy catalog, analysis, and export modules load on demand.
-- Strict JSON decoding, request-size limits, security headers, structured logs, graceful shutdown, database transactions, and optimistic revision checks.
-
-## HTTP API
-
-The API is rooted at `/api/v1`. Important resources include `/topologies`, `/topologies/{id}/racks`, `/topologies/{id}/devices`, `/ports`, `/links`, `/link-groups`, `/switch-systems`, `/firewall-clusters`, `/vlans`, `/comments`, `/documentation-links`, `/shares`, `/analysis`, `/trace`, and `/events`; read-only tokens use `/api/v1/shared/{topologyId}/{token}`. Mutations accept `If-Match: "rev-N"`. Errors use `{ "error": "message", "code": 400 }`. The interactive client is the reference for request bodies; the domain schema is defined in `internal/model`.
-
-## Verification
-
-Run the complete local equivalent of the GitHub quality suite from PowerShell 7:
+The Core CI workflow enforces at least 70% Go statement coverage and 80% frontend line, function, and branch coverage. Run the complete locally reproducible suite from PowerShell 7 before review:
 
 ```powershell
 pwsh -NoProfile -File scripts/ci-local.ps1
 ```
 
-The command covers formatting and static analysis, race/fuzz/coverage tests, dependency and secret scans, Dockerfile/container scanning, SBOM generation, mutation testing, all supported browsers, accessibility, and visual regression. GitHub additionally runs CodeQL, dependency-diff review, OpenSSF Scorecard, and signed build/SBOM attestations because those gates require GitHub services and OIDC.
+For quicker iteration, `-SkipBrowsers` and `-SkipContainers` are available. The full command also checks formatting, lint, race/fuzz coverage, dependencies, secrets, Docker, SBOM output, mutation behavior, supported browsers, accessibility, and visual regression. GitHub additionally runs CodeQL, dependency review, OpenSSF Scorecard, and build/SBOM attestations.
 
-For quick development loops, use `-SkipBrowsers` or `-SkipContainers`; do not use those switches for the final pre-review run. Benchmarks remain available through `go test -bench=. -benchmem ./...`.
+### Project layout
 
-Build the path-compatible minified JavaScript artifact locally with `npm run minify:js`. The generated module tree, SHA-256/size manifest, and GitHub Actions artifact are written under `.quality-data/minified-js`; readable working-tree files are never overwritten. Docker and supply-chain release builds overlay that generated tree only inside their isolated build workspace before `go:embed` compilation.
+```text
+cmd/server/          Application entry point and health probe
+db/migrations/       PostgreSQL schema migrations
+internal/auth/       Password, TOTP, recovery, sessions, and user access
+internal/config/     Environment and flag parsing
+internal/handler/    HTTP API, middleware, static delivery, and authorization
+internal/model/      Topology domain, validation, STP, tracing, and analysis
+internal/store/      PostgreSQL persistence and revision transactions
+internal/sse/        Per-topology event broker
+web/static/          Embedded browser application
+web/*_test.mjs       Frontend unit and contract tests
+e2e/                 Playwright, accessibility, and visual tests
+scripts/             CI mirror, minification, and mutation helpers
+```
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Keep changes focused, add tests for behavioral changes, and call out persistence or API compatibility effects.
+
+Security issues should be reported privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+WireDraft is available under the [MIT License](LICENSE).
