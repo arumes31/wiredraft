@@ -184,6 +184,8 @@ jobs:
           & $psql --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE wiredraft OWNER wiredraft"
           $env:PGPASSWORD = "wiredraft-playwright"
           & $psql --host 127.0.0.1 --username wiredraft --dbname wiredraft --set ON_ERROR_STOP=1 --file db/migrations/0001_initial.sql
+      - name: Install Playwright media runtime
+        run: npx playwright install ffmpeg
       - name: Run Edge tests
         run: npm run test:edge
 
