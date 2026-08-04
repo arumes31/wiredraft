@@ -42,8 +42,12 @@ assert.deepEqual(plan.links.map((link) => [link.sourcePortId, link.targetPortId]
   ["panel-a-port-10", "panel-b-port-4"],
 ]);
 assert.ok(plan.links.every((link) => link.sourceSide === "rear" && link.targetSide === "rear" && isRearPanelLink(link)));
-assert.ok(RearPanelLinkVisual.strokeWidth < 2 && RearPanelLinkVisual.opacity < .5,
-  "rear panel maps must remain a thin, subordinate infrastructure layer");
+assert.ok(RearPanelLinkVisual.strokeWidth < 2 && RearPanelLinkVisual.opacity >= .7 && RearPanelLinkVisual.opacity <= .8,
+  "rear panel maps must remain thin while meeting the 70–80% structured-wiring opacity range");
+assert.deepEqual(RearPanelLinkVisual.dash, [6, 4], "backend links must use the dedicated 6/4 dash signature");
+assert.equal(isRearPanelLink({ sourceSide: "rear", targetSide: "front" }), true,
+  "a run with either endpoint on the rear plane is backend infrastructure");
+assert.equal(isRearPanelLink({ sourceSide: "front", targetSide: "front" }), false);
 
 const frontCableDoesNotBlockRear = planPatchPanelMapping({
   devices: [source, target],

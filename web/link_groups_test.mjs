@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./static/js/link-groups.js";
+import { linkGroupPortBadges } from "./static/js/link-group-display.js";
 
 const links = ["a", "b", "c", "d"].map((id) => ({ id }));
 
@@ -43,5 +44,20 @@ const changedToLACP = planLinkGroup({
   linkGroups: [{ id: "g3", name: "WAN FAILOVER", mode: "Failover", linkIds: ["a", "b"], primaryLinkId: "a", notes: "" }],
 }, "a", "b", { mode: "LACP", name: "WAN LACP", primaryLinkId: "a", notes: "" });
 assert.equal(changedToLACP.group.primaryLinkId, "");
+
+const failoverBadges = linkGroupPortBadges({
+  links: [
+    { id: "primary", sourcePortId: "a-wan1", targetPortId: "isp-1" },
+    { id: "backup", sourcePortId: "a-wan2", targetPortId: "lte-1" },
+  ],
+  linkGroups: [{
+    id: "wan-failover", mode: "Failover", primaryLinkId: "primary", linkIds: ["primary", "backup"],
+  }],
+});
+assert.deepEqual([...failoverBadges.entries()].map(([portID, badge]) => [portID, badge.role]), [
+  ["a-wan1", "P"], ["isp-1", "P"], ["a-wan2", "B"], ["lte-1", "B"],
+], "P/B roles must be attached to both physical endpoint sockets");
+assert.equal(linkGroupPortBadges({ links, linkGroups: topology.linkGroups }).size, 0,
+  "LACP and MC-LAG groups must not create floating member dots or fake primary badges");
 
 console.log("link group planning checks passed");

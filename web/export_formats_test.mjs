@@ -84,11 +84,17 @@ const staticRackA = { id: "static-rack-a", name: "RACK A01", heightU: 4, color: 
 const staticRackB = { id: "static-rack-b", name: "RACK B01", heightU: 4, color: "#27575d" };
 const staticDeviceA = {
   id: "static-a", name: "CORE A", category: "Switch", model: "GENERIC", rackId: staticRackA.id,
-  faceplate: { vendor: "Generic", unitsU: 1 }, ports: [{ id: "static-a-mgmt", label: "MGMT", portIndex: 1, type: "RJ45_1G", group: "MGMT", speedMbps: 1000 }],
+  faceplate: { vendor: "Generic", unitsU: 1 }, ports: [
+    { id: "static-a-mgmt", label: "MGMT", portIndex: 1, type: "RJ45_1G", group: "MGMT", speedMbps: 1000 },
+    { id: "static-a-wan2", label: "WAN2", portIndex: 2, type: "RJ45_1G", group: "WAN", speedMbps: 1000 },
+  ],
 };
 const staticDeviceB = {
   id: "static-b", name: "CORE B", category: "Switch", model: "GENERIC", rackId: staticRackB.id,
-  faceplate: { vendor: "Generic", unitsU: 1 }, ports: [{ id: "static-b-23", label: "P23", portIndex: 23, type: "RJ45_1G", group: "DATA", speedMbps: 1000 }],
+  faceplate: { vendor: "Generic", unitsU: 1 }, ports: [
+    { id: "static-b-23", label: "P23", portIndex: 23, type: "RJ45_1G", group: "DATA", speedMbps: 1000 },
+    { id: "static-b-24", label: "P24", portIndex: 24, type: "RJ45_1G", group: "DATA", speedMbps: 1000 },
+  ],
 };
 const staticTopology = {
   name: "Static trace",
@@ -98,7 +104,10 @@ const staticTopology = {
 };
 const staticEngine = {
   worldBounds: () => ({ x: 0, y: 0, width: 1650, height: 500 }),
-  portCenters: () => new Map([["static-a-mgmt", { x: 650, y: 150 }], ["static-b-23", { x: 1000, y: 350 }]]),
+  portCenters: () => new Map([
+    ["static-a-mgmt", { x: 650, y: 145 }], ["static-a-wan2", { x: 620, y: 165 }],
+    ["static-b-23", { x: 1000, y: 345 }], ["static-b-24", { x: 1030, y: 365 }],
+  ]),
   rackRectangles: () => [
     { rack: staticRackA, x: 0, y: 0, width: 750, height: 464 },
     { rack: staticRackB, x: 900, y: 0, width: 750, height: 464 },
@@ -113,6 +122,42 @@ assert.match(staticSVG, /data-layer="cable-outline"[^]*stroke-width="6\.25"/, "s
 assert.match(staticSVG, /data-role="management"[^]*stroke-dasharray="4 4"/, "management paths need a non-color dash cue");
 assert.match(staticSVG, /data-layer="link-end-label" data-endpoint="source"[^]*➔ B01:P23/, "source badge must identify its remote rack and port");
 assert.match(staticSVG, /data-layer="link-end-label" data-endpoint="target"[^]*⇠ A01:MGMT/, "target badge must identify its remote rack and port");
+
+const failoverSVG = buildSVGDocument({
+  ...staticTopology,
+  links: [
+    staticTopology.links[0],
+    { ...staticTopology.links[0], id: "static-backup", sourcePortId: "static-a-wan2", targetPortId: "static-b-24" },
+  ],
+  linkGroups: [{
+    id: "static-failover", name: "WAN FAILOVER", mode: "Failover",
+    primaryLinkId: "static-link", linkIds: ["static-link", "static-backup"],
+  }],
+}, staticEngine);
+assert.match(failoverSVG, /data-layer="link-group-port-badge" data-role="P" data-link="static-link"/,
+  "static exports must render primary state directly on both endpoint sockets");
+assert.match(failoverSVG, /data-layer="link-group-port-badge" data-role="B" data-link="static-backup"/,
+  "static exports must render backup state directly on both endpoint sockets");
+assert.equal((failoverSVG.match(/data-layer="link-group-port-badge"/g) || []).length, 4,
+  "both endpoints of both failover members need an on-socket role badge");
+assert.match(failoverSVG, /data-layer="cable-outline"[^>]*stroke-width="4\.5"/,
+  "tight group members need compact outlined rails that remain distinct at a 5px track pitch");
+
+const layeredSVG = buildSVGDocument({
+  ...staticTopology,
+  links: [{
+    ...staticTopology.links[0],
+    id: "static-rear-map",
+    sourceSide: "rear",
+    targetSide: "rear",
+  }, ...staticTopology.links],
+}, staticEngine);
+const rearLayerIndex = layeredSVG.indexOf('data-layer="panel-rear-map"');
+const frontLayerIndex = layeredSVG.indexOf('data-layer="cable-outline"');
+assert.ok(rearLayerIndex >= 0 && frontLayerIndex > rearLayerIndex,
+  "SVG exports must paint backend structured wiring below every solid front cable");
+assert.match(layeredSVG, /data-layer="panel-rear-map"[^>]*stroke-dasharray="6 4"[^>]*opacity="0\.75"/,
+  "SVG backend runs must retain the shared 6/4 dash and 75-percent opacity");
 
 const configuredTopology = {
   name: "Vienna Core & Edge",

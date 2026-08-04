@@ -4,6 +4,7 @@ import {
 } from "./cabling.js";
 import { resolveFaceplateTemplate } from "./faceplate.js";
 import { linkVLANPalette, vlanBandPattern } from "./link-vlan-colors.js";
+import { linkGroupPortBadges } from "./link-group-display.js";
 import { layoutEndpointBadges, linkEndpointBadges } from "./link-end-labels.js";
 import { isRearPanelLink, RearPanelLinkVisual } from "./patch-panels.js";
 import { connectorKind, connectorSize, portDescriptionPlacement } from "./termination.js";
@@ -189,6 +190,7 @@ export function buildSVGDocument(topology, engine) {
     portBoxes,
     deviceBoxes: deviceBoxList,
     rackBoxes,
+    linkGroups: topology.linkGroups || [],
   });
   const portBoxMap = new Map(portBoxes.map((box) => [box.port.id, box]));
   const renderedPortLabels = [];
@@ -325,6 +327,17 @@ export function buildSVGDocument(topology, engine) {
       parts.push(`</g>`);
     }
   }
+  const groupPortBadges = linkGroupPortBadges(topology);
+  for (const [portID, badge] of groupPortBadges) {
+    const box = portGeometry.get(portID);
+    if (!box) continue;
+    const size = Math.max(6, Math.min(9, Math.min(box.width, box.height) - 4));
+    const x = box.x + box.width / 2 + offsetX;
+    const y = box.y + box.height / 2 + offsetY;
+    parts.push(`<g data-layer="link-group-port-badge" data-role="${badge.role}" data-link="${escapeXML(badge.linkId)}">`);
+    parts.push(`<rect x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}" rx="1.5" fill="#050d0f" fill-opacity=".96" stroke="${badge.color}" stroke-width="1.2"/>`);
+    parts.push(`<text x="${x}" y="${y + .4}" fill="${badge.color}" font-size="${Math.max(5, size - 3)}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${badge.role}</text></g>`);
+  }
   const endpointBadges = layoutEndpointBadges(renderedLinks.flatMap((entry) => entry.badges), {
     charWidth: 4.1, height: 11, padding: 5,
   });
@@ -410,7 +423,7 @@ function svgCableElements(entry) {
     ];
   }
   const dash = entry.dash?.length ? ` stroke-dasharray="${entry.dash.join(" ")}"` : "";
-  const roleWidth = 4.25;
+  const roleWidth = entry.route?.tightBundle ? 2.5 : 4.25;
   const elements = [
     `<path data-layer="cable-outline" data-route-kind="${entry.route?.routeKind || "orthogonal"}" data-bundle-index="${entry.route?.bundleIndex ?? 0}" d="${entry.path}" fill="none" stroke="#020505" stroke-width="${roleWidth + CABLE_OUTLINE_WIDTH * 2}" stroke-linecap="round" stroke-linejoin="round"/>`,
   ];

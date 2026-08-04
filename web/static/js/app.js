@@ -591,7 +591,7 @@ function renderLinkInspector(linkID) {
     <button type="button" class="link-member-row${member.selected ? " is-selected" : ""}" data-inspector-link-id="${escapeHTML(member.id)}" aria-pressed="${member.selected}">
       <span class="link-member-role">${escapeHTML(member.role)}${member.selected ? " · SELECTED" : ""}</span>
       <span class="link-member-endpoint" title="${escapeHTML(`${member.source.device} / ${member.source.port}`)}"><i>SOURCE</i><b>${escapeHTML(member.source.device)}</b><em>${escapeHTML(member.source.port)}</em></span>
-      <strong aria-hidden="true">↔</strong>
+      <strong aria-hidden="true">→</strong>
       <span class="link-member-endpoint" title="${escapeHTML(`${member.target.device} / ${member.target.port}`)}"><i>TARGET</i><b>${escapeHTML(member.target.device)}</b><em>${escapeHTML(member.target.port)}</em></span>
     </button>`).join("");
   const groupMarkup = group ? `
@@ -609,10 +609,10 @@ function renderLinkInspector(linkID) {
       ${members.map((member) => `<div class="link-configuration-target${member.selected ? " is-selected" : ""}">
         <span class="link-configuration-target-role">${escapeHTML(member.role)}${member.selected ? " · SELECTED" : ""}</span>
         <span title="${escapeHTML(`${member.source.device} / ${member.source.port}`)}"><i>SOURCE</i><b>${escapeHTML(member.source.device)}</b><em>${escapeHTML(member.source.port)}</em></span>
-        <strong aria-hidden="true">↔</strong>
+        <strong aria-hidden="true">→</strong>
         <span title="${escapeHTML(`${member.target.device} / ${member.target.port}`)}"><i>TARGET</i><b>${escapeHTML(member.target.device)}</b><em>${escapeHTML(member.target.port)}</em></span>
       </div>`).join("")}
-    </section>` : `<div class="link-endpoints"><span><i>SOURCE</i><b>${escapeHTML(source?.device.name || "Unknown")}</b><em>${escapeHTML(source?.port.label || "—")}</em></span><strong>↔</strong><span><i>TARGET</i><b>${escapeHTML(target?.device.name || "Unknown")}</b><em>${escapeHTML(target?.port.label || "—")}</em></span></div>`;
+    </section>` : `<div class="link-endpoints"><span><i>SOURCE</i><b>${escapeHTML(source?.device.name || "Unknown")}</b><em>${escapeHTML(source?.port.label || "—")}</em></span><strong>→</strong><span><i>TARGET</i><b>${escapeHTML(target?.device.name || "Unknown")}</b><em>${escapeHTML(target?.port.label || "—")}</em></span></div>`;
   const syncTitle = group ? "ATOMIC LINK-GROUP SYNC" : "ATOMIC PORT SYNC";
   const syncDescription = group
     ? `All ${configurationLinks.length} cables and every physical endpoint interface in this saved group are validated and saved together.`
@@ -634,6 +634,7 @@ function renderLinkInspector(linkID) {
       <p class="link-sync-note"><b>${syncTitle}</b>${syncDescription}</p>
       <button class="primary">${applyLabel}</button>
     </form>
+    <div class="inspector-actions"><button id="reverse-link-direction" type="button" class="secondary" aria-label="Reverse link direction by swapping source and target">REVERSE LINK DIRECTION</button></div>
     ${group ? `<div class="inspector-actions"><button id="edit-link-group" class="secondary">EDIT GROUP</button><button id="leave-link-group" class="danger">REMOVE FROM GROUP</button></div>` : ""}
     <div class="inspector-actions"><button id="focus-link" class="secondary">FOCUS PATH</button><button id="delete-link" class="danger">UNPATCH</button></div>`;
   const form = document.getElementById("link-configuration-form");
@@ -658,6 +659,9 @@ function renderLinkInspector(linkID) {
       : "Cable and endpoint VLANs synchronized";
     await updateFrom(() => api.configureLink(state.topology.id, link.id, next), true, successMessage);
   });
+  document.getElementById("reverse-link-direction").addEventListener("click", () => {
+    updateFrom(() => api.setLinkDirection(state.topology.id, link.id, link.targetPortId), true, "Link source and target swapped");
+  });
   document.getElementById("focus-link").addEventListener("click", () => state.setTrace([link.id]));
   document.getElementById("delete-link").addEventListener("click", () => deleteLink(link));
   document.querySelectorAll("[data-inspector-link-id]").forEach((button) => {
@@ -678,10 +682,14 @@ function renderRearPanelLinkInspector(link, source, target) {
     <div class="metric-grid"><span>SOURCE BACKPORT<b>${escapeHTML(source?.port.label || "—")}</b></span><span>TARGET BACKPORT<b>${escapeHTML(target?.port.label || "—")}</b></span><span>TERMINATION<b>REAR</b></span><span>FRONT JACKS<b>AVAILABLE SEPARATELY</b></span></div>
     <section class="rear-map-inspector">
       <header><span>PERMANENT LINK</span><b>FRONT JACKS REMAIN CABLEABLE</b></header>
-      <div><span><i>REAR</i><b>${escapeHTML(source?.device.name || "Unknown panel")}</b><em>${escapeHTML(source?.port.label || "—")}</em></span><strong>↔</strong><span><i>REAR</i><b>${escapeHTML(target?.device.name || "Unknown panel")}</b><em>${escapeHTML(target?.port.label || "—")}</em></span></div>
+      <div><span><i>SOURCE · REAR</i><b>${escapeHTML(source?.device.name || "Unknown panel")}</b><em>${escapeHTML(source?.port.label || "—")}</em></span><strong>→</strong><span><i>TARGET · REAR</i><b>${escapeHTML(target?.device.name || "Unknown panel")}</b><em>${escapeHTML(target?.port.label || "—")}</em></span></div>
       <p>${escapeHTML(link.notes || "Panel backports are mapped one-to-one.")}</p>
     </section>
+    <div class="inspector-actions"><button id="reverse-link-direction" type="button" class="secondary" aria-label="Reverse rear link direction by swapping source and target">REVERSE LINK DIRECTION</button></div>
     <div class="inspector-actions"><button id="focus-link" class="secondary">FOCUS REAR RUN</button><button id="delete-link" class="danger">REMOVE REAR MAP</button></div>`;
+  document.getElementById("reverse-link-direction").addEventListener("click", () => {
+    updateFrom(() => api.setLinkDirection(state.topology.id, link.id, link.targetPortId), true, "Rear link source and target swapped");
+  });
   document.getElementById("focus-link").addEventListener("click", () => state.setTrace([link.id]));
   document.getElementById("delete-link").addEventListener("click", () => deleteLink(link));
 }

@@ -5,7 +5,7 @@ import {
 import { EmptyCanvasAction, emptyCanvasAction } from "./canvas-interactions.js";
 import { commentPreviewLines } from "./collaboration.js";
 import { resolveFaceplateTemplate } from "./faceplate.js";
-import { groupAccent, peerLinkIDs, summarizeLinkGroup } from "./link-group-display.js";
+import { groupAccent, linkGroupPortBadges, peerLinkIDs, summarizeLinkGroup } from "./link-group-display.js";
 import { linkVLANPalette, vlanBandPattern } from "./link-vlan-colors.js";
 import { layoutEndpointBadges, linkEndpointBadges } from "./link-end-labels.js";
 import { isPortSideOccupied, isRearPanelLink, LinkEndpointSide, RearPanelLinkVisual } from "./patch-panels.js";
@@ -28,6 +28,21 @@ const UNIT_HEIGHT = 100;
 const GRID = 10;
 const QUALITY_FALLBACK = resolveGraphicsProfile(GraphicsMode.QUALITY, null);
 
+export function cableHoverAlphaFactor({ rearIsolation, rearMapping, hasHoverFocus, hoverFocused }) {
+  if (rearIsolation) return rearMapping ? 1 : .1;
+  return hasHoverFocus && !hoverFocused ? .2 : 1;
+}
+
+export function hoverNeedsAnimation({ hoveredLink, hoveredPort, hoveredDevice } = {}) {
+  return Boolean(hoveredLink || hoveredPort) && !hoveredDevice;
+}
+
+export function deviceHoverFrameInterval(profile, hoveredDevice) {
+  if (!hoveredDevice) return 0;
+  const profileFPS = Number(profile?.maxFPS) > 0 ? Number(profile.maxFPS) : 30;
+  return 1000 / Math.min(30, profileFPS);
+}
+
 export class CanvasEngine {
   constructor(canvas, state, callbacks = {}, options = {}) {
     this.canvas = canvas;
@@ -40,6 +55,17 @@ export class CanvasEngine {
     this.rackTiles = new SceneTileIndex();
     this.deviceTiles = new SceneTileIndex();
     this.portBoxes = [];
+    this.deviceBoxByID = new Map();
+    this.portBoxByID = new Map();
+    this.portBoxesByDevice = new Map();
+    this.linkIDsByPort = new Map();
+    this.linkIDsByDevice = new Map();
+    this.linksByPort = new Map();
+    this.linksByDevice = new Map();
+    this.groupByLink = new Map();
+    this.groupLinkIDsByLink = new Map();
+    this.vlanByID = new Map();
+    this.orderedLinks = [];
     this.linkCurves = [];
     this.routeCache = new Map();
     this.trackPlanCache = null;
@@ -158,17 +184,22 @@ export class CanvasEngine {
     const topology = this.state.topology;
     const animationActive = graphicsAnimationActive(profile, {
       hasLinks: Boolean(topology?.links?.length),
-      hasFocus: Boolean(this.hoveredLink || this.hoveredPort || this.hoveredDevice || this.state.selection?.type === "link" || this.state.traceLinkIDs?.size),
+      hasFocus: Boolean(hoverNeedsAnimation(this) || this.state.selection?.type === "link" || this.state.traceLinkIDs?.size),
       isInteracting: Boolean(this.draft || this.linkDrag?.active || this.drag || this.rackDrag || this.pan || this.selectionBox),
     });
     const frameInterval = profile.maxFPS > 0 ? 1000 / profile.maxFPS : Infinity;
-    const due = this.needsRender || (animationActive && time - this.lastRenderTime >= frameInterval);
+    const deviceHoverInterval = deviceHoverFrameInterval(profile, this.hoveredDevice);
+    const elapsed = time - this.lastRenderTime;
+    const invalidationDue = this.needsRender && (!deviceHoverInterval || elapsed >= deviceHoverInterval);
+    const animationInterval = deviceHoverInterval ? Math.max(deviceHoverInterval, Number.isFinite(frameInterval) ? frameInterval : 0) : frameInterval;
+    const animationDue = animationActive && elapsed >= animationInterval;
+    const due = invalidationDue || animationDue;
     if (due && this.isDocumentVisible && this.isCanvasVisible) {
       this.renderFrame(this.ctx, this.width, this.height, this.camera, time, true, profile);
       this.needsRender = false;
       this.lastRenderTime = time;
     }
-    if (animationActive && this.isDocumentVisible && this.isCanvasVisible) {
+    if ((animationActive || (this.needsRender && !invalidationDue)) && this.isDocumentVisible && this.isCanvasVisible) {
       this.frame = requestAnimationFrame(this.loop);
     }
   }
@@ -375,6 +406,17 @@ export class CanvasEngine {
     this.rackTiles.clear();
     this.deviceTiles.clear();
     this.portBoxes = [];
+    this.deviceBoxByID = new Map();
+    this.portBoxByID = new Map();
+    this.portBoxesByDevice = new Map();
+    this.linkIDsByPort = new Map();
+    this.linkIDsByDevice = new Map();
+    this.linksByPort = new Map();
+    this.linksByDevice = new Map();
+    this.groupByLink = new Map();
+    this.groupLinkIDsByLink = new Map();
+    this.vlanByID = new Map();
+    this.orderedLinks = [];
     const topology = this.state.topology;
     if (!topology) {
       this.sceneDirty = false;
@@ -396,7 +438,9 @@ export class CanvasEngine {
       };
       const deviceBox = { device, rack, x: position.x, y: position.y, width: DEVICE_WIDTH, height };
       this.deviceBoxes.push(deviceBox);
+      this.deviceBoxByID.set(device.id, deviceBox);
       this.deviceTiles.insert(deviceBox);
+      const devicePortBoxes = [];
       const rows = Math.max(1, Math.min(4, device.faceplate.rows || 1));
       const columns = Math.ceil(device.ports.length / rows);
       const startX = position.x + 170;
@@ -413,15 +457,44 @@ export class CanvasEngine {
 		const centerX = hasFaceplatePosition ? position.x + port.faceplateX * DEVICE_WIDTH : baseX + column * stepX;
 		const centerY = hasFaceplatePosition ? position.y + port.faceplateY * height : baseY + row * stepY;
         const connector = connectorSize(port.type);
-        this.portBoxes.push({
+        const portBox = {
           port, device,
           x: centerX - connector.width / 2,
           y: centerY - connector.height / 2,
           width: connector.width,
           height: connector.height,
           centerX, centerY,
-        });
+        };
+        this.portBoxes.push(portBox);
+        devicePortBoxes.push(portBox);
+        this.portBoxByID.set(port.id, portBox);
       });
+      this.portBoxesByDevice.set(device.id, devicePortBoxes);
+    }
+    this.vlanByID = new Map((topology.vlans || []).map((vlan) => [vlan.id, vlan]));
+    const liveLinkIDs = new Set((topology.links || []).map((link) => link.id));
+    for (const group of topology.linkGroups || []) {
+      const memberLinkIDs = new Set((group.linkIds || []).filter((linkID) => liveLinkIDs.has(linkID)));
+      for (const linkID of memberLinkIDs) {
+        this.groupByLink.set(linkID, group);
+        this.groupLinkIDsByLink.set(linkID, memberLinkIDs);
+      }
+    }
+    this.orderedLinks = orderedCableLinks(topology);
+    for (const link of topology.links || []) {
+      const source = this.portBoxByID.get(link.sourcePortId);
+      const target = this.portBoxByID.get(link.targetPortId);
+      for (const portID of new Set([link.sourcePortId, link.targetPortId])) {
+        addMapSetValue(this.linkIDsByPort, portID, link.id);
+        addMapArrayValue(this.linksByPort, portID, link);
+      }
+      for (const deviceID of new Set([
+        link.sourceDeviceId || source?.device.id,
+        link.targetDeviceId || target?.device.id,
+      ].filter(Boolean))) {
+        addMapSetValue(this.linkIDsByDevice, deviceID, link.id);
+        addMapArrayValue(this.linksByDevice, deviceID, link);
+      }
     }
     this.sceneDirty = false;
     this.sceneRevision += 1;
@@ -538,13 +611,17 @@ export class CanvasEngine {
   }
 
   cableTrackPlan(orderedLinks = orderedCableLinks(this.state.topology)) {
-    const planKey = `${this.sceneRevision}|${orderedLinks.map((link) => `${link.id}:${link.sourcePortId}:${link.targetPortId}`).join("|")}`;
+    const groupSignature = (this.state.topology?.linkGroups || []).map((group) =>
+      `${group.id}:${group.mode}:${group.linkIds.join(",")}:${group.primaryLinkId || ""}`).join("|");
+    const planKey = `${this.sceneRevision}|${orderedLinks.map((link) =>
+      `${link.id}:${link.sourcePortId}:${link.sourceSide || "front"}:${link.targetPortId}:${link.targetSide || "front"}`).join("|")}|${groupSignature}`;
     if (this.trackPlanCache?.key === planKey) return this.trackPlanCache;
     const baseTracks = assignCableTracks({
       links: orderedLinks,
       portBoxes: this.portBoxes,
       deviceBoxes: this.deviceBoxes,
       rackBoxes: this.rackBoxes,
+      linkGroups: this.state.topology?.linkGroups || [],
     });
     const planned = orderedLinks.map((link) => ({ link, route: baseTracks.get(link.id) })).filter(({ route }) => route);
     const bridgedRoutes = routesWithCrossingBridges(planned.map(({ route }) => route));
@@ -556,12 +633,10 @@ export class CanvasEngine {
   drawLinks(ctx, time, showAllLabels = false, showInteractionHighlights = true) {
     const topology = this.state.topology;
     if (!topology) return;
-    const portMap = new Map(this.portBoxes.map((box) => [box.port.id, box]));
-    const vlanMap = new Map(topology.vlans.map((vlan) => [vlan.id, vlan]));
-    const groupByLink = new Map();
-    for (const group of topology.linkGroups || []) {
-      for (const linkID of group.linkIds) groupByLink.set(linkID, group);
-    }
+    const portMap = this.portBoxByID || new Map(this.portBoxes.map((box) => [box.port.id, box]));
+    const vlanMap = this.vlanByID || new Map((topology.vlans || []).map((vlan) => [vlan.id, vlan]));
+    const groupByLink = this.groupByLink || new Map((topology.linkGroups || []).flatMap((group) =>
+      (group.linkIds || []).map((linkID) => [linkID, group])));
     const selectedLinkID = this.state.selection?.type === "link" ? this.state.selection.id : "";
     const selectedPeerLinkIDs = peerLinkIDs(topology, selectedLinkID);
     const selectedGroup = groupByLink.get(selectedLinkID);
@@ -575,10 +650,12 @@ export class CanvasEngine {
     }
     const profile = this.activeGraphicsProfile || QUALITY_FALLBACK;
     const activeLinkIDs = new Set();
-    const orderedLinks = orderedCableLinks(topology);
+    const orderedLinks = this.orderedLinks || orderedCableLinks(topology);
     const trackPlan = this.cableTrackPlan(orderedLinks);
     const hoverFocusLinkIDs = showInteractionHighlights ? this.hoverFocusLinkIDs(topology) : new Set();
     const hasHoverFocus = hoverFocusLinkIDs.size > 0;
+    const rearHoverIsolation = showInteractionHighlights && this.rearHoverIsolationActive(topology);
+    const deviceHover = Boolean(this.hoveredDevice?.device.id);
     this.linkCurves = [];
     for (const link of orderedLinks) {
       const source = portMap.get(link.sourcePortId);
@@ -599,7 +676,8 @@ export class CanvasEngine {
       const selectedPeer = selectedPeerLinkIDs.has(link.id);
       const traced = this.state.traceLinkIDs.has(link.id);
       const rearMapping = isRearPanelLink(link);
-      const thickness = rearMapping ? RearPanelLinkVisual.strokeWidth : speedThickness;
+      const thickness = rearMapping ? RearPanelLinkVisual.strokeWidth :
+        baseCurve.tightBundle ? Math.min(speedThickness, 1.5) : speedThickness;
       const vlanPalette = linkVLANPalette(topology, link);
       const role = cableRole(link, source, target, { crossRack: baseCurve.crossRack, group });
       const dash = cableDashPattern(link, source, target, { group, role });
@@ -607,15 +685,24 @@ export class CanvasEngine {
       const failoverRole = group?.mode === "Failover" ? (group.primaryLinkId === link.id ? "primary" : "backup") : "";
       const baseCableAlpha = rearMapping ? RearPanelLinkVisual.opacity : failoverRole === "backup" ? .72 : .96;
       const hoverFocused = hoverFocusLinkIDs.has(link.id);
-      const cableAlpha = baseCableAlpha * (hasHoverFocus && !hoverFocused ? .2 : 1);
+      const effectiveHoverFocus = hoverFocused && !(rearHoverIsolation && !rearMapping);
+      const hoverAlphaFactor = cableHoverAlphaFactor({
+        rearIsolation: rearHoverIsolation,
+        rearMapping,
+        hasHoverFocus,
+        hoverFocused,
+      });
+      const cableAlpha = baseCableAlpha * hoverAlphaFactor;
       const groupTarget = this.linkDrag?.targetLinkID === link.id;
-      const focused = selected || selectedPeer || traced || groupTarget || hoverFocused;
+      const detailedHoverFocus = effectiveHoverFocus && !deviceHover;
+      const focused = selected || selectedPeer || traced || groupTarget || detailedHoverFocus;
       const animateEffect = graphicsEffectActive(profile, focused);
       const effectTime = animateEffect ? time : 0;
-      this.linkCurves.push({
+      const entry = {
         link, curve, baseCurve, source, target, thickness, selected, selectedPeer, traced, primaryColor, group,
-        vlanPalette, cableAlpha, rearMapping, role, dash, hoverFocused, warning: warnings.has(link.id),
-      });
+        vlanPalette, cableAlpha, rearMapping, role, dash, hoverFocused: detailedHoverFocus, warning: warnings.has(link.id),
+      };
+      this.linkCurves.push(entry);
       if (groupTarget) {
         this.strokeCurve(ctx, curve, "#f0b35a", thickness + 13, .28);
         this.strokeCurve(ctx, curve, "#ffe0a7", thickness + 5, .9);
@@ -632,6 +719,7 @@ export class CanvasEngine {
       if (rearMapping) {
         this.strokeCurve(ctx, curve, "#020607", RearPanelLinkVisual.casingWidth, Math.min(cableAlpha, RearPanelLinkVisual.casingOpacity));
         this.strokeCurve(ctx, curve, primaryColor, thickness, cableAlpha, { dash: RearPanelLinkVisual.dash, lineCap: "butt" });
+        if (detailedHoverFocus) this.drawHoveredLinkHighlightEntry(ctx, time, entry);
       } else {
         const roleWidth = thickness + 1.25;
         this.strokeCurve(ctx, curve, "#020607", roleWidth + CABLE_OUTLINE_WIDTH * 2, cableAlpha);
@@ -639,18 +727,19 @@ export class CanvasEngine {
         this.drawVLANColors(ctx, curve, vlanPalette, Math.max(1.5, thickness - .5), effectTime, cableAlpha, dash);
         if (profile.pulses === "all" || (profile.pulses === "focused" && focused)) this.drawPulse(ctx, curve, effectTime, primaryColor);
       }
-      if (warnings.has(link.id)) this.drawWarning(ctx, pointOnRoute(curve, .57), hasHoverFocus && !hoverFocused ? .2 : 1);
+      if (warnings.has(link.id)) this.drawWarning(ctx, pointOnRoute(curve, .57), hoverAlphaFactor);
     }
     this.drawBridgeJumpers(ctx, time, profile);
     for (const linkID of this.routeCache.keys()) if (!activeLinkIDs.has(linkID)) this.routeCache.delete(linkID);
-    if (showInteractionHighlights) this.drawHoveredLinkHighlight(ctx, time);
-    this.drawLinkGroupGuides(ctx, topology);
+    if (showInteractionHighlights) this.drawHoveredLinkHighlight(ctx, time, hoverFocusLinkIDs);
+    this.drawLinkGroupPortBadges(ctx, topology);
     this.drawCableLabels(ctx, topology, vlanMap, showAllLabels);
     if (showAllLabels) this.drawExportEndpointLabels(ctx, topology);
   }
 
   drawBridgeJumpers(ctx, time, profile = this.activeGraphicsProfile || QUALITY_FALLBACK) {
     for (const upperEntry of this.linkCurves) {
+      if (upperEntry.rearMapping) continue;
       for (const bridge of upperEntry.curve.bridges || []) {
         const underEntry = this.linkCurves[bridge.underRouteIndex];
         if (!underEntry || underEntry === upperEntry) continue;
@@ -695,36 +784,62 @@ export class CanvasEngine {
     }
   }
 
-  drawHoveredLinkHighlight(ctx, time) {
-    const focusedIDs = this.hoverFocusLinkIDs();
+  drawHoveredLinkHighlight(ctx, time, focusedIDs = this.hoverFocusLinkIDs()) {
     if (!focusedIDs.size) return;
-    const profile = this.activeGraphicsProfile || QUALITY_FALLBACK;
-    const effectTime = graphicsEffectActive(profile, true) ? time : 0;
-    for (const entry of this.linkCurves.filter((candidate) => focusedIDs.has(candidate.link.id))) {
-      const focusColor = entry.rearMapping ? entry.primaryColor : entry.role?.color || "#7affee";
-      this.strokeCurve(ctx, entry.curve, focusColor, entry.thickness + 12, .12, { glow: true });
-      this.strokeCurve(ctx, entry.curve, focusColor, entry.thickness + 6, .58, { glow: true });
-      this.strokeCurve(ctx, entry.curve, "#020607", entry.thickness + 3, .96);
-      if (entry.rearMapping) {
-        this.strokeCurve(ctx, entry.curve, entry.primaryColor, entry.thickness + .75, 1, { dash: RearPanelLinkVisual.dash, lineCap: "butt" });
-      } else {
-        this.strokeCurve(ctx, entry.curve, entry.role?.color || entry.primaryColor, entry.thickness + 1.4, .88);
-        this.drawVLANColors(ctx, entry.curve, entry.vlanPalette, entry.thickness + .25, effectTime, 1, entry.dash);
-      }
-      if (entry.warning) this.drawWarning(ctx, pointOnRoute(entry.curve, .57));
+    if (this.hoveredDevice?.device.id) return;
+    if (this.rearHoverIsolationActive()) return;
+    for (const entry of this.linkCurves.filter((candidate) => focusedIDs.has(candidate.link.id) && !candidate.rearMapping)) {
+      this.drawHoveredLinkHighlightEntry(ctx, time, entry);
     }
   }
 
+  drawHoveredLinkHighlightEntry(ctx, time, entry) {
+    const profile = this.activeGraphicsProfile || QUALITY_FALLBACK;
+    const effectTime = graphicsEffectActive(profile, true) ? time : 0;
+    const focusColor = entry.rearMapping ? entry.primaryColor : entry.role?.color || "#7affee";
+    this.strokeCurve(ctx, entry.curve, focusColor, entry.thickness + 12, .12, { glow: true });
+    this.strokeCurve(ctx, entry.curve, focusColor, entry.thickness + 6, .58, { glow: true });
+    this.strokeCurve(ctx, entry.curve, "#020607", entry.thickness + 3, .96);
+    if (entry.rearMapping) {
+      this.strokeCurve(ctx, entry.curve, entry.primaryColor, entry.thickness + .75, 1, { dash: RearPanelLinkVisual.dash, lineCap: "butt" });
+    } else {
+      this.strokeCurve(ctx, entry.curve, entry.role?.color || entry.primaryColor, entry.thickness + 1.4, .88);
+      this.drawVLANColors(ctx, entry.curve, entry.vlanPalette, entry.thickness + .25, effectTime, 1, entry.dash);
+    }
+    if (entry.warning) this.drawWarning(ctx, pointOnRoute(entry.curve, .57));
+  }
+
+  rearHoverIsolationActive(topology = this.state?.topology) {
+    if (this.hoveredLink?.link && isRearPanelLink(this.hoveredLink.link)) return true;
+    const hoveredDevice = this.hoveredPort?.device || this.hoveredDevice?.device;
+    if (hoveredDevice?.category === "PatchPanel") return true;
+    if (!hoveredDevice?.id || !topology) return false;
+    return topology.devices?.some((device) => device.id === hoveredDevice.id && device.category === "PatchPanel") || false;
+  }
+
   hoverFocusLinkIDs(topology = this.state?.topology) {
-    if (this.hoveredLink?.link.id) return new Set([this.hoveredLink.link.id]);
+    if (this.hoveredLink?.link.id) {
+      const linkID = this.hoveredLink.link.id;
+      const indexedMembers = this.groupLinkIDsByLink?.get(linkID);
+      if (indexedMembers) return indexedMembers;
+      if (!topology) return new Set([linkID]);
+      const group = (topology.linkGroups || []).find((candidate) => candidate.linkIds?.includes(linkID));
+      if (!group) return new Set([linkID]);
+      const liveLinkIDs = new Set((topology.links || []).map((link) => link.id));
+      const memberLinkIDs = new Set((group.linkIds || []).filter((memberID) => liveLinkIDs.has(memberID)));
+      return memberLinkIDs.size ? memberLinkIDs : new Set([linkID]);
+    }
     if (!topology) return new Set();
     if (this.hoveredPort?.port.id) {
+      const indexed = this.linkIDsByPort?.get(this.hoveredPort.port.id);
+      if (indexed) return indexed;
       const portID = this.hoveredPort.port.id;
-      return new Set((topology.links || []).filter((link) =>
-        link.sourcePortId === portID || link.targetPortId === portID).map((link) => link.id));
+      return new Set((topology.links || []).filter((link) => link.sourcePortId === portID || link.targetPortId === portID).map((link) => link.id));
     }
     if (this.hoveredDevice?.device.id) {
       const deviceID = this.hoveredDevice.device.id;
+      const indexed = this.linkIDsByDevice?.get(deviceID);
+      if (indexed) return indexed;
       const portIDs = new Set(topology.devices.find((device) => device.id === deviceID)?.ports.map((port) => port.id) || []);
       return new Set((topology.links || []).filter((link) =>
         portIDs.has(link.sourcePortId) || portIDs.has(link.targetPortId)).map((link) => link.id));
@@ -816,39 +931,29 @@ export class CanvasEngine {
     }
   }
 
-  drawLinkGroupGuides(ctx, topology) {
-    for (const group of topology.linkGroups || []) {
-      const entries = this.linkCurves.filter((entry) => group.linkIds.includes(entry.link.id));
-      if (entries.length < 2) continue;
-      const points = entries.map((entry) => ({ entry, point: pointOnRoute(entry.curve, .5) }));
-      const xs = points.map(({ point }) => point.x);
-      const ys = points.map(({ point }) => point.y);
-      const spreadX = Math.max(...xs) - Math.min(...xs);
-      const spreadY = Math.max(...ys) - Math.min(...ys);
-      const accent = groupAccent(group.mode);
-      if (Math.hypot(spreadX, spreadY) <= 220) {
-        points.sort((left, right) => spreadX > spreadY ? left.point.x - right.point.x : left.point.y - right.point.y);
-        ctx.save();
-        ctx.strokeStyle = accent; ctx.globalAlpha = .72; ctx.lineWidth = 1.4; ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(points[0].point.x, points[0].point.y);
-        for (const { point } of points.slice(1)) ctx.lineTo(point.x, point.y);
-        ctx.stroke(); ctx.restore();
-      }
-      points.forEach(({ entry, point }) => this.drawGroupMemberMarker(ctx, group, entry.link, point, accent));
+  drawLinkGroupPortBadges(ctx, topology) {
+    const badges = linkGroupPortBadges(topology);
+    for (const box of this.portBoxes) {
+      const badge = badges.get(box.port.id);
+      if (!badge) continue;
+      const size = Math.max(6, Math.min(9, Math.min(box.width, box.height) - 4));
+      const x = box.centerX - size / 2;
+      const y = box.centerY - size / 2;
+      ctx.save();
+      ctx.fillStyle = "rgba(5, 13, 15, .96)";
+      ctx.strokeStyle = badge.color;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.roundRect(x, y, size, size, 1.5);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = badge.color;
+      ctx.font = `700 ${Math.max(5, size - 3)}px Bahnschrift Condensed, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(badge.role, box.centerX, box.centerY + .4);
+      ctx.restore();
     }
-  }
-
-  drawGroupMemberMarker(ctx, group, link, point, accent) {
-    const failoverRole = group.mode === "Failover" ? (group.primaryLinkId === link.id ? "P" : "B") : "";
-    const color = failoverRole === "P" ? "#42d9c8" : failoverRole === "B" ? "#f0b35a" : accent;
-    ctx.save();
-    ctx.fillStyle = "#091012"; ctx.strokeStyle = color; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(point.x, point.y, failoverRole ? 5.5 : 3.8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    if (failoverRole) {
-      ctx.fillStyle = color; ctx.font = "700 6px Bahnschrift Condensed, sans-serif";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(failoverRole, point.x, point.y + .5);
-    }
-    ctx.restore();
   }
 
   drawCableLabels(ctx, topology, vlanMap, showAllLabels = false) {
@@ -902,7 +1007,6 @@ export class CanvasEngine {
       ctx.save();
       ctx.strokeStyle = label.accent; ctx.globalAlpha = .55; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(label.anchor.x, label.anchor.y); ctx.lineTo(edge.x, edge.y); ctx.stroke();
-      ctx.fillStyle = label.accent; ctx.beginPath(); ctx.arc(label.anchor.x, label.anchor.y, 2, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
     ctx.save();
@@ -944,7 +1048,7 @@ export class CanvasEngine {
   }
 
   drawDevice(ctx, device, time) {
-    const box = this.deviceBoxes.find((candidate) => candidate.device.id === device.id);
+    const box = this.deviceBoxByID?.get(device.id) || this.deviceBoxes.find((candidate) => candidate.device.id === device.id);
     if (!box) return;
     const selected = this.state.selection?.type === "device" && this.state.selection.id === device.id;
     const multiSelected = this.selectedDevices.has(device.id);
@@ -977,7 +1081,7 @@ export class CanvasEngine {
     this.drawRackEars(ctx, box);
     this.drawDeviceIdentity(ctx, device, box, template);
     this.drawFaceplateDetails(ctx, device, box, template);
-    for (const portBox of this.portBoxes.filter((candidate) => candidate.device.id === device.id)) {
+    for (const portBox of this.portBoxesByDevice?.get(device.id) || this.portBoxes.filter((candidate) => candidate.device.id === device.id)) {
       this.drawPort(ctx, portBox);
     }
     if (system) this.drawSwitchSystemBadge(ctx, box, system, device.id);
@@ -1036,7 +1140,7 @@ export class CanvasEngine {
 
 
   drawFaceplateDetails(ctx, device, box, template) {
-    const ports = this.portBoxes.filter((candidate) => candidate.device.id === device.id);
+    const ports = this.portBoxesByDevice?.get(device.id) || this.portBoxes.filter((candidate) => candidate.device.id === device.id);
     const minPortX = ports.length ? Math.min(...ports.map((port) => port.x)) : box.x + 330;
     const maxPortX = ports.length ? Math.max(...ports.map((port) => port.x + port.width)) : box.x + 520;
     const top = box.y + 10;
@@ -1296,7 +1400,7 @@ export class CanvasEngine {
 
   drawPortDescriptions(ctx) {
     for (const box of this.portBoxes) {
-      const deviceBox = this.deviceBoxes.find((candidate) => candidate.device.id === box.device.id);
+      const deviceBox = this.deviceBoxByID?.get(box.device.id) || this.deviceBoxes.find((candidate) => candidate.device.id === box.device.id);
       if (!deviceBox) continue;
       const template = resolveFaceplateTemplate(box.device);
       const placement = portDescriptionPlacement(box, deviceBox);
@@ -1353,10 +1457,12 @@ export class CanvasEngine {
     if (this.hoveredPort) {
       const box = this.hoveredPort;
       const port = box.port;
-      const frontConnection = topology.links.find((link) =>
+      const attachedLinks = this.linksByPort?.get(port.id) || topology.links.filter((link) =>
+        link.sourcePortId === port.id || link.targetPortId === port.id);
+      const frontConnection = attachedLinks.find((link) =>
         (link.sourcePortId === port.id && (link.sourceSide || "front") === "front") ||
         (link.targetPortId === port.id && (link.targetSide || "front") === "front"));
-      const rearConnection = topology.links.find((link) =>
+      const rearConnection = attachedLinks.find((link) =>
         (link.sourcePortId === port.id && link.sourceSide === "rear") ||
         (link.targetPortId === port.id && link.targetSide === "rear"));
       let endpoint = "FRONT · UNPATCHED";
@@ -1412,9 +1518,10 @@ export class CanvasEngine {
       appendComments("link", link.id);
     } else if (this.hoveredDevice) {
       const device = this.hoveredDevice.device;
-      const portIDs = new Set(device.ports.map((port) => port.id));
-      const links = (topology.links || []).filter((link) =>
-        portIDs.has(link.sourcePortId) || portIDs.has(link.targetPortId));
+      const links = this.linksByDevice?.get(device.id) || (() => {
+        const portIDs = new Set(device.ports.map((port) => port.id));
+        return (topology.links || []).filter((link) => portIDs.has(link.sourcePortId) || portIDs.has(link.targetPortId));
+      })();
       lines = [
         `${rackLabel(topology, device)} · ${device.name}`,
         `${links.length} CONNECTED PHYSICAL PATH${links.length === 1 ? "" : "S"}`,
@@ -1902,6 +2009,18 @@ function endpointTooltip(topology, endpoint, side = "front") {
 
 function rackLabel(topology, device) {
   return topology.racks?.find((rack) => rack.id === device.rackId)?.name || "FREE CANVAS";
+}
+
+function addMapSetValue(map, key, value) {
+  const values = map.get(key) || new Set();
+  values.add(value);
+  map.set(key, values);
+}
+
+function addMapArrayValue(map, key, value) {
+  const values = map.get(key) || [];
+  values.push(value);
+  map.set(key, values);
 }
 
 function isFormField(target) {

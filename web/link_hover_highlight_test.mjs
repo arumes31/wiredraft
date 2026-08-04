@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { cableBezier, routeFromPoints, routesWithCrossingBridges } from "./static/js/cabling.js";
-import { CanvasEngine } from "./static/js/canvas.js";
+import {
+  cableHoverAlphaFactor, CanvasEngine, deviceHoverFrameInterval, hoverNeedsAnimation,
+} from "./static/js/canvas.js";
 
 const engine = Object.create(CanvasEngine.prototype);
 const palette = { nativeColor: "#42d9c8", isRainbow: false, channels: [] };
@@ -46,6 +48,19 @@ assert.equal(warningRedraws, 1, "warning marker must remain visible above the ho
 engine.hoveredLink = { link: { id: "missing-link" } };
 engine.drawHoveredLinkHighlight({}, 0);
 assert.equal(strokes.length, 4, "a stale hover target must not draw another route");
+engine.hoveredLink = null;
+engine.hoveredDevice = { device: { id: "switch-a" } };
+engine.drawHoveredLinkHighlight({}, 0, new Set(["link-hovered"]));
+assert.equal(strokes.length, 4,
+  "device hover must use static opacity isolation instead of redrawing every attached route with glow layers");
+assert.equal(hoverNeedsAnimation({ hoveredDevice: engine.hoveredDevice }), false,
+  "a stationary switch hover must not keep the animation loop alive");
+assert.equal(hoverNeedsAnimation({ hoveredPort: { port: { id: "a1" } } }), true,
+  "single-port hover may retain the detailed focused animation path");
+assert.equal(deviceHoverFrameInterval({ maxFPS: 45 }, engine.hoveredDevice), 1000 / 30,
+  "quality-mode device hover must cap pointer-driven redraws at 30 FPS");
+assert.equal(deviceHoverFrameInterval({ maxFPS: 24 }, engine.hoveredDevice), 1000 / 24,
+  "balanced device hover must respect its lower profile limit");
 
 const focusEngine = Object.create(CanvasEngine.prototype);
 focusEngine.state = { topology: {
@@ -58,6 +73,7 @@ focusEngine.state = { topology: {
     { id: "device-a", ports: [{ id: "a1" }, { id: "a2" }] },
     { id: "device-b", ports: [{ id: "b1" }] },
   ],
+  linkGroups: [{ id: "bundle-a", mode: "MCLAG", linkIds: ["left", "right"] }],
 } };
 focusEngine.hoveredLink = null;
 focusEngine.hoveredDevice = null;
@@ -66,12 +82,76 @@ assert.deepEqual([...focusEngine.hoverFocusLinkIDs()], ["left"], "port hover mus
 focusEngine.hoveredPort = null;
 focusEngine.hoveredDevice = { device: { id: "device-a" } };
 assert.deepEqual([...focusEngine.hoverFocusLinkIDs()].sort(), ["left", "right"], "switch hover must focus all attached paths");
+const indexedDeviceLinks = new Set(["left", "right"]);
+focusEngine.linkIDsByDevice = new Map([["device-a", indexedDeviceLinks]]);
+assert.equal(focusEngine.hoverFocusLinkIDs(), indexedDeviceLinks,
+  "switch hover must reuse the pre-indexed attachment set instead of scanning every link per frame");
+focusEngine.hoveredDevice = null;
+focusEngine.hoveredLink = { link: { id: "left" } };
+assert.deepEqual([...focusEngine.hoverFocusLinkIDs()].sort(), ["left", "right"],
+  "hovering one logical-group member must focus the complete Trunk/LACP/MC-LAG/Failover group");
+const indexedGroupLinks = new Set(["left", "right"]);
+focusEngine.groupLinkIDsByLink = new Map([
+  ["left", indexedGroupLinks],
+  ["right", indexedGroupLinks],
+]);
+assert.equal(focusEngine.hoverFocusLinkIDs(), indexedGroupLinks,
+  "group hover must reuse the pre-indexed member set instead of scanning groups per frame");
+focusEngine.hoveredLink = { link: { id: "unrelated" } };
+assert.deepEqual([...focusEngine.hoverFocusLinkIDs()], ["unrelated"],
+  "hovering an ungrouped cable must retain single-link focus");
+
+const layoutEngine = Object.create(CanvasEngine.prototype);
+layoutEngine.sceneDirty = true;
+layoutEngine.sceneRevision = 0;
+layoutEngine.state = { topology: {
+  racks: [], devices: [], vlans: [],
+  links: focusEngine.state.topology.links,
+  linkGroups: focusEngine.state.topology.linkGroups,
+} };
+layoutEngine.rackTiles = { clear() {}, insert() {} };
+layoutEngine.deviceTiles = { clear() {}, insert() {} };
+layoutEngine.layoutScene();
+assert.equal(layoutEngine.groupLinkIDsByLink.get("left"), layoutEngine.groupLinkIDsByLink.get("right"),
+  "scene layout must index every group member to the same cached focus set");
+assert.deepEqual([...layoutEngine.groupLinkIDsByLink.get("left")].sort(), ["left", "right"]);
+
+const groupHighlightEngine = Object.create(CanvasEngine.prototype);
+groupHighlightEngine.hoveredDevice = null;
+groupHighlightEngine.hoveredLink = { link: { id: "left" } };
+groupHighlightEngine.state = focusEngine.state;
+groupHighlightEngine.groupLinkIDsByLink = layoutEngine.groupLinkIDsByLink;
+groupHighlightEngine.linkCurves = [
+  { link: { id: "left" }, rearMapping: false },
+  { link: { id: "right" }, rearMapping: false },
+  { link: { id: "unrelated" }, rearMapping: false },
+];
+groupHighlightEngine.rearHoverIsolationActive = () => false;
+const highlightedGroupMembers = [];
+groupHighlightEngine.drawHoveredLinkHighlightEntry = (_context, _time, entry) => highlightedGroupMembers.push(entry.link.id);
+groupHighlightEngine.drawHoveredLinkHighlight({}, 0);
+assert.deepEqual(highlightedGroupMembers, ["left", "right"],
+  "the complete highlight pass must redraw every logical-group member and no unrelated cable");
+
+assert.equal(cableHoverAlphaFactor({ rearIsolation: true, rearMapping: false, hasHoverFocus: true, hoverFocused: true }), .1,
+  "rear isolation must dim even attached front cables to exactly ten percent");
+assert.equal(cableHoverAlphaFactor({ rearIsolation: true, rearMapping: true, hasHoverFocus: true, hoverFocused: false }), 1,
+  "rear isolation must leave all backend runs readable");
+assert.equal(cableHoverAlphaFactor({ rearIsolation: false, rearMapping: false, hasHoverFocus: true, hoverFocused: false }), .2,
+  "normal hover isolation must retain the existing twenty-percent dim level");
+focusEngine.hoveredDevice = { device: { id: "panel-a", category: "PatchPanel" } };
+focusEngine.hoveredLink = null;
+assert.equal(focusEngine.rearHoverIsolationActive(), true, "patch-panel hover must activate rear-channel isolation");
+focusEngine.hoveredDevice = null;
+focusEngine.hoveredLink = { link: { id: "rear", sourceSide: "rear", targetSide: "rear" } };
+assert.equal(focusEngine.rearHoverIsolationActive(), true, "backend-link hover must activate rear-channel isolation");
 const canvasSource = readFileSync(new URL("./static/js/canvas.js", import.meta.url), "utf8");
-assert.match(canvasSource, /hasHoverFocus && !hoverFocused \? \.2 : 1/, "unrelated hover paths must dim to exactly 20 percent");
+assert.match(canvasSource, /if \(rearIsolation\) return rearMapping \? 1 : \.1/, "rear isolation must explicitly dim front paths to ten percent");
 assert.match(canvasSource, /if \(showAllLabels\) this\.drawExportEndpointLabels\(ctx, topology\)/,
   "PNG and PDF documentation renders must add remote endpoint badges");
-assert.match(canvasSource, /rearMapping \? RearPanelLinkVisual\.strokeWidth : speedThickness/,
-  "rear mappings must use the shared thin stroke instead of speed-based cable thickness");
+assert.match(canvasSource,
+  /rearMapping \? RearPanelLinkVisual\.strokeWidth :\s*baseCurve\.tightBundle \? Math\.min\(speedThickness, 1\.5\) : speedThickness/,
+  "rear mappings must stay thin while front bundles compact their rails enough to remain visually distinct");
 assert.match(canvasSource, /rearMapping \? RearPanelLinkVisual\.opacity : failoverRole/,
   "rear mappings must use the shared subordinate opacity by default");
 assert.match(canvasSource, /\[\$\{rackLabel\(topology, endpoint\.device\)\} - \$\{endpoint\.device\.name\}: \$\{sideLabel\}\$\{endpoint\.port\.label\}\]/,

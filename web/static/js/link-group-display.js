@@ -75,6 +75,28 @@ export function peerLinkIDs(topology, selectedLinkID) {
   return new Set((group?.linkIds || []).filter((linkID) => linkID !== selectedLinkID));
 }
 
+export function linkGroupPortBadges(topology) {
+  const linksByID = new Map((topology?.links || []).map((link) => [link.id, link]));
+  const badges = new Map();
+  for (const group of topology?.linkGroups || []) {
+    if (group.mode !== "Failover") continue;
+    for (const linkID of group.linkIds || []) {
+      const link = linksByID.get(linkID);
+      if (!link) continue;
+      const role = link.id === group.primaryLinkId ? "P" : "B";
+      const badge = {
+        role,
+        color: role === "P" ? "#42d9c8" : "#f0b35a",
+        groupId: group.id,
+        linkId: link.id,
+      };
+      badges.set(link.sourcePortId, { ...badge, endpoint: "source" });
+      badges.set(link.targetPortId, { ...badge, endpoint: "target" });
+    }
+  }
+  return badges;
+}
+
 function commonEndpoint(links) {
   const first = links[0];
   return [first.sourceDeviceId, first.targetDeviceId].find((deviceID) =>

@@ -61,6 +61,9 @@ export const api = {
   configureLink: (id, linkID, configuration, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/links/${encodeURIComponent(linkID)}/configuration`, {
     method: "PUT", headers: revisionHeaders(revision), body: JSON.stringify(configuration),
   }),
+  setLinkDirection: (id, linkID, sourcePortID, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/links/${encodeURIComponent(linkID)}/direction`, {
+    method: "PUT", headers: revisionHeaders(revision), body: JSON.stringify({ sourcePortId: sourcePortID }),
+  }),
   deleteLink: (id, linkID, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/links/${encodeURIComponent(linkID)}`, { method: "DELETE", headers: revisionHeaders(revision, {}) }),
   createLinkGroup: (id, group, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/link-groups`, {
     method: "POST", headers: revisionHeaders(revision), body: JSON.stringify(group),

@@ -37,8 +37,9 @@ const canvas = readFileSync(new URL("./static/js/canvas.js", import.meta.url), "
 assert.match(html, /id="graphics-quality"[^>]*>[\s\S]*value="auto"[\s\S]*value="performance"[\s\S]*value="balanced"[\s\S]*value="quality"/, "graphics control must expose every mode");
 assert.match(app, /GRAPHICS_STORAGE_KEY/, "graphics choice must use persistent storage");
 assert.match(app, /setGraphicsMode/, "graphics control must update the canvas renderer");
-assert.match(canvas, /const due = this\.needsRender \|\| \(animationActive/, "idle canvases must skip full redraws");
-assert.match(canvas, /if \(animationActive && this\.isDocumentVisible && this\.isCanvasVisible\)/, "idle render loops must stop requesting frames");
+assert.match(canvas, /const due = invalidationDue \|\| animationDue/, "idle canvases must skip full redraws while hover frames remain rate-limited");
+assert.match(canvas, /animationActive \|\| \(this\.needsRender && !invalidationDue\)/,
+  "idle render loops must stop unless animation or a rate-limited invalidation still needs a frame");
 assert.match(canvas, /this\.isDocumentVisible && this\.isCanvasVisible/, "hidden canvases must suspend rendering");
 assert.match(canvas, /const bridgedRoutes = routesWithCrossingBridges/, "crossing jumper geometry must be batch-cached independent of link order");
 assert.doesNotMatch(canvas, /obstacleSignature|occupiedSignature/, "render frames must not rebuild route signature strings");
@@ -58,6 +59,19 @@ assert.equal(idleEngine.renderCount, 1);
 assert.equal(requestedFrames, 0, "performance mode must stop its frame loop after rendering an invalidation");
 idleEngine.invalidate();
 assert.equal(requestedFrames, 1, "a later interaction must wake the stopped renderer");
+const hoverEngine = Object.assign(Object.create(CanvasEngine.prototype), {
+  frame: 9, needsRender: true, lastRenderTime: 0, isDocumentVisible: true, isCanvasVisible: true,
+  graphicsProfile: () => balanced, state: { topology: topology(2, 48, 24), selection: null, traceLinkIDs: new Set() },
+  hoveredLink: null, hoveredPort: null, hoveredDevice: { device: { id: "dense-switch" } },
+  draft: null, linkDrag: null, drag: null, rackDrag: null, pan: null, selectionBox: null,
+  renderFrame() { this.renderCount = (this.renderCount || 0) + 1; },
+});
+hoverEngine.loop(20);
+assert.equal(hoverEngine.renderCount || 0, 0, "dense switch-hover invalidations must wait for the Balanced frame interval");
+assert.equal(requestedFrames, 2, "a deferred hover repaint must retain exactly one scheduled frame");
+hoverEngine.loop(50);
+assert.equal(hoverEngine.renderCount, 1, "the deferred hover repaint must render when its frame budget is available");
+assert.equal(requestedFrames, 2, "a stationary Balanced switch hover must stop after its single deferred repaint");
 if (originalRequestAnimationFrame) globalThis.requestAnimationFrame = originalRequestAnimationFrame;
 else delete globalThis.requestAnimationFrame;
 

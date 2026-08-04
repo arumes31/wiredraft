@@ -57,6 +57,7 @@ func New(
 	mux.HandleFunc("POST /api/v1/topologies/{id}/links", server.createLink)
 	mux.HandleFunc("POST /api/v1/topologies/{id}/links/bulk", server.createLinks)
 	mux.HandleFunc("PUT /api/v1/topologies/{id}/links/{linkId}/configuration", server.configureLink)
+	mux.HandleFunc("PUT /api/v1/topologies/{id}/links/{linkId}/direction", server.setLinkDirection)
 	mux.HandleFunc("DELETE /api/v1/topologies/{id}/links/{linkId}", server.deleteLink)
 	mux.HandleFunc("POST /api/v1/topologies/{id}/link-groups", server.createLinkGroup)
 	mux.HandleFunc("PUT /api/v1/topologies/{id}/link-groups/{groupId}", server.updateLinkGroup)
@@ -558,6 +559,48 @@ func applyLinkConfiguration(
 		link.PrimaryVLAN = input.NativeVLAN
 		link.VLANIDs = append([]int{input.NativeVLAN}, allowedVLANs...)
 	}
+	return nil
+}
+
+type linkDirectionRequest struct {
+	SourcePortID string `json:"sourcePortId"`
+}
+
+func (s *Server) setLinkDirection(w http.ResponseWriter, request *http.Request) {
+	var input linkDirectionRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid link direction")
+		return
+	}
+	id := request.PathValue("id")
+	linkID := request.PathValue("linkId")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		return applyLinkDirection(topology, linkID, input)
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "link_direction_updated", updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func applyLinkDirection(topology *model.Topology, linkID string, input linkDirectionRequest) error {
+	linkIndex := slicesIndex(topology.Links, func(link model.Link) bool { return link.ID == linkID })
+	if linkIndex < 0 {
+		return store.ErrNotFound
+	}
+	link := &topology.Links[linkIndex]
+	if input.SourcePortID == link.SourcePortID {
+		return nil
+	}
+	if input.SourcePortID != link.TargetPortID {
+		return fmt.Errorf("%w: source port must be a current link endpoint", store.ErrInvalid)
+	}
+
+	link.SourceDeviceID, link.TargetDeviceID = link.TargetDeviceID, link.SourceDeviceID
+	link.SourcePortID, link.TargetPortID = link.TargetPortID, link.SourcePortID
+	link.SourceSide, link.TargetSide = link.TargetSide, link.SourceSide
 	return nil
 }
 

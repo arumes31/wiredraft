@@ -2,11 +2,11 @@ export const PatchPanelPortCounts = Object.freeze([12, 24, 48, 96]);
 export const LinkEndpointSide = Object.freeze({ FRONT: "front", REAR: "rear" });
 export const RearPanelLinkVisual = Object.freeze({
   color: "#f0b35a",
-  opacity: .46,
+  opacity: .75,
   strokeWidth: 1.5,
-  casingOpacity: .28,
+  casingOpacity: .38,
   casingWidth: 3,
-  dash: Object.freeze([11, 6]),
+  dash: Object.freeze([6, 4]),
 });
 
 export function endpointSide(link, endpoint) {
@@ -14,7 +14,7 @@ export function endpointSide(link, endpoint) {
 }
 
 export function isRearPanelLink(link) {
-  return endpointSide(link, "source") === LinkEndpointSide.REAR &&
+  return endpointSide(link, "source") === LinkEndpointSide.REAR ||
     endpointSide(link, "target") === LinkEndpointSide.REAR;
 }
 

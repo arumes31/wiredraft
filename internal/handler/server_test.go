@@ -447,6 +447,79 @@ func TestConfigureLinkSynchronizesBothEndpointPorts(t *testing.T) {
 	}
 }
 
+func TestSetLinkDirectionSwapsEndpointsIdempotently(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t)
+	topology := requestTopology(t, handler, http.MethodPost, "/api/v1/topologies", map[string]string{
+		"name": "Link direction", "template": "demo",
+	}, http.StatusCreated)
+	original := topology.Links[0]
+	path := "/api/v1/topologies/" + topology.ID + "/links/" + original.ID + "/direction"
+
+	topology = requestTopology(
+		t,
+		handler,
+		http.MethodPut,
+		path,
+		linkDirectionRequest{SourcePortID: original.TargetPortID},
+		http.StatusOK,
+	)
+	reversed := topology.Links[0]
+	sourceMatches := reversed.SourceDeviceID == original.TargetDeviceID && reversed.SourcePortID == original.TargetPortID
+	targetMatches := reversed.TargetDeviceID == original.SourceDeviceID && reversed.TargetPortID == original.SourcePortID
+	if !sourceMatches || !targetMatches {
+		t.Fatalf("reversed link endpoints = %#v, want source and target from %#v swapped", reversed, original)
+	}
+	if reversed.SourceSide != original.TargetSide || reversed.TargetSide != original.SourceSide {
+		t.Fatalf("reversed link sides = source %q target %q, want source %q target %q", reversed.SourceSide, reversed.TargetSide, original.TargetSide, original.SourceSide)
+	}
+
+	topology = requestTopology(
+		t,
+		handler,
+		http.MethodPut,
+		path,
+		linkDirectionRequest{SourcePortID: original.TargetPortID},
+		http.StatusOK,
+	)
+	idempotent := topology.Links[0]
+	if idempotent.SourcePortID != reversed.SourcePortID || idempotent.TargetPortID != reversed.TargetPortID {
+		t.Fatalf("repeated direction request changed link: first %#v, repeated %#v", reversed, idempotent)
+	}
+	identityMatches := idempotent.ID == original.ID && idempotent.CableType == original.CableType
+	vlanMatches := idempotent.PrimaryVLAN == original.PrimaryVLAN && slices.Equal(idempotent.VLANIDs, original.VLANIDs)
+	if !identityMatches || !vlanMatches {
+		t.Fatalf("direction update changed non-endpoint link data: original %#v, updated %#v", original, idempotent)
+	}
+}
+
+func TestSetLinkDirectionRejectsNonEndpointSource(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t)
+	topology := requestTopology(t, handler, http.MethodPost, "/api/v1/topologies", map[string]string{
+		"name": "Invalid link direction", "template": "demo",
+	}, http.StatusCreated)
+	link := topology.Links[0]
+	path := "/api/v1/topologies/" + topology.ID + "/links/" + link.ID + "/direction"
+
+	body, err := json.Marshal(linkDirectionRequest{SourcePortID: "not-an-endpoint"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPut, path, bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("PUT %s status = %d, want %d; body = %s", path, response.Code, http.StatusBadRequest, response.Body.String())
+	}
+	topology = requestTopology(t, handler, http.MethodGet, "/api/v1/topologies/"+topology.ID, nil, http.StatusOK)
+	unchanged := topology.Links[0]
+	if unchanged.SourcePortID != link.SourcePortID || unchanged.TargetPortID != link.TargetPortID {
+		t.Fatalf("invalid direction request changed endpoints: before %#v, after %#v", link, unchanged)
+	}
+}
+
 func TestCreateLinkActivatesBothEndpointPorts(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
