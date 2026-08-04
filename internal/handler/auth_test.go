@@ -193,6 +193,25 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 			t.Errorf("audit log contains user-controlled identity field %q: %s", userValue, logOutput)
 		}
 	}
+	updateEntryFound := false
+	for line := range strings.SplitSeq(strings.TrimSpace(logOutput), "\n") {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("decoding audit log entry: %v", err)
+		}
+		if entry["msg"] != "account updated" {
+			continue
+		}
+		updateEntryFound = true
+		for _, field := range []string{"user_id", "disabled", "organization_count"} {
+			if _, exists := entry[field]; exists {
+				t.Errorf("account update audit log contains request-derived field %q: %s", field, line)
+			}
+		}
+	}
+	if !updateEntryFound {
+		t.Error("account update audit log entry was not found")
+	}
 
 	logout := newJSONRequest(t, http.MethodPost, "/api/v1/auth/logout", nil, cookie)
 	logout.Header.Set("Origin", "http://example.com")

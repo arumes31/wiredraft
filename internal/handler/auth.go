@@ -213,9 +213,6 @@ func (s *Server) updateUser(w http.ResponseWriter, request *http.Request) {
 	}
 	s.logger.Info("account updated",
 		"administrator_id", principalFromRequest(request).UserID,
-		"user_id", user.ID,
-		"disabled", user.Disabled,
-		"organization_count", len(user.Organizations),
 	)
 	writeJSON(w, http.StatusOK, user)
 }
