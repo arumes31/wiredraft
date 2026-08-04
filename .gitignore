@@ -1,20 +1,60 @@
+# Local application state and private overrides
 /data/
 /docs/
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+compose.override.yml
+
+# Go and release build output
+/bin/
+/dist/
 /netdiagram
 /netdiagram.exe
 /wiredraft
 /wiredraft.exe
-/*.test
-/*.out
-/coverage.*
-*.tmp
-.DS_Store
-.env
-.env.*
-!.env.example
-graphify-out/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.coverprofile
+*.prof
+*.pprof
+
+# JavaScript dependencies and generated quality output
 /node_modules/
 /.quality-data/
 /coverage/
+/.nyc_output/
 /playwright-report/
 /test-results/
+/blob-report/
+/playwright/.cache/
+
+# Local analysis and generated documentation
+graphify-out/
+
+# Logs and temporary runtime files
+*.log
+*.pid
+*.pid.lock
+*.tmp
+*.temp
+npm-debug.log*
+
+# Editor and operating-system metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# Legacy explicit coverage filename pattern
+/coverage.*

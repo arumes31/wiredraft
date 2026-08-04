@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Populate login-background racks with more varied devices while retaining chassis clearance and the existing animation performance cap.
 - Keep cross-rack trunks and ordinary same-rack cables in separate rack-edge vertical lanes with at least four pixels of centerline separation.
 - List every permanent rear mapping in a selected patch panel's inspector and allow its local and remote panel ports to be edited with occupancy and connector validation.
 - Expand switch hover highlighting through patch-panel front/rear mappings to the remote panel and onward connected device, matching single-cable path focus.

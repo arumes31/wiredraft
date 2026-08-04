@@ -1,6 +1,9 @@
 const CYCLE_DURATION = 16000;
 const TARGET_FRAME_INTERVAL = 1000 / 24;
 const MAX_PIXEL_RATIO = 1.5;
+const DEVICE_SLOT_PITCH = 54;
+const MIN_DEVICES_PER_RACK = 3;
+const MAX_DEVICES_PER_RACK = 10;
 
 const RACK_PALETTES = [
   { body: "#071214", frame: "#3d7476", header: "#18383a", rail: "#173133", glow: "rgba(66,217,200,.16)" },
@@ -154,8 +157,14 @@ export function buildLoginBackdropScene(width, height, random = Math.random) {
 
     const firstY = rack.y + 63;
     const usableHeight = rack.height - 88;
-    const maximumDevices = clamp(Math.floor(usableHeight / 66), 2, 8);
-    const deviceCount = randomInt(random, Math.max(2, maximumDevices - 2), maximumDevices);
+    // The tallest ambient chassis is 49px. A 54px slot preserves its 5px
+    // clearance while allowing the login racks to read as actively populated.
+    const maximumDevices = clamp(
+      Math.floor(usableHeight / DEVICE_SLOT_PITCH),
+      MIN_DEVICES_PER_RACK,
+      MAX_DEVICES_PER_RACK,
+    );
+    const deviceCount = randomInt(random, Math.max(MIN_DEVICES_PER_RACK, maximumDevices - 1), maximumDevices);
     const step = usableHeight / deviceCount;
     const kinds = ["switch", "panel"];
     if (deviceCount > 2) kinds.push("server");

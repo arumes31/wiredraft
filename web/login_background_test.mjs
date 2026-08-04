@@ -26,7 +26,10 @@ test("ambient topology generation is deterministic, bounded, and fully synthetic
   const second = buildLoginBackdropScene(1440, 900, seededRandom(4815));
   assert.deepEqual(first, second);
   assert.ok(first.racks.length >= 2 && first.racks.length <= 4);
-  assert.ok(first.devices.length >= first.racks.length * 3);
+  assert.ok(first.devices.length >= first.racks.length * 6,
+    "desktop login racks should look substantially populated");
+  assert.ok(first.devices.length <= first.racks.length * 10,
+    "ambient device density must remain performance-bounded");
   assert.ok(first.links.length > first.racks.length);
 
   const racks = new Map(first.racks.map((rack) => [rack.id, rack]));
