@@ -14,7 +14,7 @@ func FuzzDecodeJSON(f *testing.F) {
 		if len(input) > maxRequestBody+1 {
 			t.Skip()
 		}
-		request := httptest.NewRequest("POST", "/", bytes.NewReader(input))
+		request := httptest.NewRequestWithContext(t.Context(), "POST", "/", bytes.NewReader(input))
 		response := httptest.NewRecorder()
 		var destination struct {
 			Name     string `json:"name"`

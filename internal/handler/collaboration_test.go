@@ -43,7 +43,7 @@ func TestCommentsDocumentationAndReadOnlyShares(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/topologies/"+topology.ID+"/shares", bytes.NewReader(shareBody))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/topologies/"+topology.ID+"/shares", bytes.NewReader(shareBody))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -59,7 +59,7 @@ func TestCommentsDocumentationAndReadOnlyShares(t *testing.T) {
 	}
 
 	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, share.Path, nil))
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, share.Path, nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("shared read status = %d; body = %s", response.Code, response.Body.String())
 	}
@@ -72,7 +72,7 @@ func TestCommentsDocumentationAndReadOnlyShares(t *testing.T) {
 	}
 
 	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut, share.Path, bytes.NewReader([]byte(`{}`))))
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPut, share.Path, bytes.NewReader([]byte(`{}`))))
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("shared mutation status = %d, want 405", response.Code)
 	}
@@ -91,7 +91,7 @@ func TestRevisionConflictReturnsResyncMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/topologies/"+topology.ID+"/comments", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/topologies/"+topology.ID+"/comments", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("If-Match", `"rev-999999"`)
 	response := httptest.NewRecorder()

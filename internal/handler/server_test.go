@@ -20,7 +20,7 @@ import (
 func TestHealth(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/health", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -34,7 +34,7 @@ func TestHealth(t *testing.T) {
 func TestStaticFallback(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
-	request := httptest.NewRequest(http.MethodGet, "/diagram/client-route", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/diagram/client-route", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -565,7 +565,7 @@ func TestCreateLinksRejectsEntirePatchPanelRange(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := "/api/v1/topologies/" + topology.ID + "/links/bulk"
-	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -635,7 +635,7 @@ func TestCreateLinkRejectsPortActivationAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -694,7 +694,7 @@ func TestDeleteMissingLinkDoesNotDeactivatePorts(t *testing.T) {
 	}, http.StatusCreated)
 	link := topology.Links[0]
 	path := "/api/v1/topologies/" + topology.ID + "/links/00000000-0000-4000-8000-000000000000"
-	request := httptest.NewRequest(http.MethodDelete, path, nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, path, nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
@@ -800,7 +800,7 @@ func TestConfigureLinkRejectsInvalidVLANAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPut, path, bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPut, path, bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -827,7 +827,7 @@ func TestConfigureLinkRejectsInvalidVLANAtomically(t *testing.T) {
 
 func BenchmarkHealth(b *testing.B) {
 	handler := newTestHandler(b)
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	request := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/api/v1/health", nil)
 	b.ReportAllocs()
 	for b.Loop() {
 		response := httptest.NewRecorder()
@@ -897,7 +897,7 @@ func requestTopology(
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(method, path, bytes.NewReader(data))
+	request := httptest.NewRequestWithContext(t.Context(), method, path, bytes.NewReader(data))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

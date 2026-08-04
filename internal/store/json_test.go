@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 
@@ -82,7 +81,15 @@ func TestJSONStoreAtomicFileAlwaysDecodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := jsonStore.List()[0].ID
-	path := filepath.Join(directory, id+".json")
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := root.Close(); closeErr != nil {
+			t.Errorf("Close() error = %v", closeErr)
+		}
+	})
 	for index := range 20 {
 		if _, err := jsonStore.Mutate(id, func(topology *model.Topology) error {
 			topology.Name = fmt.Sprintf("Atomic %d", index)
@@ -90,7 +97,7 @@ func TestJSONStoreAtomicFileAlwaysDecodes(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		data, err := os.ReadFile(path)
+		data, err := root.ReadFile(id + ".json")
 		if err != nil {
 			t.Fatal(err)
 		}

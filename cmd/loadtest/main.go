@@ -19,6 +19,10 @@ type topologySummary struct {
 }
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	baseURL := flag.String("url", "http://127.0.0.1:8080", "netdiagram base URL")
 	duration := flag.Duration("duration", 10*time.Second, "load duration")
 	workers := flag.Int("workers", 16, "concurrent API workers")
@@ -26,14 +30,14 @@ func main() {
 	flag.Parse()
 	if *workers < 1 || *sseClients < 0 || *duration <= 0 {
 		fmt.Fprintln(os.Stderr, "workers and duration must be positive; SSE clients may be zero")
-		os.Exit(2)
+		return 2
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	topologyID, err := firstTopologyID(client, *baseURL)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *duration)
 	defer cancel()
@@ -72,16 +76,25 @@ func main() {
 	wait.Wait()
 	fmt.Printf("requests=%d failures=%d sse=%d duration=%s\n", successes.Load(), failures.Load(), *sseClients, *duration)
 	if failures.Load() > 0 {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
-func firstTopologyID(client *http.Client, baseURL string) (string, error) {
-	response, err := client.Get(baseURL + "/api/v1/topologies")
+func firstTopologyID(client *http.Client, baseURL string) (topologyID string, returnErr error) {
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, baseURL+"/api/v1/topologies", nil)
+	if err != nil {
+		return "", fmt.Errorf("creating topology list request: %w", err)
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return "", fmt.Errorf("listing topologies: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil && returnErr == nil {
+			returnErr = fmt.Errorf("closing topology list response: %w", closeErr)
+		}
+	}()
 	var summaries []topologySummary
 	if err := json.NewDecoder(response.Body).Decode(&summaries); err != nil {
 		return "", fmt.Errorf("decoding topology list: %w", err)
@@ -105,7 +118,7 @@ func holdSSE(ctx context.Context, client *http.Client, baseURL, topologyID strin
 		}
 		return
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		failures.Add(1)
 		return

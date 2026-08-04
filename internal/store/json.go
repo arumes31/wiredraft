@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -95,7 +96,7 @@ func (s *JSONStore) Create(topology model.Topology) (model.Topology, error) {
 
 	topology.Normalize()
 	if err := topology.Validate(); err != nil {
-		return model.Topology{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return model.Topology{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	s.mu.RLock()
 	_, exists := s.topologies[topology.ID]
@@ -150,7 +151,7 @@ func (s *JSONStore) MutateAtRevision(
 	next.UpdatedAt = time.Now().UTC()
 	next.Normalize()
 	if err := next.Validate(); err != nil {
-		return model.Topology{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return model.Topology{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if err := s.writeTopology(next); err != nil {
 		return model.Topology{}, err
@@ -177,8 +178,17 @@ func (s *JSONStore) SaveToDisk(id string) error {
 	return nil
 }
 
-func (s *JSONStore) load() error {
-	entries, err := os.ReadDir(s.dataDir)
+func (s *JSONStore) load() (returnErr error) {
+	root, err := os.OpenRoot(s.dataDir)
+	if err != nil {
+		return fmt.Errorf("opening data directory root: %w", err)
+	}
+	defer func() {
+		if closeErr := root.Close(); closeErr != nil && returnErr == nil {
+			returnErr = fmt.Errorf("closing data directory root: %w", closeErr)
+		}
+	}()
+	entries, err := fs.ReadDir(root.FS(), ".")
 	if err != nil {
 		return fmt.Errorf("reading data directory: %w", err)
 	}
@@ -186,8 +196,7 @@ func (s *JSONStore) load() error {
 		if entry.IsDir() || strings.ToLower(filepath.Ext(entry.Name())) != ".json" {
 			continue
 		}
-		path := filepath.Join(s.dataDir, entry.Name())
-		topology, decodeErr := decodeTopologyFile(path)
+		topology, decodeErr := decodeTopologyFile(root, entry.Name())
 		if decodeErr != nil {
 			return fmt.Errorf("loading %q: %w", entry.Name(), decodeErr)
 		}
@@ -199,15 +208,18 @@ func (s *JSONStore) load() error {
 	return nil
 }
 
-func decodeTopologyFile(path string) (model.Topology, error) {
-	file, err := os.Open(path)
+func decodeTopologyFile(root *os.Root, name string) (topology model.Topology, returnErr error) {
+	file, err := root.Open(name)
 	if err != nil {
 		return model.Topology{}, fmt.Errorf("opening topology: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && returnErr == nil {
+			returnErr = fmt.Errorf("closing topology: %w", closeErr)
+		}
+	}()
 	decoder := json.NewDecoder(io.LimitReader(file, maxTopologyFileSize))
 	decoder.DisallowUnknownFields()
-	var topology model.Topology
 	if err := decoder.Decode(&topology); err != nil {
 		return model.Topology{}, fmt.Errorf("decoding topology: %w", err)
 	}

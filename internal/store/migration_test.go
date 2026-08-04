@@ -1,14 +1,19 @@
 package store
 
 import (
+	"embed"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
+//go:embed testdata/migrations/*.json
+var migrationFixtures embed.FS
+
 func TestLegacyTopologyFixturesLoadAndNormalize(t *testing.T) {
 	t.Parallel()
-	fixtures, err := filepath.Glob(filepath.Join("testdata", "migrations", "*.json"))
+	fixtures, err := fs.Glob(migrationFixtures, "testdata/migrations/*.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,12 +24,20 @@ func TestLegacyTopologyFixturesLoadAndNormalize(t *testing.T) {
 		fixture := fixture
 		t.Run(filepath.Base(fixture), func(t *testing.T) {
 			t.Parallel()
-			data, err := os.ReadFile(fixture)
+			data, err := migrationFixtures.ReadFile(fixture)
 			if err != nil {
 				t.Fatal(err)
 			}
 			directory := t.TempDir()
-			if err := os.WriteFile(filepath.Join(directory, filepath.Base(fixture)), data, 0o600); err != nil {
+			root, err := os.OpenRoot(directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := root.WriteFile(filepath.Base(fixture), data, 0o600); err != nil {
+				_ = root.Close()
+				t.Fatal(err)
+			}
+			if err := root.Close(); err != nil {
 				t.Fatal(err)
 			}
 			jsonStore, err := NewJSONStore(directory)

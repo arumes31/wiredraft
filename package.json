@@ -13,8 +13,8 @@
     "test:a11y": "playwright test e2e/accessibility.spec.mjs --project=chromium"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.10.2",
-    "@playwright/test": "^1.54.2",
-    "c8": "^10.1.3"
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.62.1",
+    "c8": "^12.0.0"
   }
 }

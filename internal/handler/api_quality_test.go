@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"embed"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,9 @@ import (
 	"netdiagram/internal/model"
 )
 
+//go:embed testdata/snapshots/v1-api-contract.json
+var contractSnapshots embed.FS
+
 func TestAPIIntegrationLifecycle(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
@@ -23,7 +27,7 @@ func TestAPIIntegrationLifecycle(t *testing.T) {
 		t.Fatalf("created name = %q", created.Name)
 	}
 
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/topologies", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/topologies", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -44,7 +48,7 @@ func TestAPIIntegrationLifecycle(t *testing.T) {
 		t.Fatalf("VLAN response = %#v", created.VLANs)
 	}
 
-	request = httptest.NewRequest(http.MethodGet, "/api/v1/topologies/"+created.ID+"/analysis", nil)
+	request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/topologies/"+created.ID+"/analysis", nil)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !json.Valid(response.Body.Bytes()) {
@@ -62,7 +66,7 @@ func TestV1APIResponseContractSnapshot(t *testing.T) {
 		"error":  "/api/v1/topologies/00000000-0000-4000-8000-000000000000",
 	} {
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		var decoded any
 		if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
 			t.Fatalf("decode %s: %v", name, err)
@@ -75,8 +79,9 @@ func TestV1APIResponseContractSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoded = append(encoded, '\n')
-	path := filepath.Join("testdata", "snapshots", "v1-api-contract.json")
+	const snapshotPath = "testdata/snapshots/v1-api-contract.json"
 	if os.Getenv("UPDATE_SNAPSHOTS") == "1" {
+		path := filepath.FromSlash(snapshotPath)
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			t.Fatal(err)
 		}
@@ -84,7 +89,7 @@ func TestV1APIResponseContractSnapshot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(path)
+	want, err := contractSnapshots.ReadFile(snapshotPath)
 	if err != nil {
 		t.Fatal(err)
 	}

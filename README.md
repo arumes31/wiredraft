@@ -85,12 +85,15 @@ The API is rooted at `/api/v1`. Important resources include `/topologies`, `/top
 
 ## Verification
 
-```sh
-make test
-make race
-make vet
-go test -bench=. -benchmem ./...
+Run the complete local equivalent of the GitHub quality suite from PowerShell 7:
+
+```powershell
+pwsh -NoProfile -File scripts/ci-local.ps1
 ```
+
+The command covers formatting and static analysis, race/fuzz/coverage tests, dependency and secret scans, Dockerfile/container scanning, SBOM generation, mutation testing, all supported browsers, accessibility, and visual regression. GitHub additionally runs CodeQL, dependency-diff review, OpenSSF Scorecard, and signed build/SBOM attestations because those gates require GitHub services and OIDC.
+
+For quick development loops, use `-SkipBrowsers` or `-SkipContainers`; do not use those switches for the final pre-review run. Benchmarks remain available through `go test -bench=. -benchmem ./...`.
 
 ## Contributing
 

@@ -14,6 +14,7 @@ import (
 // CommentAnchorKind identifies what a discussion is attached to.
 type CommentAnchorKind string
 
+// Supported comment anchor kinds.
 const (
 	CommentAnchorCanvas CommentAnchorKind = "canvas"
 	CommentAnchorDevice CommentAnchorKind = "device"
@@ -23,6 +24,7 @@ const (
 // DocumentationTargetKind identifies an object that owns an external document link.
 type DocumentationTargetKind string
 
+// Supported documentation target kinds.
 const (
 	DocumentationTargetTopology DocumentationTargetKind = "topology"
 	DocumentationTargetRack     DocumentationTargetKind = "rack"
@@ -34,6 +36,7 @@ const (
 // DeviceCategory identifies the hardware role rendered on a rack faceplate.
 type DeviceCategory string
 
+// Supported device categories.
 const (
 	DeviceCategoryModem       DeviceCategory = "Modem"
 	DeviceCategoryRouter      DeviceCategory = "Router"
@@ -47,6 +50,7 @@ const (
 // PortType identifies a physical connector and its nominal media rate.
 type PortType string
 
+// Supported physical port types.
 const (
 	PortTypeRJ451G      PortType = "RJ45_1G"
 	PortTypeRJ45MGIG    PortType = "RJ45_MGIG"
@@ -77,6 +81,7 @@ const (
 // PortMode identifies how a port carries VLAN traffic.
 type PortMode string
 
+// Supported switchport modes.
 const (
 	PortModeAccess       PortMode = "Access"
 	PortModeTrunk        PortMode = "Trunk"
@@ -93,6 +98,7 @@ const (
 // LinkGroupMode identifies the logical relationship between physical links.
 type LinkGroupMode string
 
+// Supported link group modes.
 const (
 	LinkGroupModeTrunk    LinkGroupMode = "Trunk"
 	LinkGroupModeLACP     LinkGroupMode = "LACP"
@@ -104,6 +110,7 @@ const (
 // switches operate as one logical unit.
 type SwitchSystemMode string
 
+// Supported logical switch system modes.
 const (
 	SwitchSystemModeStack          SwitchSystemMode = "Stack"
 	SwitchSystemModeVSF            SwitchSystemMode = "VSF"
@@ -118,6 +125,7 @@ const (
 // FirewallClusterMode identifies how firewall members forward traffic.
 type FirewallClusterMode string
 
+// Supported firewall cluster modes.
 const (
 	FirewallClusterModeActiveActive  FirewallClusterMode = "ActiveActive"
 	FirewallClusterModeActivePassive FirewallClusterMode = "ActivePassive"
@@ -495,13 +503,13 @@ func (t Topology) Clone() (Topology, error) {
 
 // MarshalJSON rejects invalid aggregates before they can be persisted.
 func (t Topology) MarshalJSON() ([]byte, error) {
-	copy := t
-	copy.Normalize()
-	if err := copy.Validate(); err != nil {
+	normalized := t
+	normalized.Normalize()
+	if err := normalized.Validate(); err != nil {
 		return nil, err
 	}
 	type topologyAlias Topology
-	return json.Marshal(topologyAlias(copy))
+	return json.Marshal(topologyAlias(normalized))
 }
 
 // UnmarshalJSON rejects unknown fields and invalid persisted aggregates.

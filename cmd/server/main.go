@@ -87,13 +87,21 @@ func run(args []string) error {
 	return nil
 }
 
-func probeHealth(url string) error {
+func probeHealth(url string) (returnErr error) {
 	client := &http.Client{Timeout: 3 * time.Second}
-	response, err := client.Get(url)
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("creating healthcheck request: %w", err)
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return fmt.Errorf("healthcheck request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil && returnErr == nil {
+			returnErr = fmt.Errorf("closing healthcheck response: %w", closeErr)
+		}
+	}()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("healthcheck returned status %d", response.StatusCode)
 	}

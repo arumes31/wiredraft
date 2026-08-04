@@ -19,7 +19,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	defer file.Close()
 	var statements, covered uint64
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -30,6 +29,7 @@ func main() {
 		count, countErr := strconv.ParseUint(fields[1], 10, 64)
 		hits, hitsErr := strconv.ParseUint(fields[2], 10, 64)
 		if countErr != nil || hitsErr != nil {
+			_ = file.Close()
 			fmt.Fprintf(os.Stderr, "invalid coverage row %q\n", scanner.Text())
 			os.Exit(2)
 		}
@@ -39,6 +39,11 @@ func main() {
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		_ = file.Close()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if err := file.Close(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}

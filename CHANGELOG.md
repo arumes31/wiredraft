@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add a least-privilege GitHub Actions suite for core CI, hardened linting, CodeQL, dependency review, secret/dependency/filesystem/container scans, OpenSSF Scorecard, visual regression, reproducible release binaries, SPDX SBOMs, and Sigstore attestations. Pin every action and scanner image immutably, add grouped Dependabot updates with cooldowns, and provide a complete local CI runner.
+- Harden local file access with rooted filesystem APIs, propagate close and wrapped validation errors, and make HTTP probes/tests context-aware so the expanded security and static-analysis profiles pass without suppressions.
+
 - Add deterministic per-VLAN STP simulation with root election, Root/Designated/Blocked physical-port roles, convergence-path tracing, logical Stack/VSF/MC-LAG bridge collapse, and bundle/failover-aware topology edges.
 - Add persistent device serial number, asset tag, hostname, management IP, structured site/building/floor/room/rack/U location, responsible team, and configurable STP bridge priority fields to the device inspector.
 - Make canvas arrows, rectangles, and text notes selectable on their visible geometry, editable in the inspector, removable with the Delete key or inspector action, and allow drawing tools to be exited with Escape or a second click.

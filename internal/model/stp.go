@@ -7,10 +7,15 @@ import (
 )
 
 const (
-	STPRoleRoot        = "Root"
-	STPRoleDesignated  = "Designated"
-	STPRoleBlocked     = "Blocked"
+	// STPRoleRoot identifies the root bridge's forwarding ports.
+	STPRoleRoot = "Root"
+	// STPRoleDesignated identifies a segment's selected forwarding port.
+	STPRoleDesignated = "Designated"
+	// STPRoleBlocked identifies a redundant port held out of forwarding.
+	STPRoleBlocked = "Blocked"
+	// STPStateForwarding allows data-plane traffic.
 	STPStateForwarding = "forwarding"
+	// STPStateBlocking prevents a forwarding loop.
 	STPStateBlocking   = "blocking"
 	defaultSTPPriority = 32768
 )

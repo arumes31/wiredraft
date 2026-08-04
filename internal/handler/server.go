@@ -1335,7 +1335,7 @@ func (s *Server) publish(id, eventType string, topology model.Topology) {
 func (s *Server) mutate(request *http.Request, id string, mutation func(*model.Topology) error) (model.Topology, error) {
 	expectedRevision, err := parseExpectedRevision(request.Header.Get("If-Match"))
 	if err != nil {
-		return model.Topology{}, fmt.Errorf("%w: %v", store.ErrInvalid, err)
+		return model.Topology{}, fmt.Errorf("%w: %w", store.ErrInvalid, err)
 	}
 	return s.store.MutateAtRevision(id, expectedRevision, mutation)
 }
