@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#11181b">
   <meta name="description" content="Interactive enterprise rack, cabling, and VLAN designer">
-  <title>Netdiagram · Rack Operations Bench</title>
+  <title>WireDraft · Rack Operations Bench</title>
   <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand" aria-label="Netdiagram">
+    <div class="brand" aria-label="WireDraft">
       <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span><strong>NETDIAGRAM</strong><small>RACK OPERATIONS BENCH</small></span>
+      <span><strong>WIREDRAFT</strong><small>RACK OPERATIONS BENCH</small></span>
     </div>
     <div class="topology-picker">
       <span>ACTIVE MAP <b id="topology-count">0 MAPS</b></span>
@@ -56,6 +56,14 @@
         <label class="autosave-toggle"><input id="autosave-enabled" type="checkbox" checked><span>ENABLED BY DEFAULT</span></label>
         <label><span>SAVE INTERVAL</span><select id="autosave-interval"><option value="30">EVERY 30 SECONDS</option><option value="60">EVERY 1 MINUTE</option><option value="300">EVERY 5 MINUTES</option></select></label>
         <button id="save-now-button" type="button">SAVE NOW <kbd>CTRL S</kbd></button>
+      </div>
+    </details>
+    <details id="account-menu" class="account-menu">
+      <summary aria-label="Open account menu"><i id="account-avatar">U</i><span><b id="account-name">OPERATOR</b><small id="account-role">SESSION</small></span></summary>
+      <div class="account-popover">
+        <p><span>IDENTITY CONTROL</span><b id="account-scope">SIGNED IN</b></p>
+        <button id="manage-users-button" type="button" hidden><b>USER ACCOUNTS</b><small>ORGANIZATION ASSIGNMENTS</small></button>
+        <button id="logout-button" type="button" class="danger"><b>END SESSION</b><small>CLEAR LOCAL ACCESS</small></button>
       </div>
     </details>
     <div id="connection-status" class="connection-status" data-state="connecting">
@@ -141,6 +149,28 @@
       <div id="inspector-content" class="inspector-content" hidden></div>
     </aside>
   </main>
+
+  <dialog id="account-dialog" class="panel-dialog wide-dialog account-dialog" aria-labelledby="account-dialog-title">
+    <div class="dialog-shell">
+      <header><div><p class="eyebrow">IDENTITY CONTROL</p><h2 id="account-dialog-title">ORGANIZATION ACCOUNTS</h2></div><button type="button" class="dialog-close" data-close="account-dialog" aria-label="Close account management dialog">×</button></header>
+      <p class="dialog-note">Create local operator accounts and grant access to one or more existing organizations. Every new account must pair an authenticator on first login.</p>
+      <div class="account-manager-grid">
+        <section>
+          <div class="section-heading"><h3>LOCAL ACCOUNTS</h3><span id="account-user-count">0 USERS</span></div>
+          <div id="account-user-list" class="account-user-list" aria-live="polite"></div>
+        </section>
+        <form id="account-form">
+          <p class="eyebrow">CREATE OPERATOR</p>
+          <label><span>USERNAME</span><input name="username" minlength="3" maxlength="80" autocomplete="off" required></label>
+          <label><span>INITIAL PASSWORD</span><input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+          <fieldset><legend>ORGANIZATION ACCESS · SELECT ONE OR MORE</legend><div id="account-organizations" class="account-organization-picker"></div></fieldset>
+          <p class="account-enrollment-note"><b>FIRST LOGIN</b>The operator scans a QR code, verifies TOTP, and receives one-use recovery codes.</p>
+          <button class="primary" type="submit">CREATE SECURE ACCOUNT</button>
+        </form>
+      </div>
+      <footer><button type="button" class="secondary" data-close="account-dialog">DONE</button></footer>
+    </div>
+  </dialog>
 
   <dialog id="topology-dialog" class="panel-dialog topology-dialog" aria-labelledby="topology-dialog-title">
     <form id="topology-form" method="dialog">

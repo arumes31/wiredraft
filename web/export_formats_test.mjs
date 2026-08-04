@@ -71,7 +71,8 @@ const engine = {
 };
 const html = buildHTMLDocument(topology, engine, new Date("2026-08-03T19:30:00.000Z"));
 assert.ok(html.startsWith("<!doctype html>"), "HTML export should be a standalone document");
-assert.match(html, /<title>Core &lt;A&gt; &amp; Edge · Netdiagram export<\/title>/, "HTML title must be escaped");
+assert.match(html, /<title>Core &lt;A&gt; &amp; Edge · WireDraft export<\/title>/, "HTML title must be escaped");
+assert.match(html, /WIREDRAFT · STANDALONE EXPORT/, "HTML exports must carry the WireDraft product identity");
 assert.match(html, /<svg role="img" aria-label="Core &lt;A&gt; &amp; Edge network topology"/, "HTML must embed the accessible topology SVG");
 assert.match(html, /<b>0<\/b>RACKS[^]*<b>0<\/b>DEVICES[^]*<b>0<\/b>CABLES[^]*<b>0<\/b>VLANS/, "HTML should include topology totals");
 assert.match(html, /Example Corp \/ Vienna DC1 · Portable physical topology report/,
@@ -215,6 +216,8 @@ const workbook = buildConfigurationDocument(configuredTopology, new Date("2026-0
 assert.ok(workbook.startsWith("<!doctype html>"), "configuration export should be a standalone document");
 assert.match(workbook, /Example Corp \/ Vienna DC1 · Inventory/,
   "configuration workbooks must identify their organization and location");
+assert.match(workbook, /WIREDRAFT · CONFIGURATION WORKBOOK/,
+  "configuration workbooks must carry the WireDraft product identity");
 for (const section of ["Inventory", "Port configuration", "VLAN configuration", "Connected links", "Trunks and link groups", "Switch systems", "Firewall clusters"]) {
   assert.match(workbook, new RegExp(`>${section}<`), `configuration workbook must include ${section}`);
 }

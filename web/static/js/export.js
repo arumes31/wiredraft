@@ -84,7 +84,7 @@ export function buildPDFDocument(jpegBytes, imageWidth, imageHeight, title = "Ne
     appendText(`${number} 0 obj\n${body}\nendobj\n`);
   };
 
-  appendText("%PDF-1.4\n%NETDIAGRAM\n");
+  appendText("%PDF-1.4\n%WIREDRAFT\n");
   appendObject(1, "<< /Type /Catalog /Pages 2 0 R >>");
   appendObject(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
   appendObject(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pdfNumber(pageWidth)} ${pdfNumber(pageHeight)}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
@@ -96,7 +96,7 @@ export function buildPDFDocument(jpegBytes, imageWidth, imageHeight, title = "Ne
   appendText(`5 0 obj\n<< /Length ${content.length} >>\nstream\n`);
   append(content);
   appendText("endstream\nendobj\n");
-  appendObject(6, `<< /Title ${pdfUnicodeString(title)} /Creator ${pdfUnicodeString("Netdiagram")} >>`);
+  appendObject(6, `<< /Title ${pdfUnicodeString(title)} /Creator ${pdfUnicodeString("WireDraft")} >>`);
 
   const xrefOffset = length;
   appendText("xref\n0 7\n0000000000 65535 f \n");
@@ -125,8 +125,8 @@ export function buildHTMLDocument(topology, engine, generatedAt = new Date()) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="generator" content="Netdiagram">
-  <title>${escapeHTML(topology.name)} · Netdiagram export</title>
+  <meta name="generator" content="WireDraft">
+  <title>${escapeHTML(topology.name)} · WireDraft export</title>
   <style>
     :root{color-scheme:dark;--ink:#e9f2f2;--muted:#8ea4a8;--cyan:#4ce2d1;--line:#294247;--panel:#101a1d}
     *{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--ink);background:#071012;background-image:linear-gradient(rgb(76 226 209/.045) 1px,transparent 1px),linear-gradient(90deg,rgb(76 226 209/.045) 1px,transparent 1px);background-size:32px 32px;font-family:Bahnschrift,"DIN Alternate","Arial Narrow",sans-serif}
@@ -143,12 +143,12 @@ export function buildHTMLDocument(topology, engine, generatedAt = new Date()) {
 </head>
 <body>
   <header>
-    <section><p class="eyebrow">NETDIAGRAM · STANDALONE EXPORT</p><h1 class="title">${escapeHTML(topology.name)}</h1><p class="subtitle">${escapeHTML([topology.organization, topology.location].filter(Boolean).join(" / ") || "UNASSIGNED")} · Portable physical topology report · source data embedded</p></section>
+    <section><p class="eyebrow">WIREDRAFT · STANDALONE EXPORT</p><h1 class="title">${escapeHTML(topology.name)}</h1><p class="subtitle">${escapeHTML([topology.organization, topology.location].filter(Boolean).join(" / ") || "UNASSIGNED")} · Portable physical topology report · source data embedded</p></section>
     <section class="stats" aria-label="Topology totals"><span><b>${counts.racks}</b>RACKS</span><span><b>${counts.devices}</b>DEVICES</span><span><b>${counts.links}</b>CABLES</span><span><b>${counts.vlans}</b>VLANS</span></section>
   </header>
   <main>${svg}</main>
   ${documentation ? `<section class="documents"><h2>ATTACHED DOCUMENTATION</h2><div>${documentation}</div></section>` : ""}
-  <footer><span><strong>NETDIAGRAM</strong> · SELF-CONTAINED HTML</span><time datetime="${timestamp}">${timestamp ? `GENERATED ${escapeHTML(timestamp)}` : ""}</time></footer>
+  <footer><span><strong>WIREDRAFT</strong> · SELF-CONTAINED HTML</span><time datetime="${timestamp}">${timestamp ? `GENERATED ${escapeHTML(timestamp)}` : ""}</time></footer>
   <script id="netdiagram-topology" type="application/json">${embeddedTopology}</script>
 </body>
 </html>`;

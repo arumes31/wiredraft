@@ -16,11 +16,14 @@ func TestJSONStoreRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewJSONStore() error = %v", err)
 	}
-	summaries := first.List()
+	summaries, err := first.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(summaries) != 1 {
 		t.Fatalf("List() count = %d, want 1", len(summaries))
 	}
-	if _, err := first.Mutate(summaries[0].ID, func(topology *model.Topology) error {
+	if _, err := first.Mutate(t.Context(), summaries[0].ID, func(topology *model.Topology) error {
 		topology.Name = "Recovered topology"
 		return nil
 	}); err != nil {
@@ -31,7 +34,7 @@ func TestJSONStoreRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen NewJSONStore() error = %v", err)
 	}
-	recovered, err := second.Get(summaries[0].ID)
+	recovered, err := second.Get(t.Context(), summaries[0].ID)
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -45,12 +48,16 @@ func TestJSONStoreConcurrentMutations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := jsonStore.List()[0].ID
+	summaries, err := jsonStore.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := summaries[0].ID
 	var wait sync.WaitGroup
 	for index := range 12 {
 		index := index
 		wait.Go(func() {
-			_, mutationErr := jsonStore.Mutate(id, func(topology *model.Topology) error {
+			_, mutationErr := jsonStore.Mutate(t.Context(), id, func(topology *model.Topology) error {
 				topology.VLANs = append(topology.VLANs, model.VLAN{
 					ID:          100 + index,
 					Name:        fmt.Sprintf("Concurrent %d", index),
@@ -65,7 +72,7 @@ func TestJSONStoreConcurrentMutations(t *testing.T) {
 		})
 	}
 	wait.Wait()
-	topology, err := jsonStore.Get(id)
+	topology, err := jsonStore.Get(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +87,11 @@ func TestJSONStoreAtomicFileAlwaysDecodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := jsonStore.List()[0].ID
+	summaries, err := jsonStore.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := summaries[0].ID
 	root, err := os.OpenRoot(directory)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +102,7 @@ func TestJSONStoreAtomicFileAlwaysDecodes(t *testing.T) {
 		}
 	})
 	for index := range 20 {
-		if _, err := jsonStore.Mutate(id, func(topology *model.Topology) error {
+		if _, err := jsonStore.Mutate(t.Context(), id, func(topology *model.Topology) error {
 			topology.Name = fmt.Sprintf("Atomic %d", index)
 			return nil
 		}); err != nil {

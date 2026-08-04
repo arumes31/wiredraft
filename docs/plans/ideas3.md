@@ -1,4 +1,4 @@
-# Netdiagram — 500 Additional Improvements (Part 3)
+# WireDraft — 500 Additional Improvements (Part 3)
 
 This document continues `ideas1.md` and `ideas2.md` with 500 new, implementation-oriented improvements numbered 1001–1500.
 
@@ -627,7 +627,7 @@ This document continues `ideas1.md` and `ideas2.md` with 500 new, implementation
 
 **1277.** Render desired configuration into FortiOS, Aruba AOS-CX, Cisco IOS-XE/NX-OS, Junos, and EOS syntax.
 
-**1278.** Generate configuration only for fields explicitly managed by Netdiagram.
+**1278.** Generate configuration only for fields explicitly managed by WireDraft.
 
 **1279.** Show a line-by-line candidate configuration diff before export or deployment.
 
@@ -809,7 +809,7 @@ This document continues `ideas1.md` and `ideas2.md` with 500 new, implementation
 
 **1362.** Model mergers and site transfers without changing stable object identity.
 
-**1363.** Add federated read-only references to objects hosted by another Netdiagram instance.
+**1363.** Add federated read-only references to objects hosted by another WireDraft instance.
 
 **1364.** Resolve cross-instance links while keeping each side independently authoritative.
 
@@ -1107,4 +1107,4 @@ This document continues `ideas1.md` and `ideas2.md` with 500 new, implementation
 
 ---
 
-> **Total: 500 ideas (1001–1500)** across 20 additional domains. Combined with `ideas1.md` and `ideas2.md`, the Netdiagram backlog now contains **1,500 numbered ideas**.
+> **Total: 500 ideas (1001–1500)** across 20 additional domains. Combined with `ideas1.md` and `ideas2.md`, the WireDraft backlog now contains **1,500 numbered ideas**.

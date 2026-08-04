@@ -1,6 +1,6 @@
-# Netdiagram
+# WireDraft
 
-Netdiagram is a Go 1.26 standard-library-only HTTP application with a vanilla ES-module frontend.
+WireDraft is a Go 1.26 standard-library-only HTTP application with a vanilla ES-module frontend.
 
 ## Architecture
 
@@ -23,4 +23,4 @@ Netdiagram is a Go 1.26 standard-library-only HTTP application with a vanilla ES
 - `go test -race ./...`
 - `go vet ./...`
 - `go run ./cmd/server`
-- `docker build -t netdiagram:latest .`
+- `docker build -t wiredraft:latest .`

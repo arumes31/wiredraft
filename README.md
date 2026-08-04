@@ -1,6 +1,6 @@
-# Netdiagram
+# WireDraft
 
-Netdiagram is a self-contained browser workstation for designing enterprise rack faceplates, physical port-to-port cabling, and VLAN forwarding maps. One static Go binary embeds the entire application and persists each topology as an atomically replaced JSON file.
+WireDraft is a browser workstation for designing enterprise rack faceplates, physical port-to-port cabling, and VLAN forwarding maps. One static Go binary embeds the application while PostgreSQL durably stores topology aggregates and authentication state.
 
 Its native dialogs, export popover, and status toasts share a responsive industrial control-panel design with sticky actions, accessible titles, visible focus states, and reduced-motion support.
 
@@ -8,44 +8,56 @@ Hovering any cable redraws its complete source-to-target route above neighboring
 
 ## Demo
 
-On first launch, Netdiagram creates a working topology with a carrier handoff, firewall, two 24-port switches, four VLANs, and patched uplinks. Add movable racks, drag hardware into a free whole-U position or leave it free-floating, click one port and then another to install a cable, or select any endpoint to edit its switchport configuration.
+On first launch, WireDraft creates a working topology with a carrier handoff, firewall, two 24-port switches, four VLANs, and patched uplinks. Add movable racks, drag hardware into a free whole-U position or leave it free-floating, click one port and then another to install a cable, or select any endpoint to edit its switchport configuration.
 
 ## Getting started
 
-Requirements: Go 1.26.5 or Docker.
+Requirements: Docker, or Go 1.26.5 with PostgreSQL 14 or later.
+
+Apply the SQL files in `db/migrations` to an empty database, set the standard
+`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD` variables (or
+`DATABASE_URL`), then run:
 
 ```sh
-go run ./cmd/server
+WIREDRAFT_ADMIN_PASSWORD='replace-with-a-long-password' go run ./cmd/server
 ```
 
 Open `http://localhost:8080`. Runtime settings can be supplied as environment variables or flags:
 
+The legacy `NETDIAGRAM_*` environment prefix remains supported as a fallback to avoid breaking existing deployments during the product rename. When both forms are present, `WIREDRAFT_*` takes priority.
+
 | Environment | Flag | Default | Purpose |
 | --- | --- | --- | --- |
 | `PORT` | `-port` | `8080` | HTTP listen port |
-| `DATA_DIR` | `-data-dir` | `data` | JSON topology directory |
+| `DATABASE_URL` | — | standard `PG*` variables | PostgreSQL connection URL |
 | `LOG_LEVEL` | `-log-level` | `info` | `debug`, `info`, `warn`, or `error` |
 | `LOG_FORMAT` | `-log-format` | `json` | `json` or `text` |
+| `WIREDRAFT_ADMIN_USER` | — | `admin` | Environment-controlled bootstrap administrator username |
+| `WIREDRAFT_ADMIN_PASSWORD` | — | required | Bootstrap administrator password (minimum 12 characters) |
+| `WIREDRAFT_ADMIN_TOTP_SECRET` | — | empty | Optional Base32 TOTP secret; empty triggers QR enrollment |
+| `WIREDRAFT_GUEST_ENABLED` | — | `true` | Enables the Guest workspace login |
+| `WIREDRAFT_COOKIE_SECURE` | — | `false` | Restricts the session cookie to HTTPS; enable behind TLS |
 
 Build a static local binary:
 
 ```sh
 make build
-./netdiagram
+./wiredraft
 ```
 
 ## Docker
 
-The final image is `FROM scratch`, runs as numeric user `10001`, and contains only the stripped static binary plus an empty `/data` mount point.
+The WireDraft image is `FROM scratch`, runs as numeric user `10001`, and contains only the stripped static binary. Docker Compose starts a separate PostgreSQL container with a named volume and initializes new databases from `db/migrations`.
 
 ```sh
-mkdir -p data
-# On Linux, ensure UID 10001 can write the bind mount:
-sudo chown 10001:10001 data
+cp .env.example .env
+# Replace POSTGRES_PASSWORD and WIREDRAFT_ADMIN_PASSWORD before startup.
 docker compose up --build
 ```
 
 The container has a built-in health probe; no shell or HTTP client is added to the image.
+
+Pushes to the default branch and `v*` tags publish provenance- and SBOM-attached `linux/amd64` and `linux/arm64` images to `ghcr.io/<owner>/<repository>`. Docker and release builds minify every embedded JavaScript module before Go compilation; Node.js and esbuild remain build-stage-only dependencies and are absent from the scratch runtime image.
 
 ## Features
 
@@ -78,8 +90,9 @@ The container has a built-in health probe; no shell or HTTP client is added to t
 - Server-side native VLAN mismatch, tagged VLAN drop, switching-loop, and forwarding-path analysis; servers remain non-forwarding endpoints when multi-homed.
 - Default-on 30-second autosave with 1/5-minute options, manual save, dirty-title state, optimistic revision checks, and conflict-safe reload of newer shared revisions.
 - Revisioned Server-Sent Events, anchored comment threads, embedded/external HTTP(S) documentation, and cryptographically tokenized revocable read-only shares.
+- Local password + TOTP authentication with encrypted authenticator secrets, one-use recovery codes, opaque host-bound sessions, a default-on Guest workspace for pre-existing maps, and administrator-managed users scoped to one or multiple organizations.
 - Direct A3 PDF, responsive standalone HTML with embedded SVG/source data and documentation links, filterable offline configuration workbook (inventory, ports, VLANs, physical paths, trunks, switch systems, and firewall HA), PNG, standalone SVG, and JSON backup export; JSON restore; keyboard undo/redo and save. Heavy catalog, analysis, and export modules load on demand.
-- Strict JSON decoding, request-size limits, security headers, structured logs, graceful shutdown, and atomic file replacement.
+- Strict JSON decoding, request-size limits, security headers, structured logs, graceful shutdown, database transactions, and optimistic revision checks.
 
 ## HTTP API
 
@@ -96,6 +109,8 @@ pwsh -NoProfile -File scripts/ci-local.ps1
 The command covers formatting and static analysis, race/fuzz/coverage tests, dependency and secret scans, Dockerfile/container scanning, SBOM generation, mutation testing, all supported browsers, accessibility, and visual regression. GitHub additionally runs CodeQL, dependency-diff review, OpenSSF Scorecard, and signed build/SBOM attestations because those gates require GitHub services and OIDC.
 
 For quick development loops, use `-SkipBrowsers` or `-SkipContainers`; do not use those switches for the final pre-review run. Benchmarks remain available through `go test -bench=. -benchmem ./...`.
+
+Build the path-compatible minified JavaScript artifact locally with `npm run minify:js`. The generated module tree, SHA-256/size manifest, and GitHub Actions artifact are written under `.quality-data/minified-js`; readable working-tree files are never overwritten. Docker and supply-chain release builds overlay that generated tree only inside their isolated build workspace before `go:embed` compilation.
 
 ## Contributing
 

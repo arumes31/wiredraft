@@ -111,6 +111,24 @@ textarea { resize: vertical; }
 .autosave-toggle { grid-template-columns: 22px 1fr; align-items: center; min-height: 38px; padding: 8px; border: 1px solid #304348; background: #0b1416; }
 .autosave-toggle input { width: 16px; margin: 0; accent-color: var(--cyan); }
 .autosave-popover button { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+.account-menu { position: relative; min-width: 128px; border-left: 1px solid var(--line); }
+.account-menu > summary { height: 63px; display: flex; align-items: center; gap: 9px; padding: 0 13px; list-style: none; cursor: pointer; }
+.account-menu > summary::-webkit-details-marker { display: none; }
+.account-menu > summary > i { width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid #3d6666; border-radius: 50%; background: #112426; color: var(--cyan); font-family: var(--display); font-size: 11px; font-style: normal; box-shadow: inset 0 0 0 3px #0d191b; }
+.account-menu summary b, .account-menu summary small { display: block; max-width: 86px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-menu summary b { color: #eaffff; font-family: var(--display); font-size: 9px; letter-spacing: .1em; }
+.account-menu summary small { margin-top: 3px; color: var(--cyan); font-family: var(--display); font-size: 7px; letter-spacing: .1em; text-transform: uppercase; }
+.account-popover { position: absolute; top: calc(100% + 10px); right: 0; z-index: 30; width: 265px; display: grid; gap: 5px; padding: 10px; border: 1px solid #3b5157; border-radius: 14px; background: linear-gradient(155deg, rgb(27 41 45 / 98%), rgb(12 19 21 / 98%)); box-shadow: 0 24px 65px rgb(0 0 0 / 58%); }
+.account-popover p { margin: 0 3px 5px; padding: 4px 3px 11px; border-bottom: 1px solid #314348; }
+.account-popover p span, .account-popover p b { display: block; font-family: var(--display); }
+.account-popover p span { color: var(--cyan); font-size: 8px; letter-spacing: .17em; }
+.account-popover p b { margin-top: 4px; color: white; font-size: 12px; letter-spacing: .08em; }
+.account-popover button { min-height: 49px; display: grid; gap: 3px; align-content: center; border: 0; border-radius: 8px; text-align: left; background: transparent; }
+.account-popover button:hover { background: #203236; box-shadow: inset 2px 0 var(--cyan); }
+.account-popover button b, .account-popover button small { display: block; }
+.account-popover button b { font-size: 10px; }
+.account-popover button small { color: var(--muted); font-family: var(--body); font-size: 8px; font-weight: 400; }
+.account-popover button.danger b { color: var(--red); }
 @keyframes save-spin { to { transform: rotate(360deg); } }
 .export-menu { position: relative; }
 .export-menu summary { list-style: none; border: 1px solid var(--line); border-radius: 8px; background: #172125; min-height: 34px; padding: 10px 32px 0 12px; cursor: pointer; font-family: var(--display); font-weight: 700; letter-spacing: .08em; transition: border-color .16s ease, background .16s ease, color .16s ease; }
@@ -606,6 +624,27 @@ dialog { color: var(--ink); }
 .vlan-manager-row b { color: var(--vlan-color); font-family: var(--display); }
 .vlan-manager-row span { font-size: 11px; }
 .vlan-manager-row button { min-height: 26px; padding: 0 7px; }
+.account-manager-grid { display: grid; grid-template-columns: 1.15fr .85fr; min-height: 430px; }
+.account-manager-grid > section { min-width: 0; padding: 20px var(--modal-gutter); border-right: 1px solid var(--line); }
+.account-manager-grid > form { display: grid; align-content: start; gap: 12px; padding: 20px var(--modal-gutter); }
+.account-manager-grid > form > label { margin: 0; }
+.account-manager-grid fieldset { min-width: 0; margin: 2px 0 0; padding: 10px; border: 1px solid #33494e; }
+.account-manager-grid legend { padding: 0 6px; color: var(--muted); font-family: var(--display); font-size: 8px; letter-spacing: .12em; }
+.account-user-list { display: grid; gap: 8px; max-height: 390px; overflow: auto; padding-right: 4px; }
+.account-user-row { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 10px; border: 1px solid #304348; border-left: 2px solid var(--cyan-dim); border-radius: 9px; background: linear-gradient(100deg, #111d20, #0c1517); }
+.account-user-row.is-disabled { opacity: .58; border-left-color: var(--red); }
+.account-user-row > i { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid #426267; border-radius: 50%; color: var(--cyan); font-family: var(--display); font-size: 10px; font-style: normal; }
+.account-user-row b, .account-user-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-user-row b { color: #e7f3f2; font-family: var(--display); font-size: 10px; letter-spacing: .07em; }
+.account-user-row small { margin-top: 3px; color: #82999b; font-size: 8px; }
+.account-user-row em { display: inline-block; margin-top: 5px; padding: 2px 5px; border: 1px solid #385356; color: var(--cyan); font-family: var(--display); font-size: 7px; font-style: normal; letter-spacing: .08em; }
+.account-user-row button { min-height: 28px; padding-inline: 8px; font-size: 8px; }
+.account-organization-picker { display: grid; gap: 6px; max-height: 150px; overflow: auto; }
+.account-organization-picker label { min-width: 0; display: grid; grid-template-columns: 17px 1fr; align-items: center; gap: 8px; min-height: 33px; padding: 6px 8px; border: 1px solid #293d41; background: #0c1517; }
+.account-organization-picker input { width: 15px; margin: 0; accent-color: var(--cyan); }
+.account-organization-picker span { overflow: hidden; margin: 0; color: #bed0d0; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.account-enrollment-note { margin: 2px 0; padding: 10px 11px; border-left: 2px solid var(--amber); background: rgb(240 179 90 / 5%); color: #8fa3a4; font-size: 9px; line-height: 1.5; }
+.account-enrollment-note b { display: block; margin-bottom: 3px; color: var(--amber); font-family: var(--display); font-size: 8px; letter-spacing: .12em; }
 
 @keyframes modal-enter {
   from { opacity: 0; }
@@ -629,11 +668,24 @@ dialog { color: var(--ink); }
   .server-card-workbench { grid-template-columns: 1fr; }
   .server-card-editor { border-right: 0; border-bottom: 1px solid var(--line); }
   .server-builder-basics { grid-template-columns: 1fr 1fr; }
+	.account-menu { min-width: 52px; }
+	.account-menu > summary { padding-inline: 11px; }
+	.account-menu > summary span { display: none; }
 }
 @media (max-width: 1600px) {
   .toolbar #fit-button, .toolbar #trace-button { display: none; }
-  .brand { width: 235px; }
-  .topology-picker { width: 200px; }
+  .brand { width: 210px; padding-inline: 13px; }
+  .topology-picker { width: 180px; }
+  .toolbar { gap: 3px; padding-inline: 6px; }
+  .toolbar button, .toolbar summary { padding-inline: 7px; }
+  .autosave-menu { min-width: 50px; }
+  .autosave-menu > summary { justify-content: center; padding-inline: 10px; }
+  .autosave-menu > summary span { display: none; }
+  .account-menu { min-width: 52px; }
+  .account-menu > summary { justify-content: center; padding-inline: 10px; }
+  .account-menu > summary span { display: none; }
+  .connection-status { min-width: 40px; justify-content: center; padding-inline: 10px; }
+  .connection-status b { display: none; }
 }
 @media (max-width: 780px) {
   .workspace { grid-template-columns: 1fr; }
@@ -669,6 +721,8 @@ dialog { color: var(--ink); }
   .switch-system-member-picker { grid-template-columns: 1fr; }
   .switch-member-option { border-right: 0; }
   .vlan-manager { grid-template-columns: 1fr; }
+	.account-manager-grid { grid-template-columns: 1fr; }
+	.account-manager-grid > section { border-right: 0; border-bottom: 1px solid var(--line); }
   .vlan-manager > div { border-right: 0; border-bottom: 1px solid var(--line); }
   .vlan-manager form .eyebrow { margin-left: var(--modal-gutter); }
   .server-card-editor, .server-preview-panel { padding-inline: var(--modal-gutter); }

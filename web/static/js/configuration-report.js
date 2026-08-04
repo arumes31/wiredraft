@@ -169,7 +169,7 @@ export function buildConfigurationDocument(topology, generatedAt = new Date()) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="generator" content="Netdiagram">
+  <meta name="generator" content="WireDraft">
   <title>${escapeHTML(topology?.name || "Network topology")} · Configuration workbook</title>
   <style>
     :root{color-scheme:dark;--paper:#081012;--panel:#101a1d;--ink:#e8f3f2;--muted:#84999c;--line:#2b4146;--cyan:#48dfcf;--amber:#efb25d;--red:#fa746b}
@@ -187,7 +187,7 @@ export function buildConfigurationDocument(topology, generatedAt = new Date()) {
 </head>
 <body>
   <header class="masthead">
-    <div><p class="eyebrow">NETDIAGRAM · CONFIGURATION WORKBOOK</p><h1>${escapeHTML(topology?.name || "Network topology")}</h1><p class="sub">${escapeHTML(topologyScope)} · Inventory · interfaces · VLANs · physical paths · trunks · logical systems</p></div>
+    <div><p class="eyebrow">WIREDRAFT · CONFIGURATION WORKBOOK</p><h1>${escapeHTML(topology?.name || "Network topology")}</h1><p class="sub">${escapeHTML(topologyScope)} · Inventory · interfaces · VLANs · physical paths · trunks · logical systems</p></div>
     <div class="revision"><span>TOPOLOGY REVISION <b>${escapeHTML(topology?.revision ?? "—")}</b></span><span>GENERATED <b>${escapeHTML(timestamp || "—")}</b></span></div>
   </header>
   <section class="summary" aria-label="Configuration totals">
@@ -198,7 +198,7 @@ export function buildConfigurationDocument(topology, generatedAt = new Date()) {
     <nav class="contents" aria-label="Workbook contents"><h2>REGISTER INDEX</h2>${sections.map((section) => `<a href="#${section.id}"><span>${escapeHTML(section.title)}</span><b>${section.count}</b></a>`).join("")}</nav>
     <main>${sections.map((section) => section.html).join("")}</main>
   </div>
-  <footer><span><strong>NETDIAGRAM</strong> · OFFLINE CONFIGURATION WORKBOOK</span><span>SOURCE TOPOLOGY EMBEDDED FOR AUDIT</span></footer>
+  <footer><span><strong>WIREDRAFT</strong> · OFFLINE CONFIGURATION WORKBOOK</span><span>SOURCE TOPOLOGY EMBEDDED FOR AUDIT</span></footer>
   <script id="netdiagram-topology" type="application/json">${sourceData}</script>
   <script>
     const filter=document.querySelector('#filter');

@@ -36,28 +36,40 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Build minified embedded modules
+        run: |
+          npm ci --ignore-scripts
+          npm run minify:js
+          cp -R .quality-data/minified-js/. web/static/js/
+          rm web/static/js/manifest.json
       - name: Build reproducible Linux binaries
         run: |
           mkdir -p dist
+          cp .quality-data/minified-js/manifest.json dist/minified-js-manifest.json
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build \
               -trimpath -ldflags="-s -w -buildid=" \
-              -o "dist/netdiagram-linux-$arch" ./cmd/server
+              -o "dist/wiredraft-linux-$arch" ./cmd/server
           done
-          (cd dist && sha256sum netdiagram-linux-* > SHA256SUMS)
+          (cd dist && sha256sum wiredraft-linux-* > SHA256SUMS)
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           path: dist
           format: spdx-json
-          output-file: dist/netdiagram.spdx.json
+          output-file: dist/wiredraft.spdx.json
           syft-version: v1.50.0
           upload-artifact: false
           upload-release-assets: false
       - name: Upload binaries and SBOM
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: netdiagram-linux
+          name: wiredraft-linux
           path: dist/
           if-no-files-found: error
           retention-days: 30
@@ -71,4 +83,53 @@ jobs:
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-checksums: dist/SHA256SUMS
-          sbom-path: dist/netdiagram.spdx.json
+          sbom-path: dist/wiredraft.spdx.json
+
+  container:
+    name: Publish multi-architecture GHCR image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # Publish the resulting image to this repository's GHCR package.
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate image tags and labels
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and publish image
+        id: publish
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          annotations: ${{ steps.metadata.outputs.annotations }}
+          cache-from: type=gha,scope=ghcr-image
+          cache-to: type=gha,mode=max,scope=ghcr-image
+          provenance: mode=max
+          sbom: true

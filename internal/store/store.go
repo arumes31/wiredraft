@@ -2,6 +2,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 
 	"netdiagram/internal/model"
@@ -32,10 +33,9 @@ func (e *RevisionConflictError) Unwrap() error {
 
 // Store defines durable operations on complete topology aggregates.
 type Store interface {
-	List() []model.Summary
-	Get(id string) (model.Topology, error)
-	Create(topology model.Topology) (model.Topology, error)
-	Mutate(id string, mutation func(*model.Topology) error) (model.Topology, error)
-	MutateAtRevision(id string, expectedRevision uint64, mutation func(*model.Topology) error) (model.Topology, error)
-	SaveToDisk(id string) error
+	List(ctx context.Context) ([]model.Summary, error)
+	Get(ctx context.Context, id string) (model.Topology, error)
+	Create(ctx context.Context, topology model.Topology) (model.Topology, error)
+	Mutate(ctx context.Context, id string, mutation func(*model.Topology) error) (model.Topology, error)
+	MutateAtRevision(ctx context.Context, id string, expectedRevision uint64, mutation func(*model.Topology) error) (model.Topology, error)
 }

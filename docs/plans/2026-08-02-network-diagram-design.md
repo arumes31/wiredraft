@@ -2,7 +2,7 @@
 
 ## Product direction
 
-Netdiagram is a self-contained network rack and VLAN design workstation. It runs as one static Go binary and serves a browser application with no remote assets, package manager, database, or JavaScript build step. The interface uses an industrial network-operations aesthetic: graphite rack metal, phosphor-cyan instrumentation, amber warnings, compact technical typography, and deliberately dense controls suited to infrastructure work.
+WireDraft is a self-contained network rack and VLAN design workstation. It runs as one static Go binary and serves a browser application with no remote assets, package manager, database, or JavaScript build step. The interface uses an industrial network-operations aesthetic: graphite rack metal, phosphor-cyan instrumentation, amber warnings, compact technical typography, and deliberately dense controls suited to infrastructure work.
 
 ## Architecture
 

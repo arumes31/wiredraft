@@ -177,20 +177,36 @@ jobs:
         with:
           context: .
           load: true
-          tags: netdiagram:ci
+          tags: wiredraft:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Verify container health
         run: |
-          docker run --detach --name netdiagram-ci netdiagram:ci
+          docker run --detach --name wiredraft-ci --publish 127.0.0.1:18080:8080 \
+            --env WIREDRAFT_ADMIN_PASSWORD='WireDraft-Smoke-Only-2026!' wiredraft:ci
           for attempt in {1..20}; do
-            if docker exec netdiagram-ci /netdiagram -healthcheck; then
+            if docker exec wiredraft-ci /wiredraft -healthcheck; then
               exit 0
             fi
             sleep 1
           done
-          docker logs netdiagram-ci
+          docker logs wiredraft-ci
           exit 1
+      - name: Verify embedded JavaScript is minified
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:18080/js/app.js --output /tmp/app.js
+          source_bytes=$(wc -c < web/static/js/app.js)
+          served_bytes=$(wc -c < /tmp/app.js)
+          if (( served_bytes >= source_bytes )); then
+            echo "embedded app.js is not minified: source=${source_bytes}, served=${served_bytes}" >&2
+            exit 1
+          fi
+          manifest_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --max-redirs 0 http://127.0.0.1:18080/js/manifest.json)
+          if [[ "$manifest_status" != "303" && "$manifest_status" != "404" ]]; then
+            echo "minification manifest is unexpectedly public: HTTP ${manifest_status}" >&2
+            exit 1
+          fi
       - name: Remove smoke-test container
         if: always()
-        run: docker rm --force netdiagram-ci 2>/dev/null || true
+        run: docker rm --force --volumes wiredraft-ci 2>/dev/null || true

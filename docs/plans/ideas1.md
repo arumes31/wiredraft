@@ -1,6 +1,6 @@
-# Netdiagram — 500 Ideas, Improvements & Fixes
+# WireDraft — 500 Ideas, Improvements & Fixes
 
-> Generated 2026-08-03. Each item is a discrete actionable idea for the Netdiagram network-diagram workstation.
+> Generated 2026-08-03. Each item is a discrete actionable idea for the WireDraft network-diagram workstation.
 
 ---
 

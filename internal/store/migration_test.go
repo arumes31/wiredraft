@@ -44,10 +44,14 @@ func TestLegacyTopologyFixturesLoadAndNormalize(t *testing.T) {
 			if err != nil {
 				t.Fatalf("legacy fixture no longer loads: %v", err)
 			}
-			if len(jsonStore.List()) != 1 {
-				t.Fatalf("loaded summaries = %d, want 1", len(jsonStore.List()))
+			summaries, err := jsonStore.List(t.Context())
+			if err != nil {
+				t.Fatal(err)
 			}
-			topology, err := jsonStore.Get(jsonStore.List()[0].ID)
+			if len(summaries) != 1 {
+				t.Fatalf("loaded summaries = %d, want 1", len(summaries))
+			}
+			topology, err := jsonStore.Get(t.Context(), summaries[0].ID)
 			if err != nil {
 				t.Fatal(err)
 			}

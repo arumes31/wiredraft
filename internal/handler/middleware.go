@@ -36,20 +36,7 @@ func (w *statusWriter) Write(data []byte) (int, error) {
 }
 
 func middleware(next http.Handler, logger *slog.Logger) http.Handler {
-	return recoverRequests(logger, logRequests(logger, secureHeaders(cors(next))))
-}
-
-func cors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		if request.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, request)
-	})
+	return recoverRequests(logger, logRequests(logger, secureHeaders(next)))
 }
 
 func secureHeaders(next http.Handler) http.Handler {

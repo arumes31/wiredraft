@@ -11,8 +11,8 @@ $ProgressPreference = 'SilentlyContinue'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $qualityDirectory = Join-Path $repositoryRoot '.quality-data'
 $coverageFile = Join-Path $qualityDirectory 'go-coverage.out'
-$containerName = 'netdiagram-ci-' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
-$imageName = 'netdiagram:ci-local'
+$containerName = 'wiredraft-ci-' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
+$imageName = 'wiredraft:ci-local'
 $gitExecutable = (Get-Command git -ErrorAction Stop).Source
 $gitRoot = Split-Path -Parent (Split-Path -Parent $gitExecutable)
 $gitBash = Join-Path $gitRoot 'bin\bash.exe'
@@ -67,6 +67,16 @@ Invoke-Gate 'JavaScript syntax' {
         }
     }
 }
+Invoke-Gate 'Minified JavaScript artifact' { npm run minify:js }
+Invoke-Gate 'Minified JavaScript syntax' {
+    $minifiedFiles = Get-ChildItem -LiteralPath .quality-data/minified-js -Recurse -File -Filter '*.js'
+    foreach ($file in $minifiedFiles) {
+        node --check $file.FullName
+        if ($LASTEXITCODE -ne 0) {
+            break
+        }
+    }
+}
 Invoke-Gate 'Frontend unit coverage' { npm run test:coverage }
 Invoke-Gate 'Mutation smoke test' { & $gitBash scripts/mutation-smoke.sh }
 Invoke-Gate 'GitHub Actions syntax' { go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 }
@@ -85,11 +95,12 @@ if (-not $SkipContainers) {
     }
     Invoke-Gate 'Container build' { docker build --tag $imageName . }
     try {
-        Invoke-Gate 'Container health' {
-            docker run --detach --name $containerName $imageName
+        Invoke-Gate 'Container health and minified assets' {
+            docker run --detach --name $containerName --publish '127.0.0.1::8080' `
+                --env 'WIREDRAFT_ADMIN_PASSWORD=WireDraft-Smoke-Only-2026!' $imageName
             $healthy = $false
             foreach ($attempt in 1..20) {
-                docker exec $containerName /netdiagram -healthcheck *> $null
+                docker exec $containerName /wiredraft -healthcheck *> $null
                 if ($LASTEXITCODE -eq 0) {
                     $healthy = $true
                     break
@@ -100,14 +111,36 @@ if (-not $SkipContainers) {
                 docker logs $containerName
                 throw 'Container did not become healthy'
             }
+
+            $endpoint = (docker port $containerName 8080/tcp | Select-Object -First 1).Trim()
+            if (-not $endpoint) {
+                throw 'Container did not publish its HTTP endpoint'
+            }
+            $client = [System.Net.Http.HttpClient]::new()
+            try {
+                $served = $client.GetByteArrayAsync("http://$endpoint/js/app.js").GetAwaiter().GetResult()
+                $source = [System.IO.File]::ReadAllBytes((Join-Path $repositoryRoot 'web/static/js/app.js'))
+                $expected = [System.IO.File]::ReadAllBytes((Join-Path $qualityDirectory 'minified-js/app.js'))
+                $servedHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($served))
+                $expectedHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($expected))
+                if ($servedHash -ne $expectedHash) {
+                    throw 'Container app.js does not match the locked minification output'
+                }
+                if ($served.Length -ge $source.Length) {
+                    throw 'Container app.js is not smaller than its readable source'
+                }
+            }
+            finally {
+                $client.Dispose()
+            }
         }
     }
     finally {
-        docker rm --force $containerName *> $null
+        docker rm --force --volumes $containerName *> $null
     }
     Invoke-Gate 'Trivy filesystem scan' {
         docker run --rm --volume "${repositoryRoot}:/workspace:ro" `
-            --volume netdiagram-trivy-cache:/root/.cache/trivy --workdir /workspace `
+            --volume wiredraft-trivy-cache:/root/.cache/trivy --workdir /workspace `
             aquasec/trivy@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c `
             filesystem --scanners vuln,secret,misconfig --severity HIGH,CRITICAL `
             --skip-dirs node_modules --skip-dirs graphify-out --skip-dirs .quality-data `
@@ -116,7 +149,7 @@ if (-not $SkipContainers) {
     }
     Invoke-Gate 'Trivy container scan' {
         docker run --rm --volume /var/run/docker.sock:/var/run/docker.sock `
-            --volume netdiagram-trivy-cache:/root/.cache/trivy `
+            --volume wiredraft-trivy-cache:/root/.cache/trivy `
             aquasec/trivy@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c `
             image --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed `
             --skip-version-check --exit-code 1 $imageName
@@ -124,8 +157,8 @@ if (-not $SkipContainers) {
     Invoke-Gate 'SPDX SBOM generation' {
         docker run --rm --volume "${repositoryRoot}:/workspace" --workdir /workspace `
             anchore/syft@sha256:1288ea4c8b38767b4e620c1e312c8cb26b6e887a99b4f07ab6cd19fc6f225026 `
-            "dir:/workspace" --source-name netdiagram --source-version local `
-            -o "spdx-json=/workspace/.quality-data/netdiagram.spdx.json"
+            "dir:/workspace" --source-name wiredraft --source-version local `
+            -o "spdx-json=/workspace/.quality-data/wiredraft.spdx.json"
     }
 }
 

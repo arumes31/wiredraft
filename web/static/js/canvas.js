@@ -1424,7 +1424,7 @@ export class CanvasEngine {
 
   drawDeviceIdentity(ctx, device, box, template) {
     ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
-	const vendor = device.faceplate.vendor || "NETDIAGRAM";
+	const vendor = device.faceplate.vendor || "WIREDRAFT";
 	ctx.fillStyle = template.accent;
 	ctx.font = "700 8px Bahnschrift Condensed, sans-serif";
 	ctx.fillText(vendor.toUpperCase(), box.x + 31, box.y + 18, 125);

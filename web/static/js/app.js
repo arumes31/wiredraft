@@ -59,6 +59,9 @@ const elements = Object.fromEntries([
   "topology-tree", "topology-size-warning", "topology-minimap", "annotation-dialog", "annotation-form",
   "resources-dialog", "documentation-list", "documentation-form", "documentation-preview",
   "share-list", "share-form", "resource-target",
+  "account-menu", "account-name", "account-role", "account-avatar", "account-scope",
+  "manage-users-button", "account-dialog", "account-form", "account-user-list",
+  "account-user-count", "account-organizations",
 ].map((id) => [id, document.getElementById(id)]));
 
 const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state, {
@@ -100,6 +103,7 @@ let analysisUIModulePromise = null;
 let shareEntries = [];
 let createdShareURL = "";
 let topologySummaries = [];
+let sessionInfo = null;
 
 let pendingServerCards = [];
 let serverCardSequence = 0;
@@ -137,6 +141,13 @@ initialize().catch(showError);
 
 async function initialize() {
   elements["loading-skeleton"].hidden = false;
+  sessionInfo = await api.authStatus();
+  if (!sessionInfo.authenticated) {
+    window.location.replace("/login");
+    return;
+  }
+  api.setCSRFToken(sessionInfo.csrfToken);
+  renderAccountSession();
   topologySummaries = await api.listTopologies();
   fillTopologySelect(topologySummaries);
   if (!topologySummaries.length) {
@@ -196,13 +207,19 @@ function rememberTopologyID(id) {
 
 function openTopologyDialog() {
   const form = elements["topology-form"];
+  const isGuest = sessionInfo?.role === "guest";
   form.reset();
   form.dataset.mode = "create";
   form.elements.name.value = nextMapName(topologySummaries);
-  form.elements.organization.value = state.topology?.organization || organizationLocationOptions(topologySummaries)[0]?.organization || "";
+  form.elements.organization.value = isGuest
+    ? "Guest"
+    : state.topology?.organization || organizationLocationOptions(topologySummaries)[0]?.organization || "";
+  form.elements.organization.readOnly = isGuest;
   form.elements.location.value = "";
   elements["topology-dialog-title"].textContent = "CREATE NETWORK MAP";
-  elements["topology-dialog-note"].textContent = "Create an independent topology inside one organization and location.";
+  elements["topology-dialog-note"].textContent = isGuest
+    ? "Create an independent map in the Guest workspace. Add a location label for easier navigation."
+    : "Create an independent topology inside one organization and location.";
   elements["map-template-field"].hidden = false;
   elements["topology-submit-button"].value = "create";
   elements["topology-submit-button"].textContent = "CREATE + OPEN MAP";
@@ -214,19 +231,23 @@ function openTopologyDialog() {
 function openEditTopologyDialog() {
   if (!state.topology) return;
   const form = elements["topology-form"];
+  const isGuest = sessionInfo?.role === "guest";
   form.reset();
   form.dataset.mode = "edit";
   form.elements.name.value = state.topology.name || "";
   form.elements.organization.value = state.topology.organization || "";
+  form.elements.organization.readOnly = isGuest;
   form.elements.location.value = state.topology.location || "";
   elements["topology-dialog-title"].textContent = "EDIT MAP ASSIGNMENT";
-  elements["topology-dialog-note"].textContent = "Assign this map to one organization and one of its locations. An organization may own any number of locations.";
+  elements["topology-dialog-note"].textContent = isGuest
+    ? "Guest access can rename this map and its location; organization ownership remains unchanged."
+    : "Assign this map to one organization and one of its locations. An organization may own any number of locations.";
   elements["map-template-field"].hidden = true;
   elements["topology-submit-button"].value = "save";
   elements["topology-submit-button"].textContent = "SAVE MAP ASSIGNMENT";
   refreshTopologyScopeOptions(form.elements.organization.value);
   elements["topology-dialog"].showModal();
-  requestAnimationFrame(() => form.elements.organization.focus());
+  requestAnimationFrame(() => (isGuest ? form.elements.location : form.elements.organization).focus());
 }
 
 function refreshTopologyScopeOptions(selectedOrganization = "") {
@@ -298,7 +319,7 @@ function renderTopology() {
   document.getElementById("device-count-stat").title = `${logicalCount} logical units · ${topology.devices.length} physical devices`;
   elements["link-count"].textContent = topology.links.length;
   elements["vlan-count"].textContent = topology.vlans.length;
-  document.title = `${autosave.isDirty ? "● " : ""}${topology.name} · Netdiagram`;
+  document.title = `${autosave.isDirty ? "● " : ""}${topology.name} · WireDraft`;
   elements["vlan-palette"].replaceChildren(...topology.vlans.map((vlan) => {
     const row = document.createElement("div");
     row.className = "vlan-chip";
@@ -348,7 +369,7 @@ function renderSaveStatus(status = autosave) {
   elements["autosave-menu"].querySelector("small").textContent = status.enabled ? `AUTO · ${status.intervalSeconds}s` : "AUTOSAVE OFF";
   elements["autosave-enabled"].checked = status.enabled;
   elements["autosave-interval"].value = String(status.intervalSeconds);
-  if (state.topology) document.title = `${status.isDirty ? "● " : ""}${state.topology.name} · Netdiagram`;
+  if (state.topology) document.title = `${status.isDirty ? "● " : ""}${state.topology.name} · WireDraft`;
 }
 
 function loadGraphicsMode() {
@@ -833,6 +854,10 @@ function bindControls() {
   document.getElementById("vlan-button").addEventListener("click", () => elements["vlan-modal"].showModal());
   document.getElementById("trace-button").addEventListener("click", () => elements["trace-dialog"].showModal());
   document.getElementById("resources-button").addEventListener("click", () => openResources().catch(showError));
+  elements["manage-users-button"].addEventListener("click", () => openAccountDialog().catch(showError));
+  document.getElementById("logout-button").addEventListener("click", () => logout().catch(showError));
+  elements["account-form"].addEventListener("submit", (event) => createAccount(event).catch(showError));
+  elements["account-user-list"].addEventListener("click", (event) => updateAccountState(event).catch(showError));
   document.getElementById("undo-button").addEventListener("click", () => undo());
   document.getElementById("redo-button").addEventListener("click", () => redo());
   document.getElementById("save-now-button").addEventListener("click", () => saveNow().catch(showError));
@@ -880,6 +905,97 @@ function bindControls() {
   elements["firewall-cluster-form"].addEventListener("submit", saveFirewallCluster);
   elements["firewall-cluster-form"].elements.mode.addEventListener("change", refreshFirewallClusterForm);
   window.addEventListener("keydown", keyboardShortcuts);
+}
+
+function renderAccountSession() {
+  const principal = sessionInfo || {};
+  const username = principal.username || "Operator";
+  elements["account-name"].textContent = username;
+  elements["account-role"].textContent = principal.role || "session";
+  elements["account-avatar"].textContent = username.slice(0, 1).toUpperCase();
+  elements["manage-users-button"].hidden = principal.role !== "admin";
+  elements["account-scope"].textContent = principal.role === "admin"
+    ? "ALL ORGANIZATIONS"
+    : principal.role === "guest" ? "GUEST WORKSPACE" : (principal.organizations || []).join(" · ") || "NO ORGANIZATION";
+}
+
+async function logout() {
+  await api.logout();
+  api.setCSRFToken("");
+  window.location.assign("/login");
+}
+
+async function openAccountDialog() {
+  elements["account-menu"].open = false;
+  const directory = await api.listUsers();
+  renderAccountDirectory(directory);
+  elements["account-form"].reset();
+  elements["account-dialog"].showModal();
+  requestAnimationFrame(() => elements["account-form"].elements.username.focus());
+}
+
+function renderAccountDirectory(directory) {
+  const users = directory.users || [];
+  const organizations = directory.organizations || [];
+  elements["account-user-count"].textContent = `${users.length} ACCOUNT${users.length === 1 ? "" : "S"}`;
+  elements["account-user-list"].replaceChildren(...users.map((user) => {
+    const row = document.createElement("article");
+    row.className = `account-user-row${user.disabled ? " is-disabled" : ""}`;
+    row.dataset.userId = user.id;
+    row.innerHTML = `<i>${escapeHTML(user.username.slice(0, 1).toUpperCase())}</i><span><b>${escapeHTML(user.username)}</b><small>${escapeHTML((user.organizations || []).join(" · ") || "GLOBAL ADMINISTRATOR")}</small><em>${user.totpConfigured ? "TOTP READY" : "ENROLLMENT REQUIRED"}</em></span>${user.role === "admin" ? '<em>BOOTSTRAP ADMIN</em>' : `<button type="button" data-account-toggle="${user.disabled ? "enable" : "disable"}">${user.disabled ? "ENABLE" : "DISABLE"}</button>`}`;
+    row.dataset.organizations = JSON.stringify(user.organizations || []);
+    row.dataset.disabled = String(Boolean(user.disabled));
+    return row;
+  }));
+  elements["account-organizations"].replaceChildren(...organizations.map((organization) => {
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.name = "organizations";
+    checkbox.value = organization;
+    const text = document.createElement("span");
+    text.textContent = organization;
+    label.append(checkbox, text);
+    return label;
+  }));
+}
+
+async function createAccount(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  const organizations = data.getAll("organizations").map(String);
+  if (!organizations.length) {
+    notifications.push("ERROR · Select at least one organization", "error");
+    return;
+  }
+  const submit = form.querySelector('button[type="submit"]');
+  submit.disabled = true;
+  try {
+    const user = await api.createUser({
+      username: String(data.get("username")).trim(),
+      password: String(data.get("password")),
+      organizations,
+    });
+    form.reset();
+    renderAccountDirectory(await api.listUsers());
+    toast(`Account created · ${user.username} must enroll TOTP`);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+async function updateAccountState(event) {
+  const button = event.target.closest("[data-account-toggle]");
+  if (!(button instanceof HTMLButtonElement)) return;
+  const row = button.closest("[data-user-id]");
+  if (!row) return;
+  const disabled = button.dataset.accountToggle === "disable";
+  await api.updateUser(row.dataset.userId, {
+    organizations: JSON.parse(row.dataset.organizations || "[]"), disabled,
+  });
+  renderAccountDirectory(await api.listUsers());
+  toast(`Account ${disabled ? "disabled" : "enabled"}`);
 }
 
 function toggleNavigator() {

@@ -107,14 +107,14 @@ jobs:
         with:
           context: .
           load: true
-          tags: netdiagram:security-scan
+          tags: wiredraft:security-scan
           cache-from: type=gha
       - name: Scan image with Trivy
         id: trivy
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: netdiagram:security-scan
+          image-ref: wiredraft:security-scan
           version: v0.69.3
           scanners: vuln,secret
           severity: HIGH,CRITICAL
@@ -133,4 +133,3 @@ jobs:
       - name: Enforce container scan
         if: always() && steps.trivy.outcome != 'success'
         run: exit 1
-

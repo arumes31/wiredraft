@@ -2,6 +2,7 @@ package store
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,7 +47,7 @@ func NewJSONStore(dataDir string) (*JSONStore, error) {
 		if err != nil {
 			return nil, fmt.Errorf("creating demo topology: %w", err)
 		}
-		if _, err := store.Create(demo); err != nil {
+		if _, err := store.Create(context.Background(), demo); err != nil {
 			return nil, fmt.Errorf("persisting demo topology: %w", err)
 		}
 	}
@@ -54,7 +55,7 @@ func NewJSONStore(dataDir string) (*JSONStore, error) {
 }
 
 // List returns summary snapshots ordered by most recent update.
-func (s *JSONStore) List() []model.Summary {
+func (s *JSONStore) List(_ context.Context) ([]model.Summary, error) {
 	s.mu.RLock()
 	summaries := make([]model.Summary, 0, len(s.topologies))
 	for _, topology := range s.topologies {
@@ -73,11 +74,11 @@ func (s *JSONStore) List() []model.Summary {
 	slices.SortFunc(summaries, func(left, right model.Summary) int {
 		return right.UpdatedAt.Compare(left.UpdatedAt)
 	})
-	return summaries
+	return summaries, nil
 }
 
 // Get returns a defensive snapshot of one topology.
-func (s *JSONStore) Get(id string) (model.Topology, error) {
+func (s *JSONStore) Get(_ context.Context, id string) (model.Topology, error) {
 	s.mu.RLock()
 	topology, exists := s.topologies[id]
 	s.mu.RUnlock()
@@ -92,7 +93,7 @@ func (s *JSONStore) Get(id string) (model.Topology, error) {
 }
 
 // Create validates and durably inserts a topology.
-func (s *JSONStore) Create(topology model.Topology) (model.Topology, error) {
+func (s *JSONStore) Create(_ context.Context, topology model.Topology) (model.Topology, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -117,15 +118,17 @@ func (s *JSONStore) Create(topology model.Topology) (model.Topology, error) {
 
 // Mutate applies one serialized transaction and publishes it only after durable persistence.
 func (s *JSONStore) Mutate(
+	ctx context.Context,
 	id string,
 	mutation func(*model.Topology) error,
 ) (model.Topology, error) {
-	return s.MutateAtRevision(id, 0, mutation)
+	return s.MutateAtRevision(ctx, id, 0, mutation)
 }
 
 // MutateAtRevision applies a mutation only when the persisted revision matches.
 // An expected revision of zero disables the optimistic concurrency precondition.
 func (s *JSONStore) MutateAtRevision(
+	_ context.Context,
 	id string,
 	expectedRevision uint64,
 	mutation func(*model.Topology) error,

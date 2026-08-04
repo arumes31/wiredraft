@@ -10,7 +10,7 @@ Modernize every transient surface without changing topology workflows or JavaScr
 2. **Recessed control panel** — retain the industrial visual language while introducing layered surfaces, rounded precision corners, sticky headers and actions, modern controls, responsive layouts, and restrained motion.
 3. **Full glass overlay** — use highly translucent floating cards and stronger blur throughout. This is visually dramatic but reduces legibility over a dense network map and feels less like physical infrastructure tooling.
 
-The recessed control panel direction is selected because it improves hierarchy and usability while remaining recognizably Netdiagram.
+The recessed control panel direction is selected because it improves hierarchy and usability while remaining recognizably WireDraft.
 
 ## Structure and behavior
 

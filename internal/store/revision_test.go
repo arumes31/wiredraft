@@ -13,12 +13,16 @@ func TestMutateAtRevisionRejectsStaleMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	summary := jsonStore.List()[0]
-	before, err := jsonStore.Get(summary.ID)
+	summaries, err := jsonStore.List(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := jsonStore.MutateAtRevision(before.ID, before.Revision, func(topology *model.Topology) error {
+	summary := summaries[0]
+	before, err := jsonStore.Get(t.Context(), summary.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := jsonStore.MutateAtRevision(t.Context(), before.ID, before.Revision, func(topology *model.Topology) error {
 		topology.Name = "first writer"
 		return nil
 	})
@@ -28,7 +32,7 @@ func TestMutateAtRevisionRejectsStaleMutation(t *testing.T) {
 	if updated.Revision != before.Revision+1 {
 		t.Fatalf("revision = %d, want %d", updated.Revision, before.Revision+1)
 	}
-	_, err = jsonStore.MutateAtRevision(before.ID, before.Revision, func(topology *model.Topology) error {
+	_, err = jsonStore.MutateAtRevision(t.Context(), before.ID, before.Revision, func(topology *model.Topology) error {
 		topology.Name = "stale writer"
 		return nil
 	})
@@ -36,7 +40,7 @@ func TestMutateAtRevisionRejectsStaleMutation(t *testing.T) {
 	if !errors.As(err, &conflict) || conflict.Expected != before.Revision || conflict.Actual != updated.Revision {
 		t.Fatalf("error = %#v, want revision conflict %d -> %d", err, before.Revision, updated.Revision)
 	}
-	persisted, err := jsonStore.Get(before.ID)
+	persisted, err := jsonStore.Get(t.Context(), before.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

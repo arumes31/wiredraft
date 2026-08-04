@@ -1,4 +1,4 @@
-// Command server runs the netdiagram HTTP application.
+// Command server runs the WireDraft HTTP application.
 package main
 
 import (
@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"netdiagram/internal/auth"
 	"netdiagram/internal/config"
 	"netdiagram/internal/handler"
 	"netdiagram/internal/logger"
@@ -41,9 +42,30 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	topologyStore, err := store.NewJSONStore(cfg.DataDir)
+	databasePool, err := store.OpenDatabase(context.Background(), cfg.DatabaseURL)
 	if err != nil {
-		return fmt.Errorf("opening topology store: %w", err)
+		return err
+	}
+	defer databasePool.Close()
+	topologyStore := store.NewPostgresStore(databasePool)
+	if err := topologyStore.EnsureDemo(context.Background()); err != nil {
+		return fmt.Errorf("initializing topology store: %w", err)
+	}
+	topologySummaries, err := topologyStore.List(context.Background())
+	if err != nil {
+		return fmt.Errorf("listing topologies: %w", err)
+	}
+	existingTopologyIDs := make([]string, len(topologySummaries))
+	for index, summary := range topologySummaries {
+		existingTopologyIDs[index] = summary.ID
+	}
+	authManager, err := auth.NewPostgres(context.Background(), databasePool, auth.Config{
+		AdminUsername: cfg.AdminUsername, AdminPassword: cfg.AdminPassword,
+		AdminTOTPSecret: cfg.AdminTOTPSecret, GuestEnabled: cfg.GuestEnabled,
+		CookieSecure: cfg.CookieSecure,
+	}, existingTopologyIDs)
+	if err != nil {
+		return fmt.Errorf("opening authentication service: %w", err)
 	}
 	static, err := fs.Sub(webassets.Static, "static")
 	if err != nil {
@@ -53,7 +75,7 @@ func run(args []string) error {
 	defer broker.Close()
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           handler.New(topologyStore, broker, appLogger, static),
+		Handler:           handler.NewWithAuth(topologyStore, broker, appLogger, static, authManager),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		IdleTimeout:       60 * time.Second,
@@ -64,7 +86,7 @@ func run(args []string) error {
 	defer stop()
 	serveErrors := make(chan error, 1)
 	go func() {
-		appLogger.Info("server listening", "address", server.Addr, "data_dir", cfg.DataDir)
+		appLogger.Info("server listening", "address", server.Addr)
 		serveErrors <- server.ListenAndServe()
 	}()
 

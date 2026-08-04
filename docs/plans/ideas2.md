@@ -1,4 +1,4 @@
-# Netdiagram — 500 More Ideas, Improvements & Fixes (Part 2)
+# WireDraft — 500 More Ideas, Improvements & Fixes (Part 2)
 
 > Generated 2026-08-04. Ideas 501–1000. Continues from [ideas1.md](ideas1.md).
 
@@ -689,7 +689,7 @@
 
 **810.** Implement event hooks: user-defined actions triggered on topology events (device added, cable patched, VLAN changed).
 
-**811.** Add CLI tool for topology manipulation: `netdiagram-cli create-device`, `netdiagram-cli patch-cable`, etc.
+**811.** Add CLI tool for topology manipulation: `wiredraft-cli create-device`, `wiredraft-cli patch-cable`, etc.
 
 **812.** Implement pipe-friendly JSON output from CLI for integration with jq, scripts, and CI pipelines.
 
@@ -703,9 +703,9 @@
 
 **817.** Add vendor-config import parser: parse Cisco/Fortinet/Aruba configuration files and auto-populate port settings.
 
-**818.** Implement YAML-based topology definition: define topologies as code in YAML and import to Netdiagram.
+**818.** Implement YAML-based topology definition: define topologies as code in YAML and import to WireDraft.
 
-**819.** Add Infrastructure-as-Code sync: bi-directional sync between Netdiagram and Terraform/Ansible definitions.
+**819.** Add Infrastructure-as-Code sync: bi-directional sync between WireDraft and Terraform/Ansible definitions.
 
 **820.** Implement macro recording: record a sequence of UI actions and replay them.
 
@@ -743,7 +743,7 @@
 
 **835.** Implement real-time port status updates: live green/amber/red port indicators from monitoring data.
 
-**836.** Add device reachability ping: built-in ICMP ping from the Netdiagram server to device management IPs.
+**836.** Add device reachability ping: built-in ICMP ping from the WireDraft server to device management IPs.
 
 **837.** Implement traceroute visualization: run traceroute from server and highlight the path on the topology.
 
@@ -1099,4 +1099,4 @@
 
 ---
 
-> **Total: 500 ideas (501–1000)** across 18 new categories complementing ideas1.md. Combined total: **1,000 ideas** covering every aspect of the Netdiagram project.
+> **Total: 500 ideas (501–1000)** across 18 new categories complementing ideas1.md. Combined total: **1,000 ideas** covering every aspect of the WireDraft project.

@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { enterGuestWorkspace } from "./auth-helper.mjs";
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/");
-  await expect(page.locator("#connection-status")).toHaveAttribute("data-state", "online");
+test.beforeEach(async ({ page, request }) => {
+	await enterGuestWorkspace(page, request);
+  await expect(page.locator("#connection-status")).toHaveAttribute("data-state", "online", { timeout: 15_000 });
   await expect(page.locator("#diagram-canvas")).toBeVisible();
 });
 
@@ -23,7 +24,6 @@ test("creates, switches, and remembers another network map", async ({ page, requ
   const originalName = await page.locator("#topology-name").textContent();
   const before = await request.get("/api/v1/topologies").then((response) => response.json());
   const mapName = `E2E ${testInfo.project.name.toUpperCase()} BLANK MAP`;
-  const organization = "E2E NETWORK LABS";
   const location = `${testInfo.project.name.toUpperCase()} LOCATION`;
 
   await page.locator("#add-topology-button").click();
@@ -32,14 +32,15 @@ test("creates, switches, and remembers another network map", async ({ page, requ
   await expect(dialog.locator('[name="template"][value="blank"]')).toBeChecked();
   await expect(dialog.locator('[name="template"][value="demo"]')).toHaveCount(1);
   await dialog.locator('[name="name"]').fill(mapName);
-  await dialog.locator('[name="organization"]').fill(organization);
+  await expect(dialog.locator('[name="organization"]')).toHaveValue("Guest");
+  await expect(dialog.locator('[name="organization"]')).toHaveAttribute("readonly", "");
   await dialog.locator('[name="location"]').fill(location);
   await dialog.locator('button[value="create"]').click();
   await expect(dialog).not.toBeVisible();
   await expect(page.locator("#topology-name")).toHaveText(mapName);
   await expect(page.locator("#rack-count")).toHaveText("0");
   await expect(page.locator("#device-count")).toHaveText("0");
-  await expect(page.locator("#topology-scope")).toHaveText(`${organization} · ${location}`);
+  await expect(page.locator("#topology-scope")).toHaveText(`Guest · ${location}`);
 
   let created;
   await expect.poll(async () => {
@@ -48,17 +49,18 @@ test("creates, switches, and remembers another network map", async ({ page, requ
     return Boolean(created);
   }).toBe(true);
   expect(created).toBeTruthy();
-  expect(created.organization).toBe(organization);
+  expect(created.organization).toBe("Guest");
   expect(created.location).toBe(location);
   await expect(page.locator("#topology-count")).toHaveText(`${before.length + 1} MAPS`);
 
   await page.locator("#edit-topology-button").click();
   await expect(dialog.locator("#map-template-field")).toBeHidden();
-  await expect(dialog.locator('[name="organization"]')).toHaveValue(organization);
+  await expect(dialog.locator('[name="organization"]')).toHaveValue("Guest");
+  await expect(dialog.locator('[name="organization"]')).toHaveAttribute("readonly", "");
   await dialog.locator('[name="location"]').fill(`${location} EDITED`);
   await dialog.locator('button[value="save"]').click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.locator("#topology-scope")).toHaveText(`${organization} · ${location} EDITED`);
+  await expect(page.locator("#topology-scope")).toHaveText(`Guest · ${location} EDITED`);
 
   await page.locator("#topology-select").selectOption(originalID);
   await expect(page.locator("#topology-name")).toHaveText(originalName);
@@ -117,6 +119,13 @@ test("Panel Map explains why zero or one installed panel is insufficient", async
   await expect(page.locator("#patch-panel-map-dialog")).not.toBeVisible();
 
   await page.locator("#topology-select").selectOption(originalID);
+
+  const original = await request.get(`/api/v1/topologies/${encodeURIComponent(originalID)}`).then((result) => result.json());
+  const restoreResponse = await request.put(`/api/v1/topologies/${encodeURIComponent(originalID)}`, {
+    data: original,
+    headers: { "If-Match": `"rev-${original.revision}"` },
+  });
+  expect(restoreResponse.ok()).toBe(true);
 });
 
 test("installs access points and browses the edge device families", async ({ page, request }, testInfo) => {

@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -20,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"netdiagram/internal/auth"
 	"netdiagram/internal/model"
 	"netdiagram/internal/sse"
 	"netdiagram/internal/store"
@@ -31,6 +33,7 @@ type Server struct {
 	broker *sse.Broker
 	logger *slog.Logger
 	static fs.FS
+	auth   *auth.Manager
 }
 
 // New creates the complete application handler.
@@ -40,63 +43,123 @@ func New(
 	logger *slog.Logger,
 	static fs.FS,
 ) http.Handler {
-	server := &Server{store: topologyStore, broker: broker, logger: logger, static: static}
+	return newHandler(topologyStore, broker, logger, static, nil)
+}
+
+// NewWithAuth creates the application handler with local authentication and
+// organization-scoped topology authorization enabled.
+func NewWithAuth(
+	topologyStore store.Store,
+	broker *sse.Broker,
+	logger *slog.Logger,
+	static fs.FS,
+	authManager *auth.Manager,
+) http.Handler {
+	return newHandler(topologyStore, broker, logger, static, authManager)
+}
+
+func newHandler(
+	topologyStore store.Store,
+	broker *sse.Broker,
+	logger *slog.Logger,
+	static fs.FS,
+	authManager *auth.Manager,
+) http.Handler {
+	server := &Server{store: topologyStore, broker: broker, logger: logger, static: static, auth: authManager}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", server.health)
-	mux.HandleFunc("GET /api/v1/topologies", server.listTopologies)
-	mux.HandleFunc("POST /api/v1/topologies", server.createTopology)
-	mux.HandleFunc("GET /api/v1/topologies/{id}", server.getTopology)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}", server.replaceTopology)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/racks", server.createRack)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}/racks/{rackId}", server.updateRack)
-	mux.HandleFunc("DELETE /api/v1/topologies/{id}/racks/{rackId}", server.deleteRack)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/devices", server.createDevice)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}/devices/{deviceId}", server.updateDevice)
-	mux.HandleFunc("DELETE /api/v1/topologies/{id}/devices/{deviceId}", server.deleteDevice)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}/ports/{portId}", server.updatePort)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/links", server.createLink)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/links/bulk", server.createLinks)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}/links/{linkId}/configuration", server.configureLink)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}/links/{linkId}/direction", server.setLinkDirection)
-	mux.HandleFunc("DELETE /api/v1/topologies/{id}/links/{linkId}", server.deleteLink)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/link-groups", server.createLinkGroup)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}/link-groups/{groupId}", server.updateLinkGroup)
-	mux.HandleFunc("DELETE /api/v1/topologies/{id}/link-groups/{groupId}", server.deleteLinkGroup)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/switch-systems", server.createSwitchSystem)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}/switch-systems/{systemId}", server.updateSwitchSystem)
-	mux.HandleFunc("DELETE /api/v1/topologies/{id}/switch-systems/{systemId}", server.deleteSwitchSystem)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/firewall-clusters", server.createFirewallCluster)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}/firewall-clusters/{clusterId}", server.updateFirewallCluster)
-	mux.HandleFunc("DELETE /api/v1/topologies/{id}/firewall-clusters/{clusterId}", server.deleteFirewallCluster)
-	mux.HandleFunc("GET /api/v1/topologies/{id}/vlans", server.listVLANs)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/vlans", server.createVLAN)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}/vlans/{vlanId}", server.updateVLAN)
-	mux.HandleFunc("DELETE /api/v1/topologies/{id}/vlans/{vlanId}", server.deleteVLAN)
-	mux.HandleFunc("GET /api/v1/topologies/{id}/analysis", server.analysis)
-	mux.HandleFunc("GET /api/v1/topologies/{id}/trace", server.trace)
-	mux.HandleFunc("GET /api/v1/topologies/{id}/events", server.events)
-	mux.HandleFunc("GET /api/v1/topologies/{id}/comments", server.listCommentThreads)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/comments", server.createCommentThread)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/comments/{threadId}/replies", server.createCommentReply)
-	mux.HandleFunc("PUT /api/v1/topologies/{id}/comments/{threadId}", server.updateCommentThread)
-	mux.HandleFunc("DELETE /api/v1/topologies/{id}/comments/{threadId}", server.deleteCommentThread)
-	mux.HandleFunc("GET /api/v1/topologies/{id}/documentation-links", server.listDocumentationLinks)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/documentation-links", server.createDocumentationLink)
-	mux.HandleFunc("DELETE /api/v1/topologies/{id}/documentation-links/{linkId}", server.deleteDocumentationLink)
-	mux.HandleFunc("GET /api/v1/topologies/{id}/shares", server.listShareGrants)
-	mux.HandleFunc("POST /api/v1/topologies/{id}/shares", server.createShareGrant)
-	mux.HandleFunc("DELETE /api/v1/topologies/{id}/shares/{shareId}", server.deleteShareGrant)
+	if authManager != nil {
+		mux.HandleFunc("GET /api/v1/auth/status", server.authStatus)
+		mux.HandleFunc("POST /api/v1/auth/login", server.sameOrigin(server.login))
+		mux.HandleFunc("POST /api/v1/auth/totp", server.sameOrigin(server.verifyTOTP))
+		mux.HandleFunc("POST /api/v1/auth/setup", server.sameOrigin(server.completeTOTPSetup))
+		mux.HandleFunc("POST /api/v1/auth/recovery", server.sameOrigin(server.verifyRecoveryCode))
+		mux.HandleFunc("POST /api/v1/auth/guest", server.sameOrigin(server.guestLogin))
+		mux.HandleFunc("POST /api/v1/auth/logout", server.protected(server.logout))
+		mux.HandleFunc("GET /api/v1/admin/users", server.adminOnly(server.listUsers))
+		mux.HandleFunc("POST /api/v1/admin/users", server.adminOnly(server.createUser))
+		mux.HandleFunc("PUT /api/v1/admin/users/{userId}", server.adminOnly(server.updateUser))
+	}
+	protected := func(pattern string, handler http.HandlerFunc) {
+		if authManager != nil {
+			handler = server.protected(handler)
+		}
+		mux.HandleFunc(pattern, handler)
+	}
+	protected("GET /api/v1/topologies", server.listTopologies)
+	protected("POST /api/v1/topologies", server.createTopology)
+	protected("GET /api/v1/topologies/{id}", server.getTopology)
+	protected("PUT /api/v1/topologies/{id}", server.replaceTopology)
+	protected("POST /api/v1/topologies/{id}/racks", server.createRack)
+	protected("PUT /api/v1/topologies/{id}/racks/{rackId}", server.updateRack)
+	protected("DELETE /api/v1/topologies/{id}/racks/{rackId}", server.deleteRack)
+	protected("POST /api/v1/topologies/{id}/devices", server.createDevice)
+	protected("PUT /api/v1/topologies/{id}/devices/{deviceId}", server.updateDevice)
+	protected("DELETE /api/v1/topologies/{id}/devices/{deviceId}", server.deleteDevice)
+	protected("PUT /api/v1/topologies/{id}/ports/{portId}", server.updatePort)
+	protected("POST /api/v1/topologies/{id}/links", server.createLink)
+	protected("POST /api/v1/topologies/{id}/links/bulk", server.createLinks)
+	protected("PUT /api/v1/topologies/{id}/links/{linkId}/configuration", server.configureLink)
+	protected("PUT /api/v1/topologies/{id}/links/{linkId}/direction", server.setLinkDirection)
+	protected("DELETE /api/v1/topologies/{id}/links/{linkId}", server.deleteLink)
+	protected("POST /api/v1/topologies/{id}/link-groups", server.createLinkGroup)
+	protected("PUT /api/v1/topologies/{id}/link-groups/{groupId}", server.updateLinkGroup)
+	protected("DELETE /api/v1/topologies/{id}/link-groups/{groupId}", server.deleteLinkGroup)
+	protected("POST /api/v1/topologies/{id}/switch-systems", server.createSwitchSystem)
+	protected("PUT /api/v1/topologies/{id}/switch-systems/{systemId}", server.updateSwitchSystem)
+	protected("DELETE /api/v1/topologies/{id}/switch-systems/{systemId}", server.deleteSwitchSystem)
+	protected("POST /api/v1/topologies/{id}/firewall-clusters", server.createFirewallCluster)
+	protected("PUT /api/v1/topologies/{id}/firewall-clusters/{clusterId}", server.updateFirewallCluster)
+	protected("DELETE /api/v1/topologies/{id}/firewall-clusters/{clusterId}", server.deleteFirewallCluster)
+	protected("GET /api/v1/topologies/{id}/vlans", server.listVLANs)
+	protected("POST /api/v1/topologies/{id}/vlans", server.createVLAN)
+	protected("PUT /api/v1/topologies/{id}/vlans/{vlanId}", server.updateVLAN)
+	protected("DELETE /api/v1/topologies/{id}/vlans/{vlanId}", server.deleteVLAN)
+	protected("GET /api/v1/topologies/{id}/analysis", server.analysis)
+	protected("GET /api/v1/topologies/{id}/trace", server.trace)
+	protected("GET /api/v1/topologies/{id}/events", server.events)
+	protected("GET /api/v1/topologies/{id}/comments", server.listCommentThreads)
+	protected("POST /api/v1/topologies/{id}/comments", server.createCommentThread)
+	protected("POST /api/v1/topologies/{id}/comments/{threadId}/replies", server.createCommentReply)
+	protected("PUT /api/v1/topologies/{id}/comments/{threadId}", server.updateCommentThread)
+	protected("DELETE /api/v1/topologies/{id}/comments/{threadId}", server.deleteCommentThread)
+	protected("GET /api/v1/topologies/{id}/documentation-links", server.listDocumentationLinks)
+	protected("POST /api/v1/topologies/{id}/documentation-links", server.createDocumentationLink)
+	protected("DELETE /api/v1/topologies/{id}/documentation-links/{linkId}", server.deleteDocumentationLink)
+	protected("GET /api/v1/topologies/{id}/shares", server.listShareGrants)
+	protected("POST /api/v1/topologies/{id}/shares", server.createShareGrant)
+	protected("DELETE /api/v1/topologies/{id}/shares/{shareId}", server.deleteShareGrant)
 	mux.HandleFunc("GET /api/v1/shared/{id}/{token}", server.getSharedTopology)
+	if authManager != nil {
+		mux.HandleFunc("GET /login", server.loginPage)
+	}
 	mux.HandleFunc("GET /{path...}", server.staticFile)
 	return middleware(mux, logger)
 }
 
-func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) health(w http.ResponseWriter, request *http.Request) {
+	if checker, ok := s.store.(interface{ Ping(context.Context) error }); ok {
+		if err := checker.Ping(request.Context()); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "go_version": runtime.Version()})
 }
 
-func (s *Server) listTopologies(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.List())
+func (s *Server) listTopologies(w http.ResponseWriter, request *http.Request) {
+	summaries, err := s.store.List(request.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if s.auth != nil {
+		principal := principalFromRequest(request)
+		summaries = slices.DeleteFunc(summaries, func(summary model.Summary) bool {
+			return !s.auth.CanAccessTopology(principal, summary.ID, summary.Organization)
+		})
+	}
+	writeJSON(w, http.StatusOK, summaries)
 }
 
 type createTopologyRequest struct {
@@ -128,7 +191,25 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 	}
 	topology.Organization = strings.TrimSpace(input.Organization)
 	topology.Location = strings.TrimSpace(input.Location)
-	created, err := s.store.Create(topology)
+	if s.auth != nil {
+		principal := principalFromRequest(request)
+		if principal.IsGuest() {
+			topology.Organization = "Guest"
+			if topology.Location == "" {
+				topology.Location = "Guest Workspace"
+			}
+		} else if !s.auth.CanCreateInOrganization(principal, topology.Organization) {
+			writeError(w, http.StatusForbidden, "organization access denied")
+			return
+		}
+		if principal.IsGuest() {
+			if err := s.auth.AddGuestTopology(request.Context(), topology.ID); err != nil {
+				s.fail(w, err)
+				return
+			}
+		}
+	}
+	created, err := s.store.Create(request.Context(), topology)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -137,7 +218,7 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) getTopology(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.PathValue("id"))
+	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -153,13 +234,24 @@ func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	id := request.PathValue("id")
+	if s.auth != nil {
+		principal := principalFromRequest(request)
+		if !principal.IsGuest() && !s.auth.CanCreateInOrganization(principal, input.Organization) {
+			writeError(w, http.StatusForbidden, "organization access denied")
+			return
+		}
+	}
 	updated, err := s.mutate(request, id, func(current *model.Topology) error {
 		if input.ID != id {
 			return fmt.Errorf("%w: topology id does not match request path", store.ErrInvalid)
 		}
 		createdAt := current.CreatedAt
+		organization := current.Organization
 		*current = input
 		current.CreatedAt = createdAt
+		if s.auth != nil && principalFromRequest(request).IsGuest() {
+			current.Organization = organization
+		}
 		return nil
 	})
 	if err != nil {
@@ -879,7 +971,7 @@ func (s *Server) deleteFirewallCluster(w http.ResponseWriter, request *http.Requ
 }
 
 func (s *Server) listVLANs(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.PathValue("id"))
+	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -974,7 +1066,7 @@ func (s *Server) deleteVLAN(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) analysis(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.PathValue("id"))
+	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -983,7 +1075,7 @@ func (s *Server) analysis(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) trace(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.PathValue("id"))
+	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -1022,7 +1114,7 @@ type updateCommentThreadRequest struct {
 }
 
 func (s *Server) listCommentThreads(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.PathValue("id"))
+	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -1146,7 +1238,7 @@ func (s *Server) deleteCommentThread(w http.ResponseWriter, request *http.Reques
 }
 
 func (s *Server) listDocumentationLinks(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.PathValue("id"))
+	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -1220,7 +1312,7 @@ type shareGrantResponse struct {
 }
 
 func (s *Server) listShareGrants(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.PathValue("id"))
+	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -1302,7 +1394,7 @@ func (s *Server) getSharedTopology(w http.ResponseWriter, request *http.Request)
 		writeError(w, http.StatusNotFound, "share link not found")
 		return
 	}
-	topology, err := s.store.Get(request.PathValue("id"))
+	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "share link not found")
 		return
@@ -1328,7 +1420,7 @@ func (s *Server) getSharedTopology(w http.ResponseWriter, request *http.Request)
 }
 
 func (s *Server) events(w http.ResponseWriter, request *http.Request) {
-	if _, err := s.store.Get(request.PathValue("id")); err != nil {
+	if _, err := s.store.Get(request.Context(), request.PathValue("id")); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -1373,15 +1465,40 @@ func (s *Server) staticFile(w http.ResponseWriter, request *http.Request) {
 	if requested == "." || requested == "" {
 		requested = "index.html"
 	}
+	if s.auth != nil && (requested == "index.html" || path.Ext(requested) == "") {
+		if _, authenticated := s.sessionFromRequest(request); !authenticated {
+			http.Redirect(w, request, "/login", http.StatusSeeOther)
+			return
+		}
+	}
 	data, err := fs.ReadFile(s.static, requested)
 	if err != nil {
 		requested = "index.html"
+		if s.auth != nil {
+			if _, authenticated := s.sessionFromRequest(request); !authenticated {
+				http.Redirect(w, request, "/login", http.StatusSeeOther)
+				return
+			}
+		}
 		data, err = fs.ReadFile(s.static, requested)
 	}
 	if err != nil {
 		writeError(w, http.StatusNotFound, "asset not found")
 		return
 	}
+	s.serveStaticContent(w, request, requested, data)
+}
+
+func (s *Server) serveStaticAsset(w http.ResponseWriter, request *http.Request, requested string) {
+	data, err := fs.ReadFile(s.static, requested)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "asset not found")
+		return
+	}
+	s.serveStaticContent(w, request, requested, data)
+}
+
+func (s *Server) serveStaticContent(w http.ResponseWriter, request *http.Request, requested string, data []byte) {
 	contentType := mime.TypeByExtension(path.Ext(requested))
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
@@ -1401,7 +1518,7 @@ func (s *Server) mutate(request *http.Request, id string, mutation func(*model.T
 	if err != nil {
 		return model.Topology{}, fmt.Errorf("%w: %w", store.ErrInvalid, err)
 	}
-	return s.store.MutateAtRevision(id, expectedRevision, mutation)
+	return s.store.MutateAtRevision(request.Context(), id, expectedRevision, mutation)
 }
 
 func parseExpectedRevision(value string) (uint64, error) {

@@ -1,7 +1,7 @@
 .PHONY: build run test race vet ci-local docker-build docker-run
 
 build:
-	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o netdiagram ./cmd/server
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o wiredraft ./cmd/server
 
 run:
 	go run ./cmd/server
@@ -19,7 +19,7 @@ ci-local:
 	pwsh -NoProfile -File scripts/ci-local.ps1
 
 docker-build:
-	docker build -t netdiagram:latest .
+	docker build -t wiredraft:latest .
 
 docker-run:
 	docker compose up --build

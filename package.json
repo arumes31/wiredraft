@@ -1,8 +1,9 @@
 {
-  "name": "netdiagram-quality",
+  "name": "wiredraft-quality",
   "private": true,
   "type": "module",
   "scripts": {
+    "minify:js": "node scripts/minify-js.mjs --source web/static/js --output .quality-data/minified-js",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "node --test web/*_test.mjs",
     "test:coverage": "c8 --all --include=web/static/js/*.js --exclude=web/static/js/app.js --reporter=text --reporter=lcov --check-coverage --lines=65 --functions=55 --branches=70 node --test web/*_test.mjs",
@@ -15,6 +16,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.62.1",
-    "c8": "^12.0.0"
+    "c8": "^12.0.0",
+    "esbuild": "0.28.1"
   }
 }

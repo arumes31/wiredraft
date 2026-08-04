@@ -1,5 +1,6 @@
 const JSON_HEADERS = { "Content-Type": "application/json" };
 let revisionProvider = () => null;
+let csrfToken = "";
 
 export class APIError extends Error {
   constructor(message, status, details = null) {
@@ -17,9 +18,15 @@ export function revisionHeaders(revision, headers = JSON_HEADERS) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(path, options);
+  const method = String(options.method || "GET").toUpperCase();
+  const headers = { ...(options.headers || {}) };
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && csrfToken) headers["X-CSRF-Token"] = csrfToken;
+  const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
   const body = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
+    if (response.status === 401 && globalThis.location?.pathname !== "/login") {
+      globalThis.location?.assign?.("/login");
+    }
     throw new APIError(body?.error || `Request failed (${response.status})`, response.status, body);
   }
   return body;
@@ -27,6 +34,16 @@ async function request(path, options = {}) {
 
 export const api = {
   setRevisionProvider: (provider) => { revisionProvider = typeof provider === "function" ? provider : () => null; },
+  setCSRFToken: (token) => { csrfToken = typeof token === "string" ? token : ""; },
+  authStatus: () => request("/api/v1/auth/status"),
+  logout: () => request("/api/v1/auth/logout", { method: "POST", headers: {} }),
+  listUsers: () => request("/api/v1/admin/users"),
+  createUser: (input) => request("/api/v1/admin/users", {
+    method: "POST", headers: JSON_HEADERS, body: JSON.stringify(input),
+  }),
+  updateUser: (id, input) => request(`/api/v1/admin/users/${encodeURIComponent(id)}`, {
+    method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(input),
+  }),
   listTopologies: () => request("/api/v1/topologies"),
   getTopology: (id) => request(`/api/v1/topologies/${encodeURIComponent(id)}`),
   createTopology: (input) => request("/api/v1/topologies", {

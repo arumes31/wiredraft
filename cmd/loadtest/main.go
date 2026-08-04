@@ -23,7 +23,7 @@ func main() {
 }
 
 func run() int {
-	baseURL := flag.String("url", "http://127.0.0.1:8080", "netdiagram base URL")
+	baseURL := flag.String("url", "http://127.0.0.1:8080", "WireDraft base URL")
 	duration := flag.Duration("duration", 10*time.Second, "load duration")
 	workers := flag.Int("workers", 16, "concurrent API workers")
 	sseClients := flag.Int("sse", 64, "concurrent SSE connections")

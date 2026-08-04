@@ -1,0 +1,46 @@
+name: Minified JavaScript Artifact
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: minify-js-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  minify:
+    name: Build minified module tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Minify JavaScript module tree
+        run: npm run minify:js
+      - name: Verify minified module syntax
+        run: find .quality-data/minified-js -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Upload minified JavaScript
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wiredraft-minified-js-${{ github.sha }}
+          path: .quality-data/minified-js/
+          if-no-files-found: error
+          retention-days: 14

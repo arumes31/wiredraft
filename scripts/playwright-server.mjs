@@ -3,12 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
-const dataDir = mkdtempSync(join(tmpdir(), "netdiagram-playwright-"));
+const dataDir = mkdtempSync(join(tmpdir(), "wiredraft-playwright-"));
 const executable = process.platform === "win32" ? "go.exe" : "go";
 const child = spawn(executable, ["run", "./cmd/server", "-port", "41817", "-data-dir", dataDir], {
   cwd: new URL("..", import.meta.url),
   stdio: "inherit",
   windowsHide: true,
+  env: {
+    ...process.env,
+    WIREDRAFT_ADMIN_USER: "playwright-admin",
+    WIREDRAFT_ADMIN_PASSWORD: "playwright-only-long-password",
+    WIREDRAFT_GUEST_ENABLED: "true",
+  },
 });
 
 let stopping = false;

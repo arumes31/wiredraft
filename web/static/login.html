@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#071012">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="description" content="Secure access to the WireDraft rack operations bench">
+  <title>WireDraft · Secure Access</title>
+  <link rel="stylesheet" href="/css/login.css">
+</head>
+<body>
+  <canvas id="topology-backdrop" class="topology-backdrop" aria-hidden="true"></canvas>
+  <main class="access-shell">
+    <section class="signal-field" aria-label="WireDraft secure access">
+      <div class="signal-grid" aria-hidden="true"></div>
+      <div class="ambient-build-status" aria-hidden="true"><i></i><span>PROCEDURAL TOPOLOGY ASSEMBLY</span><b>VIEW ONLY</b></div>
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <div><strong>WIREDRAFT</strong><small>RACK OPERATIONS BENCH</small></div>
+      </div>
+      <div class="access-copy">
+        <p class="eyebrow">IDENTITY GATEWAY · LOCAL CONTROL PLANE</p>
+        <h1>Trace every connection.<br><span>Trust every operator.</span></h1>
+        <p>Organization-aware access for physical topology plans, port configuration, structured cabling, and live collaboration.</p>
+      </div>
+      <div class="signal-status" aria-hidden="true">
+        <span><i></i><b>AUTH STORE</b><small>ENCRYPTED</small></span>
+        <span><i></i><b>SECOND FACTOR</b><small>RFC 6238</small></span>
+        <span><i></i><b>SESSION BUS</b><small>HOST BOUND</small></span>
+      </div>
+    </section>
+
+    <section class="access-console">
+      <div class="console-rail" aria-hidden="true"><span>01</span><span>02</span><span>03</span><span>04</span></div>
+      <div class="console-body">
+        <header>
+          <p class="eyebrow" id="access-kicker">OPERATOR AUTHENTICATION</p>
+          <h2 id="access-title">OPEN CONTROL SESSION</h2>
+          <p id="access-description">Use your administrator or organization account.</p>
+        </header>
+
+        <form id="login-form" class="access-step" autocomplete="on">
+          <label><span>ACCOUNT</span><input name="username" type="text" minlength="3" maxlength="80" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus></label>
+          <label><span>PASSWORD</span><input name="password" type="password" minlength="12" maxlength="1024" autocomplete="current-password" required></label>
+          <button class="primary" type="submit"><span>CONTINUE</span><small>PASSWORD CHECK</small></button>
+          <div class="or-divider"><span>OR</span></div>
+          <button id="guest-button" class="guest-button" type="button"><span>ENTER GUEST WORKSPACE</span><small>EXISTING SHARED MAPS</small></button>
+        </form>
+
+        <section id="setup-step" class="access-step enrollment-step" hidden aria-labelledby="setup-title">
+          <div class="step-heading"><span>FIRST LOGIN · REQUIRED</span><h3 id="setup-title">PAIR AN AUTHENTICATOR</h3><p>Scan the QR code with a TOTP app, then enter the current six-digit code.</p></div>
+          <div class="enrollment-grid">
+            <figure><img id="totp-qr" alt="Authenticator enrollment QR code" width="256" height="256"><figcaption>SCAN WITH AUTHENTICATOR APP</figcaption></figure>
+            <div class="manual-secret"><span>MANUAL SETUP CODE</span><code id="totp-secret"></code><button id="copy-secret-button" type="button">COPY CODE</button><small>30 SECOND · 6 DIGIT · SHA-1 TOTP</small></div>
+          </div>
+          <form id="setup-form" class="code-form" autocomplete="one-time-code">
+            <label><span>VERIFY CURRENT CODE</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+            <button class="primary" type="submit"><span>VERIFY + ENABLE</span><small>CREATE RECOVERY CODES</small></button>
+          </form>
+        </section>
+
+        <section id="totp-step" class="access-step" hidden aria-labelledby="totp-title">
+          <div class="step-heading"><span>SECOND FACTOR</span><h3 id="totp-title">VERIFY AUTHENTICATOR</h3><p>Enter the current six-digit code for this WireDraft account.</p></div>
+          <form id="totp-form" class="code-form" autocomplete="one-time-code">
+            <label><span>AUTHENTICATOR CODE</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required autofocus></label>
+            <button class="primary" type="submit"><span>OPEN SESSION</span><small>VERIFY TOTP</small></button>
+          </form>
+          <button id="show-recovery-button" class="text-action" type="button">USE A RECOVERY CODE</button>
+        </section>
+
+        <section id="recovery-step" class="access-step" hidden aria-labelledby="recovery-title">
+          <div class="step-heading"><span>ACCOUNT RECOVERY</span><h3 id="recovery-title">USE ONE-TIME CODE</h3><p>Each recovery code can be used once. The consumed code is revoked immediately.</p></div>
+          <form id="recovery-form" class="code-form">
+            <label><span>RECOVERY CODE</span><input name="code" maxlength="19" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" required></label>
+            <button class="primary" type="submit"><span>RECOVER SESSION</span><small>CONSUME CODE</small></button>
+          </form>
+          <button id="back-to-totp-button" class="text-action" type="button">BACK TO AUTHENTICATOR</button>
+        </section>
+
+        <section id="recovery-codes-step" class="access-step recovery-codes-step" hidden aria-labelledby="recovery-codes-title">
+          <div class="step-heading"><span>SETUP COMPLETE</span><h3 id="recovery-codes-title">SAVE RECOVERY CODES</h3><p>These codes are shown once. Store them offline before opening the topology workspace.</p></div>
+          <ol id="recovery-code-list" aria-label="One-time recovery codes"></ol>
+          <div class="recovery-actions"><button id="copy-recovery-button" type="button">COPY ALL</button><button id="download-recovery-button" type="button">DOWNLOAD TXT</button></div>
+          <button id="continue-button" class="primary" type="button"><span>I SAVED THEM · CONTINUE</span><small>OPEN TOPOLOGY</small></button>
+        </section>
+
+        <div id="access-error" class="access-error" role="alert" aria-live="assertive" hidden></div>
+        <button id="restart-login-button" class="restart-login" type="button" hidden>START AGAIN</button>
+      </div>
+      <footer><span><i></i>LOCAL AUTHORITY</span><span>SESSION DATA NEVER ENTERS A TOPOLOGY EXPORT</span></footer>
+    </section>
+  </main>
+  <script type="module" src="/js/login.js"></script>
+</body>
+</html>

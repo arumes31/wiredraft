@@ -1,11 +1,16 @@
 /data/
 /netdiagram
 /netdiagram.exe
+/wiredraft
+/wiredraft.exe
 /*.test
 /*.out
 /coverage.*
 *.tmp
 .DS_Store
+.env
+.env.*
+!.env.example
 graphify-out/
 /node_modules/
 /.quality-data/

@@ -1,20 +1,56 @@
 services:
-  netdiagram:
+  postgres:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: wiredraft
+      POSTGRES_USER: wiredraft
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wiredraft -d wiredraft"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+    restart: unless-stopped
+
+  wiredraft:
     build: .
-    image: netdiagram:latest
+    image: wiredraft:latest
     ports:
       - "8080:8080"
     environment:
       PORT: "8080"
-      DATA_DIR: /data
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: wiredraft
+      PGUSER: wiredraft
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       LOG_LEVEL: info
       LOG_FORMAT: json
-    volumes:
-      - ./data:/data
+      WIREDRAFT_ADMIN_USER: ${WIREDRAFT_ADMIN_USER:-}
+      WIREDRAFT_ADMIN_PASSWORD: ${WIREDRAFT_ADMIN_PASSWORD:-}
+      WIREDRAFT_ADMIN_TOTP_SECRET: ${WIREDRAFT_ADMIN_TOTP_SECRET:-}
+      WIREDRAFT_GUEST_ENABLED: ${WIREDRAFT_GUEST_ENABLED:-}
+      WIREDRAFT_COOKIE_SECURE: ${WIREDRAFT_COOKIE_SECURE:-}
+      NETDIAGRAM_ADMIN_USER: ${NETDIAGRAM_ADMIN_USER:-admin}
+      NETDIAGRAM_ADMIN_PASSWORD: ${NETDIAGRAM_ADMIN_PASSWORD:-}
+      NETDIAGRAM_ADMIN_TOTP_SECRET: ${NETDIAGRAM_ADMIN_TOTP_SECRET:-}
+      NETDIAGRAM_GUEST_ENABLED: ${NETDIAGRAM_GUEST_ENABLED:-true}
+      NETDIAGRAM_COOKIE_SECURE: ${NETDIAGRAM_COOKIE_SECURE:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "/netdiagram", "-healthcheck"]
+      test: ["CMD", "/wiredraft", "-healthcheck"]
       interval: 15s
       timeout: 4s
       start_period: 5s
       retries: 3
     restart: unless-stopped
+
+volumes:
+  postgres-data:
