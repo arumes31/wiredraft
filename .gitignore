@@ -36,6 +36,7 @@ compose.override.yml
 
 # Local analysis and generated documentation
 graphify-out/
+/llms.txt
 
 # Logs and temporary runtime files
 *.log
