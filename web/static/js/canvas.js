@@ -978,10 +978,11 @@ export class CanvasEngine {
     if (this.hoveredDevice?.device.id) {
       const deviceID = this.hoveredDevice.device.id;
       const indexed = this.linkIDsByDevice?.get(deviceID);
-      if (indexed) return indexed;
+      if (indexed) return this.expandPatchPanelHoverFocus(indexed);
       const portIDs = new Set(topology.devices.find((device) => device.id === deviceID)?.ports.map((port) => port.id) || []);
-      return new Set((topology.links || []).filter((link) =>
+      const attachedLinkIDs = new Set((topology.links || []).filter((link) =>
         portIDs.has(link.sourcePortId) || portIDs.has(link.targetPortId)).map((link) => link.id));
+      return this.expandPatchPanelHoverFocus(attachedLinkIDs);
     }
     return new Set();
   }

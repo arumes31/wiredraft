@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { catalogVendors, modelsForVendor, patchPanelProfiles } from "./static/js/catalog.js";
 import {
   availablePatchPanelPorts, instantiatePatchPanel, isRearPanelLink, panelMapAvailability, patchPanelPathIndex,
-  planPatchPanelMapping, RearPanelLinkVisual,
+  planPatchPanelMapping, planRearPanelLinkUpdate, RearPanelLinkVisual,
 } from "./static/js/patch-panels.js";
 
 function identifiedPanel(name, count, id) {
@@ -173,6 +173,45 @@ assert.throws(() => planPatchPanelMapping(topology, {
   sourceDeviceId: source.id, sourceStart: 20, sourceEnd: 24,
   targetDeviceId: target.id, targetStart: 22,
 }), /does not have ports 22–26/);
+
+const editableLink = {
+  ...plan.links[0], id: "editable-rear-link",
+  rearChannelId: "10000000-0000-4000-8000-000000000099",
+  rearChannelName: "EDITABLE CHANNEL", rearChannelType: "discrete",
+};
+const editTopology = { devices: [source, target], links: [editableLink] };
+const editedLink = planRearPanelLinkUpdate(editTopology, editableLink.id, source.id, {
+  panelPortId: source.ports[1].id,
+  peerDeviceId: target.id,
+  peerPortId: target.ports[1].id,
+});
+assert.equal(editedLink.sourcePortId, source.ports[1].id);
+assert.equal(editedLink.targetPortId, target.ports[1].id);
+assert.equal(editedLink.rearChannelId, editableLink.rearChannelId,
+  "editing ports within one panel pair must preserve channel identity");
+assert.match(editedLink.notes, /PATCH A 2 ↔ PATCH B 2/);
+
+assert.throws(() => planRearPanelLinkUpdate({
+  devices: [source, target],
+  links: [editableLink, {
+    id: "occupied-rear-link", sourceDeviceId: source.id, sourcePortId: source.ports[2].id,
+    sourceSide: "rear", targetDeviceId: target.id, targetPortId: target.ports[2].id, targetSide: "rear",
+  }],
+}, editableLink.id, source.id, {
+  panelPortId: source.ports[2].id,
+  peerDeviceId: target.id,
+  peerPortId: target.ports[2].id,
+}), /Rear already mapped: PATCH A \/ 3, PATCH B \/ 3/);
+
+const thirdPanel = identifiedPanel("PATCH C", 24, "panel-c");
+const movedLink = planRearPanelLinkUpdate({ devices: [source, target, thirdPanel], links: [editableLink] }, editableLink.id, source.id, {
+  panelPortId: source.ports[3].id,
+  peerDeviceId: thirdPanel.id,
+  peerPortId: thirdPanel.ports[3].id,
+});
+assert.equal(movedLink.targetDeviceId, thirdPanel.id);
+assert.equal(movedLink.rearChannelId, undefined,
+  "moving a strand to another panel pair must detach stale channel metadata");
 
 assert.equal(catalogVendors().includes("Generic Patch"), false, "Generic Patch must not appear in the generic Device provider list");
 assert.deepEqual(modelsForVendor("Generic Patch"), [], "Generic Patch models belong exclusively to the Panel installer");

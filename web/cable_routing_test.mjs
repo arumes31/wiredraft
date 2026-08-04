@@ -6,7 +6,7 @@ import {
   cableDashPattern, CableRoutingPlane, CABLE_JUMPER_RADIUS, cableRole, CABLE_TRACK_SPACING,
   FACEPLATE_MICRO_LANE_SPACING, distanceToRoute, orderedCableLinks, pointOnRoute,
   routeFromPoints, routeSegments, routesWithCrossingBridges, routeWithCrossingBridges, segmentIntersectsRectangle,
-  TRUNK_BUNDLE_LANE_SPACING,
+  TRUNK_BUNDLE_LANE_SPACING, VERTICAL_TRACK_MIN_GAP,
 } from "./static/js/cabling.js";
 import { endpointRouteSegment, portDescriptionPlacement } from "./static/js/termination.js";
 
@@ -105,6 +105,25 @@ assert.equal(crossTracks.every(({ gutterX }) => gutterX > rackA.x + rackA.width 
   "cross-rack channels must stay inside the gap between racks");
 assert.equal(Math.abs(crossTracks[1].gutterX - crossTracks[0].gutterX), CABLE_TRACK_SPACING,
   "cross-rack bundle lanes need the fixed track pitch");
+const trunkAndNormalTracks = assignCableTracks({
+  links,
+  portBoxes,
+  deviceBoxes,
+  rackBoxes: [rackA, rackB],
+  linkGroups: [{ id: "cross-rack-trunk", mode: "LACP", linkIds: crossRackLinks.map(({ id }) => id) }],
+});
+const sharedRightRackEdgeTracks = links.map(({ id }) => trunkAndNormalTracks.get(id));
+assert.equal(crossRackLinks.every(({ id }) => trunkAndNormalTracks.get(id).tightBundle), true,
+  "the regression fixture must route the cross-rack members as a trunk");
+for (let leftIndex = 0; leftIndex < sharedRightRackEdgeTracks.length; leftIndex += 1) {
+  for (let rightIndex = leftIndex + 1; rightIndex < sharedRightRackEdgeTracks.length; rightIndex += 1) {
+    assert.ok(
+      Math.abs(sharedRightRackEdgeTracks[leftIndex].gutterX - sharedRightRackEdgeTracks[rightIndex].gutterX) >=
+        VERTICAL_TRACK_MIN_GAP,
+      "same-rack cables and cross-rack trunks must keep separate vertical lanes at a shared rack edge",
+    );
+  }
+}
 
 const spanRack = rack("span-rack", 1900);
 const spanSourceDevice = device("span-source", spanRack, 100);
@@ -182,7 +201,7 @@ assert.equal(trunkTracks.every(({ tightBundle, linkGroupId }) => tightBundle && 
   "explicit trunk members must be planned as one physical multi-lane bundle");
 assert.deepEqual(trunkTracks.map(({ trackOffset }) => trackOffset),
   [0, TRUNK_BUNDLE_LANE_SPACING, TRUNK_BUNDLE_LANE_SPACING * 2],
-  "every trunk member needs its own stable 3–5px offset");
+  "every trunk member needs its own stable 4–5px offset");
 const trunkGutterXs = trunkTracks.map(({ gutterX }) => gutterX).sort((left, right) => left - right);
 assert.deepEqual(trunkGutterXs.slice(1).map((value, index) => value - trunkGutterXs[index]),
   [TRUNK_BUNDLE_LANE_SPACING, TRUNK_BUNDLE_LANE_SPACING],

@@ -190,6 +190,68 @@ export function planPatchPanelMapping(topology, input) {
   return { source, target, sourcePorts, targetPorts, targetEnd, links, channels: channelPlan.channels };
 }
 
+export function planRearPanelLinkUpdate(topology, linkID, panelID, input) {
+  const link = (topology?.links || []).find((candidate) => candidate.id === linkID);
+  if (!link || endpointSide(link, "source") !== LinkEndpointSide.REAR || endpointSide(link, "target") !== LinkEndpointSide.REAR) {
+    throw new Error("Select an existing rear panel mapping");
+  }
+
+  const panels = patchPanelDevices(topology);
+  const panel = panels.find((candidate) => candidate.id === panelID);
+  const panelIsSource = link.sourceDeviceId === panelID;
+  const panelIsTarget = link.targetDeviceId === panelID;
+  if (!panel || (!panelIsSource && !panelIsTarget)) throw new Error("The selected panel is not part of this rear mapping");
+
+  const peer = panels.find((candidate) => candidate.id === input.peerDeviceId);
+  if (!peer) throw new Error("Select a remote patch panel");
+  if (peer.id === panel.id) throw new Error("Rear mappings must connect two different patch panels");
+  const panelPort = orderedPorts(panel).find((port) => port.id === input.panelPortId);
+  const peerPort = orderedPorts(peer).find((port) => port.id === input.peerPortId);
+  if (!panelPort) throw new Error(`Select a rear port on ${panel.name}`);
+  if (!peerPort) throw new Error(`Select a rear port on ${peer.name}`);
+  if (panelPort.type !== peerPort.type) throw new Error("Rear mappings must use matching connector types");
+
+  const occupiedRear = new Set();
+  for (const candidate of topology.links || []) {
+    if (candidate.id === link.id) continue;
+    if (endpointSide(candidate, "source") === LinkEndpointSide.REAR) occupiedRear.add(candidate.sourcePortId);
+    if (endpointSide(candidate, "target") === LinkEndpointSide.REAR) occupiedRear.add(candidate.targetPortId);
+  }
+  const blocked = [panelPort, peerPort].filter((port) => occupiedRear.has(port.id));
+  if (blocked.length) {
+    const names = blocked.map((port) => `${port.deviceId === panel.id ? panel.name : peer.name} / ${port.label}`);
+    throw new Error(`Rear already mapped: ${names.join(", ")}`);
+  }
+
+  const next = { ...link, sourceSide: LinkEndpointSide.REAR, targetSide: LinkEndpointSide.REAR };
+  if (panelIsSource) {
+    next.sourceDeviceId = panel.id;
+    next.sourcePortId = panelPort.id;
+    next.targetDeviceId = peer.id;
+    next.targetPortId = peerPort.id;
+  } else {
+    next.sourceDeviceId = peer.id;
+    next.sourcePortId = peerPort.id;
+    next.targetDeviceId = panel.id;
+    next.targetPortId = panelPort.id;
+  }
+  next.cableType = panelCableType(panel, panelPort);
+  const source = panels.find((candidate) => candidate.id === next.sourceDeviceId);
+  const target = panels.find((candidate) => candidate.id === next.targetDeviceId);
+  const sourcePort = source?.ports.find((port) => port.id === next.sourcePortId);
+  const targetPort = target?.ports.find((port) => port.id === next.targetPortId);
+  next.notes = `Panel rear map ${source?.name || "Unknown"} ${sourcePort?.label || "—"} ↔ ${target?.name || "Unknown"} ${targetPort?.label || "—"}`;
+
+  const originalPair = [link.sourceDeviceId, link.targetDeviceId].sort().join("\u0000");
+  const nextPair = [next.sourceDeviceId, next.targetDeviceId].sort().join("\u0000");
+  if (originalPair !== nextPair) {
+    delete next.rearChannelId;
+    delete next.rearChannelName;
+    delete next.rearChannelType;
+  }
+  return next;
+}
+
 function rearChannelPlan(input, panel, port, sourceStart, sourceEnd) {
   const requestedType = String(input.rearChannelType || "").trim().toLowerCase();
   const linkCount = sourceEnd - sourceStart + 1;

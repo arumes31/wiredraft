@@ -13,7 +13,8 @@ import {
   ServerCardTypes, defaultServerCards, instantiateGenericServerBack, serverCardType, serverSlotCapacity,
 } from "./server-cards.js";
 import {
-  isRearPanelLink, panelMapAvailability, patchPanelDevices, planPatchPanelMapping,
+  availablePatchPanelPorts, isRearPanelLink, panelMapAvailability, patchPanelDevices,
+  planPatchPanelMapping, planRearPanelLinkUpdate,
 } from "./patch-panels.js";
 import { usedRackUnits } from "./rack.js";
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./link-groups.js";
@@ -591,6 +592,7 @@ function renderDeviceInspector(deviceID) {
   const cluster = firewallClusterForDevice(state.topology, device.id);
   const switchSystemMarkup = device.category === "Switch" ? renderSwitchSystemInspector(device, system) : "";
   const firewallClusterMarkup = device.category === "Firewall" ? renderFirewallClusterInspector(device, cluster) : "";
+  const rearMappingsMarkup = device.category === "PatchPanel" ? renderPatchPanelRearMappings(device) : "";
   const inventoryLocation = device.location || {};
   const locationRack = inventoryLocation.rack || rack?.name || "";
   const locationRackUnit = inventoryLocation.rackUnit || device.rackUnit || "";
@@ -627,6 +629,7 @@ function renderDeviceInspector(deviceID) {
       ${spanningTreeMarkup}
       <div class="inspector-actions"><button class="primary">UPDATE DEVICE RECORD</button><button id="delete-device" type="button" class="danger">DELETE</button></div>
     </form>
+    ${rearMappingsMarkup}
     ${switchSystemMarkup}
     ${firewallClusterMarkup}`;
   document.getElementById("device-inspector-form").addEventListener("submit", async (event) => {
@@ -666,6 +669,92 @@ function renderDeviceInspector(deviceID) {
   document.getElementById("edit-firewall-cluster")?.addEventListener("click", () => openFirewallClusterDialog(device, cluster));
   document.getElementById("leave-firewall-cluster")?.addEventListener("click", () => removeDeviceFromFirewallCluster(device, cluster));
   document.getElementById("dissolve-firewall-cluster")?.addEventListener("click", () => dissolveFirewallCluster(cluster));
+  if (device.category === "PatchPanel") bindPatchPanelRearMappingInspector(device);
+}
+
+function renderPatchPanelRearMappings(device) {
+  const mappings = state.topology.links
+    .filter((link) => isRearPanelLink(link) && (link.sourceDeviceId === device.id || link.targetDeviceId === device.id))
+    .map((link) => {
+      const panelIsSource = link.sourceDeviceId === device.id;
+      const panelPort = findPort(state.topology, panelIsSource ? link.sourcePortId : link.targetPortId);
+      const peerPort = findPort(state.topology, panelIsSource ? link.targetPortId : link.sourcePortId);
+      return { link, panelPort, peerPort };
+    })
+    .sort((left, right) => (left.panelPort?.port.portIndex || 0) - (right.panelPort?.port.portIndex || 0));
+  const cards = mappings.map(({ link, panelPort, peerPort }) => `
+    <article class="panel-rear-link" data-panel-rear-link-id="${escapeHTML(link.id)}">
+      <header><span>REAR ${escapeHTML(panelPort?.port.label || "—")}</span><b>${escapeHTML(link.rearChannelName || "INDEPENDENT RUN")}</b></header>
+      <div class="panel-rear-link-path">
+        <span><i>THIS PANEL</i><b>${escapeHTML(device.name)}</b><em>${escapeHTML(panelPort?.port.label || "—")}</em></span>
+        <strong aria-hidden="true">↔</strong>
+        <span><i>REMOTE PANEL</i><b>${escapeHTML(peerPort?.device.name || "Unknown panel")}</b><em>${escapeHTML(peerPort?.port.label || "—")}</em></span>
+      </div>
+      <div class="panel-rear-link-actions"><button type="button" class="secondary" data-open-rear-link>OPEN LINK</button><button type="button" class="secondary" data-edit-rear-link aria-expanded="false">EDIT MAP</button></div>
+      <form class="panel-rear-link-edit" hidden>
+        <label><span>${escapeHTML(device.name)} · REAR PORT</span><select name="panelPortId">${rearPortOptions(device.id, panelPort?.port.id, link.id)}</select></label>
+        <label><span>REMOTE PATCH PANEL</span><select name="peerDeviceId">${rearPanelOptions(device.id, peerPort?.device.id)}</select></label>
+        <label><span>REMOTE REAR PORT</span><select name="peerPortId">${rearPortOptions(peerPort?.device.id, peerPort?.port.id, link.id)}</select></label>
+        <p>Moving this strand to a different panel pair detaches it from the current tube or bundle identity.</p>
+        <div><button type="button" class="secondary" data-cancel-rear-link>CANCEL</button><button type="submit" class="primary">SAVE REAR MAP</button></div>
+      </form>
+    </article>`).join("");
+  return `
+    <section class="panel-rear-links" aria-label="Rear panel mappings">
+      <header><span>REAR TERMINATION MAP</span><b>${mappings.length} ${mappings.length === 1 ? "RUN" : "RUNS"}</b></header>
+      ${cards || `<p class="panel-rear-link-empty">No rear mappings terminate on this panel yet. Use Rear Map to create a permanent link.</p>`}
+    </section>`;
+}
+
+function rearPanelOptions(panelID, selectedID) {
+  return patchPanelDevices(state.topology)
+    .filter((panel) => panel.id !== panelID)
+    .map((panel) => `<option value="${escapeHTML(panel.id)}"${panel.id === selectedID ? " selected" : ""}>${escapeHTML(panel.name)} · ${panel.ports.length} PORTS</option>`)
+    .join("");
+}
+
+function rearPortOptions(panelID, selectedID, linkID) {
+  const topology = { ...state.topology, links: state.topology.links.filter((link) => link.id !== linkID) };
+  return availablePatchPanelPorts(topology, panelID).map((port) => {
+    const label = `${port.label}${port.rearOccupied ? " · MAPPED" : ""}${port.frontOccupied ? " · FRONT PATCHED" : ""}`;
+    return `<option value="${escapeHTML(port.id)}"${port.id === selectedID ? " selected" : ""}${port.rearOccupied ? " disabled" : ""}>${escapeHTML(label)}</option>`;
+  }).join("");
+}
+
+function bindPatchPanelRearMappingInspector(device) {
+  document.querySelectorAll("[data-panel-rear-link-id]").forEach((card) => {
+    const linkID = card.dataset.panelRearLinkId;
+    const form = card.querySelector(".panel-rear-link-edit");
+    const editButton = card.querySelector("[data-edit-rear-link]");
+    card.querySelector("[data-open-rear-link]").addEventListener("click", () => state.select("link", linkID));
+    editButton.addEventListener("click", () => {
+      form.hidden = false;
+      card.classList.add("is-editing");
+      editButton.setAttribute("aria-expanded", "true");
+      form.elements.panelPortId.focus();
+    });
+    card.querySelector("[data-cancel-rear-link]").addEventListener("click", () => {
+      form.hidden = true;
+      card.classList.remove("is-editing");
+      editButton.setAttribute("aria-expanded", "false");
+      editButton.focus();
+    });
+    form.elements.peerDeviceId.addEventListener("change", () => {
+      form.elements.peerPortId.innerHTML = rearPortOptions(form.elements.peerDeviceId.value, "", linkID);
+    });
+    form.addEventListener("submit", (event) => saveRearPanelLinkEdit(event, device, linkID).catch(showError));
+  });
+}
+
+async function saveRearPanelLinkEdit(event, device, linkID) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget));
+  const updatedLink = planRearPanelLinkUpdate(state.topology, linkID, device.id, data);
+  const topology = structuredClone(state.topology);
+  const linkIndex = topology.links.findIndex((link) => link.id === linkID);
+  if (linkIndex < 0) throw new Error("Rear mapping no longer exists");
+  topology.links[linkIndex] = updatedLink;
+  await updateFrom(() => api.replaceTopology(topology), true, "Panel rear mapping updated");
 }
 
 function stpPriorityOptions(selectedPriority = 0) {

@@ -131,6 +131,18 @@ panelPathFocusEngine.patchPanelPathLinkIDsByLink = patchPanelPathIndex(panelPath
 panelPathFocusEngine.hoveredLink = { link: panelPathTopology.links[0] };
 assert.deepEqual([...panelPathFocusEngine.hoverFocusLinkIDs()].sort(), ["path-in", "path-out", "path-rear"],
   "hovering a cable into a patch panel must highlight its rear map and the cable continuing to the next device");
+panelPathFocusEngine.hoveredLink = null;
+panelPathFocusEngine.hoveredDevice = { device: panelPathTopology.devices[0] };
+const directSwitchLinks = new Set(["path-in"]);
+panelPathFocusEngine.linkIDsByDevice = new Map([["source-switch", directSwitchLinks]]);
+assert.deepEqual([...panelPathFocusEngine.hoverFocusLinkIDs()].sort(), ["path-in", "path-out", "path-rear"],
+  "hovering a switch must expand each attached cable through both panels to the connected device");
+assert.deepEqual([...directSwitchLinks], ["path-in"],
+  "switch path expansion must not mutate the cached direct-attachment index");
+
+panelPathFocusEngine.linkIDsByDevice = new Map();
+assert.deepEqual([...panelPathFocusEngine.hoverFocusLinkIDs()].sort(), ["path-in", "path-out", "path-rear"],
+  "switch hover must retain full panel-path expansion when the scene index is unavailable");
 
 const layoutEngine = Object.create(CanvasEngine.prototype);
 layoutEngine.sceneDirty = true;

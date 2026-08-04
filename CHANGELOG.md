@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep cross-rack trunks and ordinary same-rack cables in separate rack-edge vertical lanes with at least four pixels of centerline separation.
+- List every permanent rear mapping in a selected patch panel's inspector and allow its local and remote panel ports to be edited with occupancy and connector validation.
+- Expand switch hover highlighting through patch-panel front/rear mappings to the remote panel and onward connected device, matching single-cable path focus.
 - Add a least-privilege GitHub Actions suite for core CI, hardened linting, CodeQL, dependency review, secret/dependency/filesystem/container scans, OpenSSF Scorecard, visual regression, reproducible release binaries, SPDX SBOMs, and Sigstore attestations. Pin every action and scanner image immutably, add grouped Dependabot updates with cooldowns, and provide a complete local CI runner.
 - Harden local file access with rooted filesystem APIs, propagate close and wrapped validation errors, and make HTTP probes/tests context-aware so the expanded security and static-analysis profiles pass without suppressions.
 

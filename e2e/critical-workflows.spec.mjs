@@ -243,7 +243,9 @@ test("installs Generic Patch hardware only through Panel and maps rear ranges", 
   await expect.poll(async () => {
     const response = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`);
     const topology = await response.json();
-    panels = topology.devices.filter((device) => [firstPanelName, secondPanelName].includes(device.name));
+    panels = [firstPanelName, secondPanelName]
+      .map((name) => topology.devices.filter((device) => device.name === name).at(-1))
+      .filter(Boolean);
     return panels.length;
   }).toBe(2);
 
@@ -273,6 +275,25 @@ test("installs Generic Patch hardware only through Panel and maps rear ranges", 
   }).toBe(2);
   expect(new Set(mappedRearLinks.map((link) => link.rearChannelId)).size).toBe(2);
   expect(mappedRearLinks.every((link) => link.rearChannelType === "tube" && link.rearChannelName.startsWith("E2E FIBER TUBE · 0"))).toBe(true);
+  const firstPanel = panels.find((panel) => panel.name === firstPanelName);
+  const secondPanel = panels.find((panel) => panel.name === secondPanelName);
+  await page.locator(`[data-tree-type="device"][data-tree-id="${firstPanel.id}"]`).click();
+  const rearMappings = page.locator(".panel-rear-links");
+  await expect(rearMappings).toContainText("2 RUNS");
+  const editCard = rearMappings.locator(`[data-panel-rear-link-id="${mappedRearLinks[0].id}"]`);
+  await editCard.locator("[data-edit-rear-link]").click();
+  const editForm = editCard.locator(".panel-rear-link-edit");
+  await editForm.locator('[name="panelPortId"]').selectOption(firstPanel.ports[2].id);
+  await editForm.locator('[name="peerDeviceId"]').selectOption(secondPanel.id);
+  await editForm.locator('[name="peerPortId"]').selectOption(secondPanel.ports[2].id);
+  await editForm.locator('button[type="submit"]').click();
+  await expect.poll(async () => {
+    const response = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`);
+    const topology = await response.json();
+    const updated = topology.links.find((link) => link.id === mappedRearLinks[0].id);
+    return [updated?.sourcePortId, updated?.targetPortId];
+  }).toEqual([firstPanel.ports[2].id, secondPanel.ports[2].id]);
+  await expect(rearMappings).toContainText(`REAR ${firstPanel.ports[2].label}`);
   await expect(page.locator("#physical-device-count")).not.toHaveText(new RegExp(`^${before}$`));
 });
 

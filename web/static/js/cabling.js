@@ -7,6 +7,7 @@ export const CableMode = Object.freeze({
 export const CableRoutingPlane = Object.freeze({ FRONT: "front", REAR: "rear" });
 
 export const CABLE_TRACK_SPACING = 9;
+export const VERTICAL_TRACK_MIN_GAP = 4;
 export const FACEPLATE_MICRO_LANE_SPACING = 8;
 export const TRUNK_BUNDLE_LANE_SPACING = 5;
 export const BACKEND_TUBE_STRAND_SPACING = 2.5;
@@ -72,7 +73,11 @@ export function routeFromPoints(inputPoints, metadata = {}) {
 export function assignCableTracks(scene, options = {}) {
   const laneSpacing = clamp(Number(options.laneSpacing) || CABLE_TRACK_SPACING, 8, 10);
   const microSpacing = clamp(Number(options.microSpacing) || FACEPLATE_MICRO_LANE_SPACING, 8, 10);
-  const bundleLaneSpacing = clamp(Number(options.bundleLaneSpacing) || TRUNK_BUNDLE_LANE_SPACING, 3, 5);
+  const bundleLaneSpacing = clamp(
+    Number(options.bundleLaneSpacing) || TRUNK_BUNDLE_LANE_SPACING,
+    VERTICAL_TRACK_MIN_GAP,
+    TRUNK_BUNDLE_LANE_SPACING,
+  );
   const links = scene?.links || [];
   const groupByLink = new Map();
   for (const group of scene?.linkGroups || options.linkGroups || []) {
@@ -271,8 +276,11 @@ function planDescriptorTrack(descriptor, state) {
     const preferredAvailable = microLaneAvailable(state, sourceDevice, sourceSide, sourceRow) &&
       microLaneAvailable(state, targetDevice, targetSide, targetRow);
     if (adjacent && preferredAvailable) {
-      const pairKey = canonicalPair(rackID(sourceRack), rackID(targetRack));
-      const lane = allocateCorridor(`rack-pair:${pairKey}`);
+      // The inter-rack spine begins at the same physical X coordinate as the
+      // right-side gutter of the left rack. Reserve both route kinds from the
+      // same lane bank so a cross-rack trunk cannot sit on top of a normal
+      // same-rack cable.
+      const lane = allocateCorridor(interRackSpineKey(sourceRackBox, targetRackBox));
       gutterX = interRackChannel(sourceRackBox, targetRackBox, lane.offset);
       routeKind = "inter-rack";
     } else {
@@ -684,6 +692,11 @@ function interRackChannel(sourceRack, targetRack, laneOffset) {
   // The left rack edge is the canonical inner edge for the shared inter-rack
   // spine. Span-first ordinals then expand concentrically into the open gap.
   return clamp(gapLeft + laneOffset, gapLeft, gapRight);
+}
+
+function interRackSpineKey(sourceRack, targetRack) {
+  const left = rackCenterX(sourceRack) <= rackCenterX(targetRack) ? sourceRack : targetRack;
+  return `rack:${rackID(left)}:right:front`;
 }
 
 function consolidatedRearRackGutter(rack, side, corridorOffset, state) {
