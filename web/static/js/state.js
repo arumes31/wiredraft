@@ -22,7 +22,9 @@ export class AppState extends EventTarget {
     }
     this.topology = clone(topology);
     const liveRackIDs = new Set((this.topology?.racks || []).map((rack) => rack.id));
+    const liveLinkIDs = new Set((this.topology?.links || []).map((link) => link.id));
     this.rackFaces = new Map([...this.rackFaces].filter(([rackID]) => liveRackIDs.has(rackID)));
+    this.traceLinkIDs = new Set([...this.traceLinkIDs].filter((linkID) => liveLinkIDs.has(linkID)));
     this.ensureSelection();
     this.emit("topology");
   }

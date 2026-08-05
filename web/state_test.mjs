@@ -31,6 +31,8 @@ test("topology state clones inputs and reports typed changes", () => {
   assert.equal(state.rackFace("rack-1"), "rear");
   state.setAnalysis(null);
   assert.deepEqual(state.analysis, { issues: [], loops: [], stp: [] });
+  state.setTopology({ ...topology(), links: [] });
+  assert.equal(state.traceLinkIDs.size, 0, "deleted links must leave trace view immediately");
   state.select("", "");
   assert.equal(state.selection, null);
 });
