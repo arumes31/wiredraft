@@ -190,7 +190,7 @@
           <label><input type="radio" name="template" value="demo"><span><i>REFERENCE BUILD</i><b>STARTER TOPOLOGY</b><small>Preloaded racks, devices, cables, VLANs, and link-group examples.</small></span></label>
         </div>
       </fieldset>
-      <footer><button type="button" class="secondary" data-close="topology-dialog">CANCEL</button><button id="topology-submit-button" value="create" class="primary">CREATE + OPEN MAP</button></footer>
+      <footer><button id="delete-topology-button" type="button" class="danger" hidden>DELETE MAP</button><button type="button" class="secondary" data-close="topology-dialog">CANCEL</button><button id="topology-submit-button" value="create" class="primary">CREATE + OPEN MAP</button></footer>
     </form>
   </dialog>
 
@@ -420,6 +420,24 @@
       <p class="topology-advisory"><b>HA ROLE MODEL</b>Active/passive requires one preferred active member; remaining members are passive. Active/active marks every selected firewall active. Vendor and model compatibility is recorded without hard blocking.</p>
       <footer><button type="button" class="secondary" data-close="firewall-cluster-dialog">CANCEL</button><button value="save" class="primary">SAVE FIREWALL CLUSTER</button></footer>
     </form>
+  </dialog>
+
+  <dialog id="photo-dialog" class="panel-dialog photo-dialog" aria-labelledby="photo-dialog-title">
+    <div class="dialog-shell">
+      <header><div><p class="eyebrow">PROTECTED MEDIA</p><h2 id="photo-dialog-title">PHOTO MANAGER</h2></div><button type="button" class="dialog-close" data-close="photo-dialog" aria-label="Close photo manager">×</button></header>
+      <div class="photo-manager-grid">
+        <aside><div class="section-heading"><h3>ATTACHMENTS</h3><span id="photo-manager-count">0 PHOTOS</span></div><div id="photo-manager-list" class="photo-manager-list"></div></aside>
+        <section class="photo-preview-pane">
+          <div class="photo-preview-stage"><img id="photo-preview" alt="Selected attachment preview"></div>
+          <p id="photo-preview-meta" class="photo-preview-meta"></p>
+          <form id="photo-details-form" class="photo-details-form">
+            <label><span>DISPLAY FILENAME</span><input name="originalName" maxlength="255" required></label>
+            <label><span>CAPTION / FIELD NOTE</span><textarea name="caption" maxlength="500" rows="4" placeholder="Document what this photo shows…"></textarea></label>
+            <div><button class="primary">SAVE DETAILS</button><button id="delete-photo-button" type="button" class="danger">DELETE PHOTO</button></div>
+          </form>
+        </section>
+      </div>
+    </div>
   </dialog>
 
   <input id="import-file" type="file" accept="application/json,.json" hidden>

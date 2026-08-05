@@ -52,6 +52,24 @@ export const api = {
   replaceTopology: (topology) => request(`/api/v1/topologies/${encodeURIComponent(topology.id)}`, {
     method: "PUT", headers: revisionHeaders(topology.revision), body: JSON.stringify(topology),
   }),
+  deleteTopology: (id, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}`, {
+    method: "DELETE", headers: revisionHeaders(revision, {}),
+  }),
+  uploadPhotos: (id, target, files, revision) => {
+    const form = new FormData();
+    form.set("targetKind", target.type);
+    form.set("targetId", target.id);
+    for (const file of files) form.append("photos", file);
+    return request(`/api/v1/topologies/${encodeURIComponent(id)}/photos`, {
+      method: "POST", headers: revisionHeaders(revision, {}), body: form,
+    });
+  },
+  updatePhoto: (id, photoID, input, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/photos/${encodeURIComponent(photoID)}`, {
+    method: "PUT", headers: revisionHeaders(revision), body: JSON.stringify(input),
+  }),
+  deletePhoto: (id, photoID, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/photos/${encodeURIComponent(photoID)}`, {
+    method: "DELETE", headers: revisionHeaders(revision, {}),
+  }),
   createRack: (id, rack, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/racks`, {
     method: "POST", headers: revisionHeaders(revision), body: JSON.stringify(rack),
   }),

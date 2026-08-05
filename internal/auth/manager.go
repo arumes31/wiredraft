@@ -572,6 +572,19 @@ func (m *Manager) AddGuestTopology(ctx context.Context, id string) error {
 	return m.commitLocked(ctx, next)
 }
 
+// RemoveGuestTopology removes a deleted topology from the Guest workspace index.
+func (m *Manager) RemoveGuestTopology(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	index := slices.Index(m.state.GuestTopologyIDs, strings.TrimSpace(id))
+	if index < 0 {
+		return nil
+	}
+	next := clonePersistentState(m.state)
+	next.GuestTopologyIDs = slices.Delete(next.GuestTopologyIDs, index, index+1)
+	return m.commitLocked(ctx, next)
+}
+
 func (m *Manager) challengeUserLocked(token string, now time.Time) (pendingChallenge, persistedUser, error) {
 	challenge, exists := m.challenges[token]
 	if !exists || !challenge.ExpiresAt.After(now) || challenge.FailedChecks >= maxChallengeTries {

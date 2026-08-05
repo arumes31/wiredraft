@@ -1238,8 +1238,32 @@ export class CanvasEngine {
     for (const portBox of this.portBoxesByDevice?.get(device.id) || this.portBoxes.filter((candidate) => candidate.device.id === device.id)) {
       this.drawPort(ctx, portBox);
     }
+    const portIDs = new Set((device.ports || []).map((port) => port.id));
+    const photoCount = (this.state.topology?.photos || []).filter((photo) =>
+      (photo.targetKind === "device" && photo.targetId === device.id)
+      || (photo.targetKind === "port" && portIDs.has(photo.targetId))).length;
+    if (photoCount) this.drawPhotoBadge(ctx, box, photoCount);
     if (system) this.drawSwitchSystemBadge(ctx, box, system, device.id);
     if (cluster) this.drawFirewallClusterBadge(ctx, box, cluster, device.id);
+    ctx.restore();
+  }
+
+  drawPhotoBadge(ctx, box, count) {
+    const x = box.x + box.width - 48;
+    const y = box.y + 9;
+    ctx.save();
+    ctx.fillStyle = "rgba(5, 14, 16, .94)";
+    ctx.strokeStyle = "#66eddd";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.roundRect(x, y, 34, 19, 4); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(x + 5, y + 6, 12, 8, 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x + 11, y + 10, 2.4, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "#66eddd";
+    ctx.beginPath(); ctx.roundRect(x + 8, y + 3, 6, 3, 1); ctx.fill();
+    ctx.font = "700 8px Bahnschrift Condensed, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(count), x + 25, y + 10.5);
     ctx.restore();
   }
 

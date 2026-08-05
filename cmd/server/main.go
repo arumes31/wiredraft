@@ -16,6 +16,7 @@ import (
 	"netdiagram/internal/config"
 	"netdiagram/internal/handler"
 	"netdiagram/internal/logger"
+	"netdiagram/internal/media"
 	"netdiagram/internal/sse"
 	"netdiagram/internal/store"
 	webassets "netdiagram/web"
@@ -51,6 +52,15 @@ func run(args []string) error {
 	if err := topologyStore.EnsureDemo(context.Background()); err != nil {
 		return fmt.Errorf("initializing topology store: %w", err)
 	}
+	mediaStore, err := media.Open(cfg.MediaDir)
+	if err != nil {
+		return fmt.Errorf("opening photo storage: %w", err)
+	}
+	defer func() {
+		if err := mediaStore.Close(); err != nil {
+			appLogger.Error("closing photo storage", "error", err)
+		}
+	}()
 	topologySummaries, err := topologyStore.List(context.Background())
 	if err != nil {
 		return fmt.Errorf("listing topologies: %w", err)
@@ -75,7 +85,7 @@ func run(args []string) error {
 	defer broker.Close()
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           handler.NewWithAuth(topologyStore, broker, appLogger, static, authManager),
+		Handler:           handler.NewWithAuthAndMedia(topologyStore, broker, appLogger, static, authManager, mediaStore),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		IdleTimeout:       60 * time.Second,

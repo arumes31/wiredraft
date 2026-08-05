@@ -106,6 +106,15 @@ func TestManagerOrganizationAndGuestAuthorization(t *testing.T) {
 	if !manager.CanAccessTopology(guest, "new-map", "Guest") {
 		t.Fatal("new guest map was not persisted in the guest workspace")
 	}
+	if err := manager.RemoveGuestTopology(t.Context(), "new-map"); err != nil {
+		t.Fatal(err)
+	}
+	if manager.CanAccessTopology(guest, "new-map", "Guest") {
+		t.Fatal("removed guest map remains accessible")
+	}
+	if err := manager.RemoveGuestTopology(t.Context(), "missing-map"); err != nil {
+		t.Fatalf("removing an absent guest map: %v", err)
+	}
 }
 
 func TestManagerBootstrapTOTPFromEnvironment(t *testing.T) {

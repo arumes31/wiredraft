@@ -116,6 +116,28 @@ func (s *JSONStore) Create(_ context.Context, topology model.Topology) (model.To
 	return topology.Clone()
 }
 
+// Delete durably removes one topology snapshot.
+func (s *JSONStore) Delete(_ context.Context, id string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.mu.RLock()
+	_, exists := s.topologies[id]
+	s.mu.RUnlock()
+	if !exists {
+		return ErrNotFound
+	}
+	if err := os.Remove(filepath.Join(s.dataDir, id+".json")); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("deleting topology: %w", err)
+	}
+	s.mu.Lock()
+	delete(s.topologies, id)
+	s.mu.Unlock()
+	return nil
+}
+
 // Mutate applies one serialized transaction and publishes it only after durable persistence.
 func (s *JSONStore) Mutate(
 	ctx context.Context,

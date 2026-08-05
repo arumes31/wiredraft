@@ -33,6 +33,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-json}
+      WIREDRAFT_MEDIA_DIR: /media
       WIREDRAFT_ADMIN_USER: ${WIREDRAFT_ADMIN_USER:-admin}
       WIREDRAFT_ADMIN_PASSWORD: ${WIREDRAFT_ADMIN_PASSWORD:?set WIREDRAFT_ADMIN_PASSWORD in .env}
       WIREDRAFT_ADMIN_TOTP_SECRET: ${WIREDRAFT_ADMIN_TOTP_SECRET:-}
@@ -48,6 +49,8 @@ services:
       start_period: 5s
       retries: 3
     read_only: true
+    volumes:
+      - media-data:/media
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -56,3 +59,4 @@ services:
 
 volumes:
   postgres-data:
+  media-data:

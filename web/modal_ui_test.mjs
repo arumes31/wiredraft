@@ -6,7 +6,7 @@ const css = readFileSync(new URL("./static/css/styles.css", import.meta.url), "u
 const appJS = readFileSync(new URL("./static/js/app.js", import.meta.url), "utf8");
 
 const dialogs = [...html.matchAll(/<dialog\s+([^>]+)>([\s\S]*?)<\/dialog>/g)];
-assert.equal(dialogs.length, 14, "every application dialog should be covered by the modal system");
+assert.equal(dialogs.length, 15, "every application dialog should be covered by the modal system");
 
 for (const [, attributes, body] of dialogs) {
   const id = attributes.match(/\bid="([^"]+)"/)?.[1];
@@ -28,6 +28,11 @@ assert.doesNotMatch(appJS, /patch-panel-map-button"\)\.disabled\s*=/,
 assert.match(appJS, /PANEL MAP UNAVAILABLE · \$\{availability\.message\}/,
   "Panel Map must display explicit feedback when fewer than two panels exist");
 const resourcesDialog = dialogs.find(([, attributes]) => /\bid="resources-dialog"/.test(attributes))?.[2] || "";
+const photoDialog = dialogs.find(([, attributes]) => /\bid="photo-dialog"/.test(attributes))?.[2] || "";
+assert.match(photoDialog, /id="photo-preview"[\s\S]*id="photo-details-form"[\s\S]*id="delete-photo-button"/,
+  "the photo manager must provide a large preview, editable details, and deletion");
+assert.match(appJS, /name="photos" type="file"[^>]*multiple/, "the inspector must accept one or more photos");
+assert.match(appJS, /api\.uploadPhotos\(state\.topology\.id, selection, files/, "inspector photos must persist through the protected media API");
 assert.doesNotMatch(resourcesDialog, /COMMENT|comment-form|comments-list/,
   "plan comments must not be owned by the resources/collaboration modal");
 assert.match(appJS, /<h3>PLAN COMMENTS<\/h3>/, "selected objects need a first-class plan comment inspector");

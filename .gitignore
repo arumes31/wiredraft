@@ -1,5 +1,6 @@
 # Local application state and private overrides
 /data/
+/media/
 /docs/
 .env
 .env.*

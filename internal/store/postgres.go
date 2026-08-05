@@ -122,6 +122,18 @@ func (s *PostgresStore) Create(ctx context.Context, topology model.Topology) (mo
 	return topology.Clone()
 }
 
+// Delete removes one topology aggregate.
+func (s *PostgresStore) Delete(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, "DELETE FROM topologies WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("deleting topology: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Mutate applies a mutation without an optimistic revision precondition.
 func (s *PostgresStore) Mutate(
 	ctx context.Context,

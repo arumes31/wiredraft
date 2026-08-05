@@ -261,6 +261,19 @@ func (t Topology) Validate() error {
 		}
 		documentationLinkIDs[documentationLink.ID] = struct{}{}
 	}
+	if len(t.Photos) > 200 {
+		return errors.New("topology may contain at most 200 photos")
+	}
+	photoIDs := make(map[string]struct{}, len(t.Photos))
+	for _, photo := range t.Photos {
+		if err := photo.Validate(t.ID, rackByID, deviceIDs, ports, linkIDs, annotationIDs); err != nil {
+			return fmt.Errorf("validating photo %q: %w", photo.ID, err)
+		}
+		if _, exists := photoIDs[photo.ID]; exists {
+			return fmt.Errorf("duplicate photo id %q", photo.ID)
+		}
+		photoIDs[photo.ID] = struct{}{}
+	}
 	if len(t.ShareGrants) > 64 {
 		return errors.New("topology may contain at most 64 share grants")
 	}
@@ -273,6 +286,57 @@ func (t Topology) Validate() error {
 			return fmt.Errorf("duplicate share grant id %q", share.ID)
 		}
 		shareIDs[share.ID] = struct{}{}
+	}
+	return nil
+}
+
+// Validate checks uploaded photo metadata and its target reference.
+func (photo Photo) Validate(topologyID string, racks map[string]Rack, devices map[string]struct{}, ports map[string]Port, links, annotations map[string]struct{}) error {
+	if !idPattern.MatchString(photo.ID) {
+		return errors.New("photo id must be a version 4 uuid")
+	}
+	if name := strings.TrimSpace(photo.OriginalName); name == "" || len(name) > 255 {
+		return errors.New("photo name must contain 1 to 255 characters")
+	}
+	if len(strings.TrimSpace(photo.Caption)) > 500 {
+		return errors.New("photo caption may contain at most 500 characters")
+	}
+	if photo.MediaType != "image/jpeg" && photo.MediaType != "image/png" {
+		return errors.New("photo media type must be image/jpeg or image/png")
+	}
+	if photo.SizeBytes < 1 || photo.SizeBytes > 10<<20 {
+		return errors.New("photo size must be between 1 byte and 10 MiB")
+	}
+	switch photo.TargetKind {
+	case PhotoTargetTopology:
+		if photo.TargetID != topologyID {
+			return errors.New("photo references an unknown topology")
+		}
+	case PhotoTargetRack:
+		if _, exists := racks[photo.TargetID]; !exists {
+			return errors.New("photo references an unknown rack")
+		}
+	case PhotoTargetDevice:
+		if _, exists := devices[photo.TargetID]; !exists {
+			return errors.New("photo references an unknown device")
+		}
+	case PhotoTargetPort:
+		if _, exists := ports[photo.TargetID]; !exists {
+			return errors.New("photo references an unknown port")
+		}
+	case PhotoTargetLink:
+		if _, exists := links[photo.TargetID]; !exists {
+			return errors.New("photo references an unknown link")
+		}
+	case PhotoTargetAnnotation:
+		if _, exists := annotations[photo.TargetID]; !exists {
+			return errors.New("photo references an unknown annotation")
+		}
+	default:
+		return errors.New("photo target kind is invalid")
+	}
+	if photo.CreatedAt.IsZero() {
+		return errors.New("photo creation time is required")
 	}
 	return nil
 }

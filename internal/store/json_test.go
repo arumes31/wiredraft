@@ -2,8 +2,10 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -40,6 +42,32 @@ func TestJSONStoreRecovery(t *testing.T) {
 	}
 	if recovered.Name != "Recovered topology" {
 		t.Fatalf("Name = %q, want Recovered topology", recovered.Name)
+	}
+}
+
+func TestJSONStoreDelete(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	jsonStore, err := NewJSONStore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaries, err := jsonStore.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := summaries[0].ID
+	if err := jsonStore.Delete(t.Context(), id); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if _, err := jsonStore.Get(t.Context(), id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get() after delete error = %v, want ErrNotFound", err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, id+".json")); !os.IsNotExist(err) {
+		t.Fatalf("deleted topology file still exists: %v", err)
+	}
+	if err := jsonStore.Delete(t.Context(), id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second Delete() error = %v, want ErrNotFound", err)
 	}
 }
 

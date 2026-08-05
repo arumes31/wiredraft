@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"netdiagram/internal/auth"
+	"netdiagram/internal/media"
 	"netdiagram/internal/model"
 	"netdiagram/internal/sse"
 	"netdiagram/internal/store"
@@ -34,6 +35,7 @@ type Server struct {
 	logger *slog.Logger
 	static fs.FS
 	auth   *auth.Manager
+	media  *media.Store
 }
 
 // New creates the complete application handler.
@@ -43,7 +45,7 @@ func New(
 	logger *slog.Logger,
 	static fs.FS,
 ) http.Handler {
-	return newHandler(topologyStore, broker, logger, static, nil)
+	return newHandler(topologyStore, broker, logger, static, nil, nil)
 }
 
 // NewWithAuth creates the application handler with local authentication and
@@ -55,7 +57,20 @@ func NewWithAuth(
 	static fs.FS,
 	authManager *auth.Manager,
 ) http.Handler {
-	return newHandler(topologyStore, broker, logger, static, authManager)
+	return newHandler(topologyStore, broker, logger, static, authManager, nil)
+}
+
+// NewWithAuthAndMedia creates the authenticated application handler with
+// protected filesystem-backed photo attachments enabled.
+func NewWithAuthAndMedia(
+	topologyStore store.Store,
+	broker *sse.Broker,
+	logger *slog.Logger,
+	static fs.FS,
+	authManager *auth.Manager,
+	mediaStore *media.Store,
+) http.Handler {
+	return newHandler(topologyStore, broker, logger, static, authManager, mediaStore)
 }
 
 func newHandler(
@@ -64,8 +79,9 @@ func newHandler(
 	logger *slog.Logger,
 	static fs.FS,
 	authManager *auth.Manager,
+	mediaStore *media.Store,
 ) http.Handler {
-	server := &Server{store: topologyStore, broker: broker, logger: logger, static: static, auth: authManager}
+	server := &Server{store: topologyStore, broker: broker, logger: logger, static: static, auth: authManager, media: mediaStore}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", server.health)
 	if authManager != nil {
@@ -90,6 +106,11 @@ func newHandler(
 	protected("POST /api/v1/topologies", server.createTopology)
 	protected("GET /api/v1/topologies/{id}", server.getTopology)
 	protected("PUT /api/v1/topologies/{id}", server.replaceTopology)
+	protected("DELETE /api/v1/topologies/{id}", server.deleteTopology)
+	protected("POST /api/v1/topologies/{id}/photos", server.uploadPhotos)
+	protected("GET /api/v1/topologies/{id}/photos/{photoId}", server.getPhoto)
+	protected("PUT /api/v1/topologies/{id}/photos/{photoId}", server.updatePhoto)
+	protected("DELETE /api/v1/topologies/{id}/photos/{photoId}", server.deletePhoto)
 	protected("POST /api/v1/topologies/{id}/racks", server.createRack)
 	protected("PUT /api/v1/topologies/{id}/racks/{rackId}", server.updateRack)
 	protected("DELETE /api/v1/topologies/{id}/racks/{rackId}", server.deleteRack)
@@ -247,8 +268,10 @@ func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
 		}
 		createdAt := current.CreatedAt
 		organization := current.Organization
+		photos := current.Photos
 		*current = input
 		current.CreatedAt = createdAt
+		current.Photos = photos
 		if s.auth != nil && principalFromRequest(request).IsGuest() {
 			current.Organization = organization
 		}
@@ -260,6 +283,39 @@ func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
 	}
 	s.publish(id, "topology_updated", updated)
 	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) deleteTopology(w http.ResponseWriter, request *http.Request) {
+	id := request.PathValue("id")
+	topology, err := s.store.Get(request.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	expectedRevision, err := parseExpectedRevision(request.Header.Get("If-Match"))
+	if err != nil {
+		s.fail(w, fmt.Errorf("%w: %w", store.ErrInvalid, err))
+		return
+	}
+	if expectedRevision != 0 && topology.Revision != expectedRevision {
+		s.fail(w, &store.RevisionConflictError{Expected: expectedRevision, Actual: topology.Revision})
+		return
+	}
+	if err := s.store.Delete(request.Context(), id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if s.auth != nil {
+		if err := s.auth.RemoveGuestTopology(request.Context(), id); err != nil {
+			s.logger.Error("removing deleted map from guest workspace", "topology_id", id, "error", err)
+		}
+	}
+	if s.media != nil {
+		if err := s.media.RemoveTopology(id); err != nil {
+			s.logger.Error("removing deleted map media", "topology_id", id, "error", err)
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) createRack(w http.ResponseWriter, request *http.Request) {
@@ -1518,7 +1574,37 @@ func (s *Server) mutate(request *http.Request, id string, mutation func(*model.T
 	if err != nil {
 		return model.Topology{}, fmt.Errorf("%w: %w", store.ErrInvalid, err)
 	}
-	return s.store.MutateAtRevision(request.Context(), id, expectedRevision, mutation)
+	var previousPhotos []model.Photo
+	updated, err := s.store.MutateAtRevision(request.Context(), id, expectedRevision, func(topology *model.Topology) error {
+		previousPhotos = slices.Clone(topology.Photos)
+		if err := mutation(topology); err != nil {
+			return err
+		}
+		pruneAttachedPlanReferences(topology)
+		return nil
+	})
+	if err != nil {
+		return model.Topology{}, err
+	}
+	if s.media != nil {
+		for _, photo := range removedPhotos(previousPhotos, updated.Photos) {
+			if err := s.media.Remove(id, photo.ID, photo.MediaType); err != nil {
+				s.logger.Error("removing detached photo", "topology_id", id, "photo_id", photo.ID, "error", err)
+			}
+		}
+	}
+	return updated, nil
+}
+
+func removedPhotos(before, after []model.Photo) []model.Photo {
+	remaining := make(map[string]struct{}, len(after))
+	for _, photo := range after {
+		remaining[photo.ID] = struct{}{}
+	}
+	return slices.DeleteFunc(slices.Clone(before), func(photo model.Photo) bool {
+		_, exists := remaining[photo.ID]
+		return exists
+	})
 }
 
 func parseExpectedRevision(value string) (uint64, error) {
@@ -1668,6 +1754,7 @@ func pruneAttachedPlanReferences(topology *model.Topology) {
 	devices := make(map[string]struct{}, len(topology.Devices))
 	ports := make(map[string]struct{})
 	links := make(map[string]struct{}, len(topology.Links))
+	annotations := make(map[string]struct{}, len(topology.Annotations))
 	for _, rack := range topology.Racks {
 		racks[rack.ID] = struct{}{}
 	}
@@ -1679,6 +1766,9 @@ func pruneAttachedPlanReferences(topology *model.Topology) {
 	}
 	for _, link := range topology.Links {
 		links[link.ID] = struct{}{}
+	}
+	for _, annotation := range topology.Annotations {
+		annotations[annotation.ID] = struct{}{}
 	}
 	threads := topology.CommentThreads[:0]
 	for _, thread := range topology.CommentThreads {
@@ -1715,6 +1805,26 @@ func pruneAttachedPlanReferences(topology *model.Topology) {
 		}
 	}
 	topology.DocumentationLinks = documentationLinks
+	photos := topology.Photos[:0]
+	for _, photo := range topology.Photos {
+		keep := photo.TargetKind == model.PhotoTargetTopology && photo.TargetID == topology.ID
+		switch photo.TargetKind {
+		case model.PhotoTargetRack:
+			_, keep = racks[photo.TargetID]
+		case model.PhotoTargetDevice:
+			_, keep = devices[photo.TargetID]
+		case model.PhotoTargetPort:
+			_, keep = ports[photo.TargetID]
+		case model.PhotoTargetLink:
+			_, keep = links[photo.TargetID]
+		case model.PhotoTargetAnnotation:
+			_, keep = annotations[photo.TargetID]
+		}
+		if keep {
+			photos = append(photos, photo)
+		}
+	}
+	topology.Photos = photos
 }
 
 func mountedDevicePosition(rack model.Rack, device model.Device) (float64, float64) {

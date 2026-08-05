@@ -31,6 +31,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       LOG_LEVEL: info
       LOG_FORMAT: json
+      WIREDRAFT_MEDIA_DIR: /media
       WIREDRAFT_ADMIN_USER: ${WIREDRAFT_ADMIN_USER:-}
       WIREDRAFT_ADMIN_PASSWORD: ${WIREDRAFT_ADMIN_PASSWORD:-}
       WIREDRAFT_ADMIN_TOTP_SECRET: ${WIREDRAFT_ADMIN_TOTP_SECRET:-}
@@ -44,6 +45,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - media-data:/media
     healthcheck:
       test: ["CMD", "/wiredraft", "-healthcheck"]
       interval: 15s
@@ -54,3 +57,4 @@ services:
 
 volumes:
   postgres-data:
+  media-data:

@@ -15,9 +15,11 @@ ARG TARGETARCH
 RUN rm -f web/static/js/manifest.json && \
     CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build \
       -trimpath -ldflags="-s -w -buildid=" -o /wiredraft ./cmd/server
+RUN mkdir -p /media
 
 FROM scratch
 COPY --from=builder --chown=10001:10001 /wiredraft /wiredraft
+COPY --from=builder --chown=10001:10001 /media /media
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=4s --start-period=5s --retries=3 CMD ["/wiredraft", "-healthcheck"]

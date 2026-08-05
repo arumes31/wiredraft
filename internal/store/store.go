@@ -36,6 +36,7 @@ type Store interface {
 	List(ctx context.Context) ([]model.Summary, error)
 	Get(ctx context.Context, id string) (model.Topology, error)
 	Create(ctx context.Context, topology model.Topology) (model.Topology, error)
+	Delete(ctx context.Context, id string) error
 	Mutate(ctx context.Context, id string, mutation func(*model.Topology) error) (model.Topology, error)
 	MutateAtRevision(ctx context.Context, id string, expectedRevision uint64, mutation func(*model.Topology) error) (model.Topology, error)
 }

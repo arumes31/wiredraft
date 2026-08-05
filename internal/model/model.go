@@ -35,6 +35,19 @@ const (
 	DocumentationTargetLink     DocumentationTargetKind = "link"
 )
 
+// PhotoTargetKind identifies the topology object shown with an uploaded photo.
+type PhotoTargetKind string
+
+// Supported photo attachment targets.
+const (
+	PhotoTargetTopology   PhotoTargetKind = "topology"
+	PhotoTargetRack       PhotoTargetKind = "rack"
+	PhotoTargetDevice     PhotoTargetKind = "device"
+	PhotoTargetPort       PhotoTargetKind = "port"
+	PhotoTargetLink       PhotoTargetKind = "link"
+	PhotoTargetAnnotation PhotoTargetKind = "annotation"
+)
+
 // DeviceCategory identifies the hardware role rendered on a rack faceplate.
 type DeviceCategory string
 
@@ -357,6 +370,19 @@ type DocumentationLink struct {
 	CreatedAt  time.Time               `json:"createdAt"`
 }
 
+// Photo describes a media file stored outside the topology database. Its
+// random ID is also the on-disk filename stem; original names are display-only.
+type Photo struct {
+	ID           string          `json:"id"`
+	TargetKind   PhotoTargetKind `json:"targetKind"`
+	TargetID     string          `json:"targetId"`
+	OriginalName string          `json:"originalName"`
+	Caption      string          `json:"caption,omitempty"`
+	MediaType    string          `json:"mediaType"`
+	SizeBytes    int64           `json:"sizeBytes"`
+	CreatedAt    time.Time       `json:"createdAt"`
+}
+
 // ShareGrant stores only a digest of a read-only share token. The clear token is
 // returned once by the creation endpoint and is never persisted.
 type ShareGrant struct {
@@ -384,6 +410,7 @@ type Topology struct {
 	Annotations        []Annotation        `json:"annotations"`
 	CommentThreads     []CommentThread     `json:"commentThreads"`
 	DocumentationLinks []DocumentationLink `json:"documentationLinks"`
+	Photos             []Photo             `json:"photos"`
 	ShareGrants        []ShareGrant        `json:"shareGrants,omitempty"`
 	CreatedAt          time.Time           `json:"createdAt"`
 	UpdatedAt          time.Time           `json:"updatedAt"`
@@ -459,6 +486,9 @@ func (t *Topology) Normalize() {
 	}
 	if t.DocumentationLinks == nil {
 		t.DocumentationLinks = []DocumentationLink{}
+	}
+	if t.Photos == nil {
+		t.Photos = []Photo{}
 	}
 	if t.ShareGrants == nil {
 		t.ShareGrants = []ShareGrant{}

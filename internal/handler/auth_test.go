@@ -14,6 +14,7 @@ import (
 	"github.com/pquerna/otp/totp"
 
 	"netdiagram/internal/auth"
+	"netdiagram/internal/media"
 	"netdiagram/internal/model"
 	"netdiagram/internal/sse"
 	"netdiagram/internal/store"
@@ -259,6 +260,20 @@ func TestOrganizationUserOnlySeesAssignedMaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	photoID, err := model.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	berlin, err = topologyStore.Mutate(t.Context(), berlin.ID, func(topology *model.Topology) error {
+		topology.Photos = append(topology.Photos, model.Photo{
+			ID: photoID, TargetKind: model.PhotoTargetTopology, TargetID: topology.ID,
+			OriginalName: "berlin-private.png", MediaType: "image/png", SizeBytes: 128, CreatedAt: time.Now().UTC(),
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	storedSummaries, err := topologyStore.List(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -292,7 +307,12 @@ func TestOrganizationUserOnlySeesAssignedMaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewWithAuth(topologyStore, sse.NewBroker(), slog.New(slog.DiscardHandler), static, authManager)
+	mediaStore, err := media.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mediaStore.Close() })
+	handler := NewWithAuthAndMedia(topologyStore, sse.NewBroker(), slog.New(slog.DiscardHandler), static, authManager, mediaStore)
 	cookie := &http.Cookie{Name: sessionCookieName, Value: session.Token} // #nosec G124 -- request fixture, not a response cookie.
 
 	listResponse := performJSONRequest(t, handler, http.MethodGet, "/api/v1/topologies", nil, cookie)
@@ -304,6 +324,11 @@ func TestOrganizationUserOnlySeesAssignedMaps(t *testing.T) {
 	denied := performJSONRequest(t, handler, http.MethodGet, "/api/v1/topologies/"+berlin.ID, nil, cookie)
 	if denied.Code != http.StatusNotFound {
 		t.Fatalf("cross-organization status = %d, want 404", denied.Code)
+	}
+	deniedPhoto := performJSONRequest(t, handler, http.MethodGet,
+		"/api/v1/topologies/"+berlin.ID+"/photos/"+photoID, nil, cookie)
+	if deniedPhoto.Code != http.StatusNotFound {
+		t.Fatalf("cross-organization photo status = %d, want 404", deniedPhoto.Code)
 	}
 }
 

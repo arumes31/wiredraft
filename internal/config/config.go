@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Port            int
 	DatabaseURL     string
+	MediaDir        string
 	LogLevel        string
 	LogFormat       string
 	AdminUsername   string
@@ -36,6 +37,7 @@ func Parse(args []string) (Config, error) {
 	cfg := Config{
 		Port:            envInt("PORT", 8080),
 		DatabaseURL:     envString("DATABASE_URL", ""),
+		MediaDir:        envString("WIREDRAFT_MEDIA_DIR", "data/media"),
 		LogLevel:        envString("LOG_LEVEL", "info"),
 		LogFormat:       envString("LOG_FORMAT", "json"),
 		AdminUsername:   envStringAlias("WIREDRAFT_ADMIN_USER", "NETDIAGRAM_ADMIN_USER", "admin"),
@@ -48,6 +50,7 @@ func Parse(args []string) (Config, error) {
 
 	set := flag.NewFlagSet("wiredraft", flag.ContinueOnError)
 	set.IntVar(&cfg.Port, "port", cfg.Port, "HTTP listen port")
+	set.StringVar(&cfg.MediaDir, "media-dir", cfg.MediaDir, "private uploaded-photo directory")
 	set.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "debug, info, warn, or error")
 	set.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "json or text")
 	set.BoolVar(&cfg.Healthcheck, "healthcheck", false, "probe a running server and exit")
@@ -57,6 +60,9 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return Config{}, fmt.Errorf("port must be between 1 and 65535")
+	}
+	if cfg.MediaDir == "" {
+		return Config{}, fmt.Errorf("media directory must not be empty")
 	}
 	return cfg, nil
 }

@@ -6,6 +6,7 @@ import (
 )
 
 func TestAuthenticationEnvironmentDefaults(t *testing.T) {
+	t.Setenv("WIREDRAFT_MEDIA_DIR", "")
 	t.Setenv("WIREDRAFT_GUEST_ENABLED", "")
 	t.Setenv("WIREDRAFT_COOKIE_SECURE", "")
 	t.Setenv("WIREDRAFT_ADMIN_USER", "")
@@ -21,6 +22,20 @@ func TestAuthenticationEnvironmentDefaults(t *testing.T) {
 	}
 	if !configuration.GuestEnabled || configuration.CookieSecure || configuration.AdminUsername != "admin" {
 		t.Fatalf("authentication defaults = %#v", configuration)
+	}
+	if configuration.MediaDir != "data/media" {
+		t.Fatalf("media directory = %q, want data/media", configuration.MediaDir)
+	}
+}
+
+func TestMediaDirectoryEnvironmentAndFlag(t *testing.T) {
+	t.Setenv("WIREDRAFT_MEDIA_DIR", "environment-media")
+	configuration, err := Parse([]string{"-media-dir", "flag-media"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.MediaDir != "flag-media" {
+		t.Fatalf("media directory = %q, want flag-media", configuration.MediaDir)
 	}
 }
 

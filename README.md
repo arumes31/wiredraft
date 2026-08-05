@@ -16,7 +16,7 @@
 
 </div>
 
-WireDraft is a self-hosted rack, cabling, and VLAN planning application. A single Go server embeds the browser UI and API; PostgreSQL stores complete topology documents, revision metadata, users, TOTP state, recovery codes, and organization access.
+WireDraft is a self-hosted rack, cabling, and VLAN planning application. A single Go server embeds the browser UI and API; PostgreSQL stores complete topology documents, revision metadata, users, TOTP state, recovery codes, and organization access. Uploaded field photos live in a separate private media volume and are delivered only after map-organization authorization.
 
 ![WireDraft rack workspace with physical links](e2e/__screenshots__/rack-faceplates.png)
 
@@ -51,7 +51,7 @@ docker compose logs -f wiredraft
 docker compose down
 ```
 
-`docker compose down` keeps the `postgres-data` volume. Running `docker compose down -v` also deletes the database and is irreversible unless you have a backup.
+`docker compose down` keeps the `postgres-data` and `media-data` volumes. Running `docker compose down -v` also deletes the database and uploaded photos and is irreversible unless you have a backup.
 
 > On PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
 
@@ -61,7 +61,7 @@ docker compose down
 2. On the first administrator login, scan the QR code with a TOTP authenticator and enter its current six-digit code. If `WIREDRAFT_ADMIN_TOTP_SECRET` is already set, enrollment is skipped.
 3. Download or copy the one-use recovery codes. They are displayed only when TOTP enrollment completes.
 4. Open the generated demonstration map, or create a topology for an organization and location.
-5. Add racks and devices, connect two ports to create a cable, then configure VLANs, bundles, switch systems, firewall clusters, and documentation links from the inspectors.
+5. Add racks and devices, connect two ports to create a cable, then configure VLANs, bundles, switch systems, firewall clusters, documentation links, and protected field photos from the inspectors.
 
 Guest access is enabled by default for existing guest-workspace maps. Set `WIREDRAFT_GUEST_ENABLED=false` before startup when anonymous workspace access is not wanted.
 
@@ -75,7 +75,7 @@ docker pull ghcr.io/arumes31/wiredraft:latest
 
 Available tags include `latest`, `main`, `sha-<commit>`, `v<version>`, `<version>`, and `<major>.<minor>` according to the triggering branch or release tag. Use a version or digest instead of `latest` for repeatable production deployments.
 
-The repository includes a standalone [GHCR Compose stack](docker-compose.ghcr.yml) with both the application and PostgreSQL. It mounts `db/migrations` into new PostgreSQL containers, keeps the database on a named volume, waits for database readiness, and runs the application with a read-only filesystem and dropped Linux capabilities.
+The repository includes a standalone [GHCR Compose stack](docker-compose.ghcr.yml) with both the application and PostgreSQL. It mounts `db/migrations` into new PostgreSQL containers, keeps the database and protected media on separate named volumes, waits for database readiness, and runs the application with a read-only root filesystem and dropped Linux capabilities.
 
 Start it from a WireDraft checkout:
 
@@ -171,8 +171,9 @@ sequenceDiagram
 | `topologies` | Complete topology JSONB documents plus name, organization, location, revision, counts, and timestamps |
 | `auth_state` | Users, organization grants, password/TOTP/recovery state, guest workspace membership, and the 32-byte key used to encrypt authenticator secrets |
 | `postgres-data` volume | The complete database used by the included Compose deployment |
+| `media-data` volume | Randomly renamed JPEG/PNG attachments, isolated by topology and never exposed as a browsable static directory |
 
-Back up PostgreSQL to preserve both topology and authentication state. A JSON export is useful for moving one topology, but it is not a replacement for a database backup.
+Back up PostgreSQL and `media-data` together to preserve topology, authentication state, and uploaded photos. A JSON export contains attachment metadata but not the photo bytes, so it is not a replacement for these backups.
 
 ```sh
 docker compose exec -T postgres pg_dump -U wiredraft -d wiredraft > wiredraft-backup.sql
@@ -188,6 +189,7 @@ WireDraft reads environment variables first and lets command-line flags override
 | --- | --- | --- | --- |
 | `PORT` | `-port` | `8080` | HTTP listen port |
 | `DATABASE_URL` | — | empty | PostgreSQL URL; when empty, pgx reads the standard `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, and related variables |
+| `WIREDRAFT_MEDIA_DIR` | `-media-dir` | `data/media` | Private photo root; Compose sets this to `/media` and mounts the `media-data` volume there |
 | `LOG_LEVEL` | `-log-level` | `info` | `debug`, `info`, `warn`, or `error` |
 | `LOG_FORMAT` | `-log-format` | `json` | `json` or `text` |
 | `WIREDRAFT_ADMIN_USER` | — | `admin` | Bootstrap administrator username |
@@ -205,6 +207,7 @@ The legacy `NETDIAGRAM_ADMIN_*`, `NETDIAGRAM_GUEST_ENABLED`, and `NETDIAGRAM_COO
 - Disable guest access unless it is intentionally required.
 - Terminate TLS at a trusted reverse proxy and set `WIREDRAFT_COOKIE_SECURE=true`.
 - Keep PostgreSQL on a private network and back up its data volume.
+- Back up `media-data` with PostgreSQL; do not publish or serve the media volume directly from a reverse proxy.
 - Pin the WireDraft image to a release tag or digest and apply database migrations before upgrades.
 - Preserve the `auth_state` row with the rest of the database; its encryption key is required to read stored TOTP secrets.
 
@@ -216,6 +219,7 @@ The versioned API is rooted at `/api/v1`.
 | --- | --- |
 | Health and authentication | `/health`, `/auth/*`, `/admin/users` |
 | Topologies and inventory | `/topologies`, `/topologies/{id}`, `/racks`, `/devices`, `/ports` |
+| Protected photos | `/topologies/{id}/photos` and `/topologies/{id}/photos/{photoId}` |
 | Cabling and logical systems | `/links`, `/link-groups`, `/switch-systems`, `/firewall-clusters` |
 | Network intent | `/vlans`, `/analysis`, `/trace` |
 | Collaboration | `/events`, `/comments`, `/documentation-links`, `/shares` |

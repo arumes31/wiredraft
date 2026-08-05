@@ -44,7 +44,7 @@ api.setRevisionProvider(() => state.topology?.revision);
 const cableMediaTypes = ["CAT5E", "CAT6", "CAT6A", "COAX", "FIBER", "SMF", "MMF", "DAC", "AOC", "TWINAX"];
 const elements = Object.fromEntries([
   "topology-select", "topology-count", "topology-dialog", "topology-form", "topology-dialog-title", "topology-dialog-note",
-  "topology-submit-button", "map-template-field", "organization-options", "location-options", "edit-topology-button",
+  "topology-submit-button", "delete-topology-button", "map-template-field", "organization-options", "location-options", "edit-topology-button",
   "connection-status", "topology-name", "topology-scope", "rack-count", "device-count", "physical-device-count", "link-count", "vlan-count",
   "workspace", "selection-inspector", "vlan-palette", "analysis-count", "analysis-list", "stp-count", "stp-list", "inspector-empty", "inspector-content", "zoom-readout",
   "pointer-readout", "toast", "device-dialog", "device-form", "vlan-modal", "vlan-form", "vlan-manager-list",
@@ -63,6 +63,8 @@ const elements = Object.fromEntries([
   "account-menu", "account-name", "account-role", "account-avatar", "account-scope",
   "manage-users-button", "account-dialog", "account-form", "account-user-list",
   "account-user-count", "account-organizations",
+  "photo-dialog", "photo-manager-count", "photo-manager-list", "photo-preview", "photo-preview-meta",
+  "photo-details-form", "delete-photo-button",
 ].map((id) => [id, document.getElementById(id)]));
 
 const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state, {
@@ -105,6 +107,7 @@ let shareEntries = [];
 let createdShareURL = "";
 let topologySummaries = [];
 let sessionInfo = null;
+let activePhotoID = "";
 
 let pendingServerCards = [];
 let serverCardSequence = 0;
@@ -131,6 +134,7 @@ state.addEventListener("change", ({ detail }) => {
   }
   if (detail.kind === "analysis" || detail.kind === "topology") renderAnalysis();
   if (detail.kind === "topology" && elements["resources-dialog"]?.open) renderResources();
+  if (detail.kind === "topology" && elements["photo-dialog"]?.open) renderPhotoManager();
 });
 autosave.addEventListener("status", ({ detail }) => {
   renderSaveStatus(detail);
@@ -167,6 +171,7 @@ async function loadTopology(id) {
   let topology = await api.getTopology(id);
   state.history = [];
   state.future = [];
+  activePhotoID = "";
   state.selection = null;
   state.setTrace([]);
   state.setTopology(topology);
@@ -222,6 +227,7 @@ function openTopologyDialog() {
     ? "Create an independent map in the Guest workspace. Add a location label for easier navigation."
     : "Create an independent topology inside one organization and location.";
   elements["map-template-field"].hidden = false;
+  elements["delete-topology-button"].hidden = true;
   elements["topology-submit-button"].value = "create";
   elements["topology-submit-button"].textContent = "CREATE + OPEN MAP";
   refreshTopologyScopeOptions(form.elements.organization.value);
@@ -244,6 +250,7 @@ function openEditTopologyDialog() {
     ? "Guest access can rename this map and its location; organization ownership remains unchanged."
     : "Assign this map to one organization and one of its locations. An organization may own any number of locations.";
   elements["map-template-field"].hidden = true;
+  elements["delete-topology-button"].hidden = false;
   elements["topology-submit-button"].value = "save";
   elements["topology-submit-button"].textContent = "SAVE MAP ASSIGNMENT";
   refreshTopologyScopeOptions(form.elements.organization.value);
@@ -304,6 +311,24 @@ async function submitTopologyDialog(event) {
   } finally {
     submit.disabled = false;
   }
+}
+
+async function deleteTopology() {
+  const topology = state.topology;
+  if (!topology || !window.confirm(`Delete ${topology.name}, all objects, and every uploaded photo? This cannot be undone.`)) return;
+  await api.deleteTopology(topology.id, topology.revision);
+  elements["topology-dialog"].close();
+  topologySummaries = await api.listTopologies();
+  if (!topologySummaries.length) {
+    const created = await api.createTopology({ name: "Untitled topology", template: "blank" });
+    topologySummaries = await api.listTopologies();
+    fillTopologySelect(topologySummaries);
+    await loadTopology(created.id);
+  } else {
+    fillTopologySelect(topologySummaries);
+    await loadTopology(topologySummaries[0].id);
+  }
+  toast(`Map deleted · protected media removed`);
 }
 
 function renderTopology() {
@@ -426,8 +451,116 @@ function renderInspector() {
   if (selection.type === "device") renderDeviceInspector(selection.id);
   if (selection.type === "link") renderLinkInspector(selection.id);
   if (selection.type === "annotation") renderAnnotationInspector(selection.id);
+  renderPhotoInspector(selection);
   renderCommentInspector(selection);
   renderDocumentationInspector(selection);
+}
+
+function photoURL(photo) {
+  return `/api/v1/topologies/${encodeURIComponent(state.topology.id)}/photos/${encodeURIComponent(photo.id)}`;
+}
+
+function photosForTarget(target) {
+  return (state.topology?.photos || []).filter((photo) => photo.targetKind === target.type && photo.targetId === target.id);
+}
+
+function renderPhotoInspector(selection) {
+  const photos = photosForTarget(selection);
+  const section = document.createElement("section");
+  section.className = "inspector-photos";
+  section.innerHTML = `
+    <div class="section-heading"><h3>FIELD PHOTOS</h3><span>${photos.length} PHOTO${photos.length === 1 ? "" : "S"}</span></div>
+    <div class="inspector-photo-grid">
+      ${photos.map((photo) => `<button type="button" data-photo-open="${photo.id}" title="Open ${escapeHTML(photo.originalName)}"><img src="${photoURL(photo)}" alt="${escapeHTML(photo.caption || photo.originalName)}" loading="lazy"><span>VIEW</span></button>`).join("")}
+      ${photos.length ? "" : `<p>No protected photos are attached to this ${escapeHTML(selection.type)}.</p>`}
+    </div>
+    <form class="photo-upload-form">
+      <label><span>UPLOAD JPEG / PNG</span><input name="photos" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple required></label>
+      <small>Up to 12 photos per upload · 10 MiB each · access follows this map's organization.</small>
+      <button class="primary">UPLOAD SELECTED PHOTOS</button>
+    </form>`;
+  section.querySelectorAll("[data-photo-open]").forEach((button) => button.addEventListener("click", () => openPhotoManager(button.dataset.photoOpen)));
+  section.querySelector(".photo-upload-form").addEventListener("submit", (event) => uploadInspectorPhotos(event, selection).catch(showError));
+  elements["inspector-content"].append(section);
+}
+
+async function uploadInspectorPhotos(event, selection) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const files = [...form.elements.photos.files];
+  if (!files.length) return;
+  const submit = form.querySelector("button[type='submit'], button:not([type])");
+  submit.disabled = true;
+  try {
+    const topology = await api.uploadPhotos(state.topology.id, selection, files, state.topology.revision);
+    state.setTopology(topology);
+    autosave.markSaved();
+    toast(`${files.length} photo${files.length === 1 ? "" : "s"} uploaded securely`);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+function openPhotoManager(photoID) {
+  activePhotoID = photoID;
+  renderPhotoManager();
+  elements["photo-dialog"].showModal();
+}
+
+function renderPhotoManager() {
+  let active = (state.topology?.photos || []).find((photo) => photo.id === activePhotoID);
+  if (!active) {
+    active = (state.topology?.photos || [])[0];
+    activePhotoID = active?.id || "";
+  }
+  if (!active) {
+    if (elements["photo-dialog"].open) elements["photo-dialog"].close();
+    return;
+  }
+  const photos = (state.topology.photos || []).filter((photo) =>
+    photo.targetKind === active.targetKind && photo.targetId === active.targetId);
+  elements["photo-manager-count"].textContent = `${photos.length} PHOTO${photos.length === 1 ? "" : "S"}`;
+  elements["photo-manager-list"].innerHTML = photos.map((photo) => `
+    <button type="button" data-photo-id="${photo.id}" class="${photo.id === active.id ? "is-active" : ""}">
+      <img src="${photoURL(photo)}" alt=""><span><b>${escapeHTML(photo.originalName)}</b><small>${escapeHTML(photo.caption || formatPhotoSize(photo.sizeBytes))}</small></span>
+    </button>`).join("");
+  elements["photo-preview"].src = photoURL(active);
+  elements["photo-preview"].classList.remove("is-enlarged");
+  elements["photo-preview"].alt = active.caption || active.originalName;
+  elements["photo-preview-meta"].textContent = `${active.mediaType.replace("image/", "").toUpperCase()} · ${formatPhotoSize(active.sizeBytes)} · PROTECTED ${active.targetKind.toUpperCase()} ATTACHMENT`;
+  elements["photo-details-form"].elements.originalName.value = active.originalName;
+  elements["photo-details-form"].elements.caption.value = active.caption || "";
+}
+
+async function savePhotoDetails(event) {
+  event.preventDefault();
+  const photo = (state.topology?.photos || []).find((candidate) => candidate.id === activePhotoID);
+  if (!photo) return;
+  const data = new FormData(event.currentTarget);
+  const topology = await api.updatePhoto(state.topology.id, photo.id, {
+    originalName: String(data.get("originalName")).trim(),
+    caption: String(data.get("caption")).trim(),
+  }, state.topology.revision);
+  state.setTopology(topology);
+  autosave.markSaved();
+  toast("Photo details updated");
+}
+
+async function removeActivePhoto() {
+  const photo = (state.topology?.photos || []).find((candidate) => candidate.id === activePhotoID);
+  if (!photo || !window.confirm(`Delete ${photo.originalName}? The uploaded file will be removed permanently.`)) return;
+  const topology = await api.deletePhoto(state.topology.id, photo.id, state.topology.revision);
+  const siblings = photosForTarget({ type: photo.targetKind, id: photo.targetId }).filter((candidate) => candidate.id !== photo.id);
+  activePhotoID = siblings[0]?.id || "";
+  state.setTopology(topology);
+  autosave.markSaved();
+  toast("Photo and protected media file deleted");
+}
+
+function formatPhotoSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 1024) return `${Math.max(0, Number(bytes) || 0)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function renderAnnotationInspector(annotationID) {
@@ -926,6 +1059,7 @@ function bindControls() {
   elements["edit-topology-button"].addEventListener("click", openEditTopologyDialog);
   elements["topology-form"].elements.organization.addEventListener("input", (event) => refreshTopologyScopeOptions(event.target.value));
   elements["topology-form"].addEventListener("submit", (event) => submitTopologyDialog(event).catch(showError));
+  elements["delete-topology-button"].addEventListener("click", () => deleteTopology().catch(showError));
   elements["graphics-quality"].addEventListener("change", (event) => {
     const mode = normalizeGraphicsMode(event.target.value);
     canvas.setGraphicsMode(mode);
@@ -990,6 +1124,15 @@ function bindControls() {
   elements["share-form"].addEventListener("submit", (event) => saveShare(event).catch(showError));
   elements["documentation-list"].addEventListener("click", (event) => handleDocumentationAction(event).catch(showError));
   elements["share-list"].addEventListener("click", (event) => handleShareAction(event).catch(showError));
+  elements["photo-details-form"].addEventListener("submit", (event) => savePhotoDetails(event).catch(showError));
+  elements["delete-photo-button"].addEventListener("click", () => removeActivePhoto().catch(showError));
+  elements["photo-manager-list"].addEventListener("click", (event) => {
+    const button = event.target.closest("[data-photo-id]");
+    if (!button) return;
+    activePhotoID = button.dataset.photoId;
+    renderPhotoManager();
+  });
+  elements["photo-preview"].addEventListener("click", () => elements["photo-preview"].classList.toggle("is-enlarged"));
   elements["vlan-form"].addEventListener("submit", saveVLAN);
   elements["trace-form"].addEventListener("submit", tracePath);
   elements["link-group-form"].addEventListener("submit", saveLinkGroup);
