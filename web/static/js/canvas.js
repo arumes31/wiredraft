@@ -57,6 +57,7 @@ export class CanvasEngine {
     this.routingDeviceBoxes = [];
     this.rackBoxes = [];
     this.rackFaceBoxes = [];
+    this.routingRackBoxes = [];
     this.rackTiles = new SceneTileIndex();
     this.deviceTiles = new SceneTileIndex();
     this.portBoxes = [];
@@ -483,6 +484,7 @@ export class CanvasEngine {
     const previousGeometry = captureRoutingGeometry(this.routingDeviceBoxes, this.rackBoxes, this.routingPortBoxes);
     this.rackBoxes = [];
     this.rackFaceBoxes = [];
+    this.routingRackBoxes = [];
     this.deviceBoxes = [];
     this.shadowDeviceBoxes = [];
     this.routingDeviceBoxes = [];
@@ -531,10 +533,12 @@ export class CanvasEngine {
       faces.forEach((face, index) => {
         const box = {
           rack, face, expanded, primary: index === 0,
+          routingKey: `${rack.id}:${face}`,
           x: base.x + index * (RACK_WIDTH + RACK_FACE_GAP), y: base.y,
           width: RACK_WIDTH, height: base.height,
         };
         this.rackFaceBoxes.push(box);
+        this.routingRackBoxes.push(box);
         this.rackTiles.insert(box);
         faceBoxes.set(`${rack.id}:${face}`, box);
       });
@@ -820,7 +824,7 @@ export class CanvasEngine {
       links: orderedLinks,
       portBoxes: this.routingPortBoxes || this.portBoxes,
       deviceBoxes: this.routingDeviceBoxes || this.deviceBoxes,
-      rackBoxes: this.rackBoxes,
+      rackBoxes: this.routingRackBoxes || this.rackFaceBoxes || this.rackBoxes,
       linkGroups: this.state.topology?.linkGroups || [],
     }, incremental ? { previousTracks: previousBaseTracks, rerouteLinkIDs: affectedLinkIDs } : undefined);
     const planned = orderedLinks.map((link) => ({ link, route: baseTracks.get(link.id) })).filter(({ route }) => route);

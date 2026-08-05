@@ -105,6 +105,45 @@ assert.equal(crossTracks.every(({ gutterX }) => gutterX > rackA.x + rackA.width 
   "cross-rack channels must stay inside the gap between racks");
 assert.equal(Math.abs(crossTracks[1].gutterX - crossTracks[0].gutterX), CABLE_TRACK_SPACING,
   "cross-rack bundle lanes need the fixed track pitch");
+
+const expandedRack = { id: "expanded-rack", name: "EXPANDED RACK", positionX: 0 };
+const expandedFront = {
+  rack: expandedRack, face: "front", routingKey: "expanded-rack:front",
+  x: 0, y: 0, width: 750, height: 1000,
+};
+const expandedRear = {
+  rack: expandedRack, face: "rear", routingKey: "expanded-rack:rear",
+  x: 840, y: 0, width: 750, height: 1000,
+};
+const expandedPeerRack = rack("expanded-peer", 1800);
+expandedPeerRack.face = "front";
+expandedPeerRack.routingKey = "expanded-peer:front";
+const expandedSource = device("expanded-source", expandedFront, 300);
+expandedSource.device.rackFace = "front";
+const expandedTarget = device("expanded-target", expandedPeerRack, 400);
+expandedTarget.device.rackFace = "front";
+const expandedSourcePort = port(expandedSource, "expanded-source-port", 650, 340);
+const expandedTargetPort = port(expandedTarget, "expanded-target-port", 1840, 440);
+const expandedLink = link("expanded-front-link", expandedSourcePort, expandedTargetPort);
+const expandedTrack = assignCableTracks({
+  links: [expandedLink],
+  portBoxes: [expandedSourcePort, expandedTargetPort],
+  deviceBoxes: [expandedSource, expandedTarget],
+  rackBoxes: [expandedFront, expandedRear, expandedPeerRack],
+}).get(expandedLink.id);
+assert.ok(expandedTrack.sourceGutterX < expandedRear.x,
+  "a front-face cable must leave through the front face gutter before the adjacent rear face");
+const rearFaceInterior = {
+  x: expandedRear.x + 1,
+  y: expandedRear.y + 1,
+  width: expandedRear.width - 2,
+  height: expandedRear.height - 2,
+};
+for (const segment of routeSegments(expandedTrack)) {
+  assert.equal(segmentIntersectsRectangle(segment.source, segment.target, rearFaceInterior), false,
+    "a front-face cable must not cross the expanded rear faceplate");
+}
+
 const trunkAndNormalTracks = assignCableTracks({
   links,
   portBoxes,
@@ -493,6 +532,8 @@ assert.ok(portDescriptionPlacement(lowerPort, bounds).fontSize < portDescription
 const canvasSource = readFileSync(new URL("./static/js/canvas.js", import.meta.url), "utf8");
 const exportSource = readFileSync(new URL("./static/js/export.js", import.meta.url), "utf8");
 assert.match(canvasSource, /assignCableTracks\(\{/);
+assert.match(canvasSource, /rackBoxes: this\.routingRackBoxes/,
+  "canvas routing must use independent face bounds instead of the expanded rack group boundary");
 assert.match(canvasSource, /ctx\.lineTo\(segment\.target\.x, segment\.target\.y\)/);
 assert.match(exportSource, /`H\$\{segment\.target\.x\}`/);
 assert.match(exportSource, /`V\$\{segment\.target\.y\}`/);

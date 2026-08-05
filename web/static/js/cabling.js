@@ -85,7 +85,20 @@ export function assignCableTracks(scene, options = {}) {
   }
   const portMap = new Map((scene?.portBoxes || []).map((box) => [box.port.id, box]));
   const deviceMap = new Map((scene?.deviceBoxes || []).map((box) => [box.device.id, box]));
-  const rackMap = new Map((scene?.rackBoxes || []).map((box) => [box.rack.id, box]));
+  const rackBoxes = scene?.rackBoxes || [];
+  const rackMap = new Map(rackBoxes.map((box) => [rackID(box), box]));
+  const rackByPhysicalID = new Map();
+  for (const box of rackBoxes) {
+    const physicalID = box?.rack?.id || box?.id || "";
+    if (!physicalID || (rackByPhysicalID.has(physicalID) && !box.primary)) continue;
+    rackByPhysicalID.set(physicalID, box);
+  }
+  const deviceRack = (mountedDevice, deviceBox) => {
+    const physicalID = mountedDevice?.rackId || deviceBox?.rack?.id || "";
+    if (!physicalID) return null;
+    const face = mountedDevice?.rackFace === "rear" ? "rear" : "front";
+    return rackMap.get(`${physicalID}:${face}`) || rackMap.get(physicalID) || rackByPhysicalID.get(physicalID) || null;
+  };
   const descriptors = [];
 
   for (const link of links) {
@@ -103,8 +116,8 @@ export function assignCableTracks(scene, options = {}) {
       target,
       sourceDevice,
       targetDevice,
-      sourceRack: rackMap.get(source.device.rackId || sourceDevice.rack?.id) || null,
-      targetRack: rackMap.get(target.device.rackId || targetDevice.rack?.id) || null,
+      sourceRack: deviceRack(source.device, sourceDevice),
+      targetRack: deviceRack(target.device, targetDevice),
       bundleKey: linkGroup
         ? `group:${linkGroup.id}:${routingPlane}`
         : `${deviceIDs[0]}::${deviceIDs[1]}::${routingPlane}`,
@@ -1175,7 +1188,10 @@ function rackCenterX(box) {
 }
 
 function rackID(box) {
-  return box?.rack?.id || box?.id || "";
+  if (box?.routingKey) return box.routingKey;
+  const physicalID = box?.rack?.id || box?.id || "";
+  if (!physicalID || !box?.face) return physicalID;
+  return `${physicalID}:${box.face === "rear" ? "rear" : "front"}`;
 }
 
 function boxCenterX(box) {
