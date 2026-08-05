@@ -231,7 +231,8 @@ export class CanvasEngine {
     this.drawGrid(ctx, width, height, camera, profile);
     this.layoutScene();
     const viewport = this.viewportWorldRect(camera, width, height, 180);
-    for (const rackBox of this.rackTiles.query(viewport)) this.drawRack(ctx, rackBox);
+    const visibleRackBoxes = this.rackTiles.query(viewport);
+    for (const rackBox of visibleRackBoxes) this.drawRack(ctx, rackBox);
     if (overlays) this.drawRackLanding(ctx);
     for (const box of this.shadowDeviceBoxes) {
       if (intersects(box, viewport)) this.drawDeviceShadow(ctx, box);
@@ -247,6 +248,7 @@ export class CanvasEngine {
       this.drawDragGhosts(ctx);
       this.drawAnnotationDraft(ctx);
     }
+    this.drawRackFaceControls(ctx, visibleRackBoxes);
     ctx.restore();
     if (overlays) this.drawTooltip(ctx);
   }
@@ -666,18 +668,6 @@ export class CanvasEngine {
     ctx.fillStyle = used === rack.heightU ? "#f36c63" : "#8ff4e8";
     ctx.fillText(`${used}U USED · ${rack.heightU - used}U FREE`, box.x + box.width - 290, box.y + 34);
 
-    for (const control of this.rackFaceControls(box)) {
-      const active = control.face === box.face;
-      ctx.fillStyle = active ? "rgba(102, 237, 221, .2)" : "rgba(4, 11, 13, .48)";
-      ctx.strokeStyle = active ? "#8ff4e8" : "rgba(196, 221, 220, .32)";
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(control.x, control.y, control.width, control.height, 4); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = active ? "#cafff8" : "#9bb1b2";
-      ctx.font = "700 9px Bahnschrift Condensed, sans-serif";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(control.face.toUpperCase(), control.x + control.width / 2, control.y + control.height / 2);
-    }
-
     ctx.fillStyle = "rgba(10, 17, 19, .88)";
     ctx.fillRect(box.x + RACK_DEVICE_INSET, bayTop, box.width - RACK_DEVICE_INSET * 2, bayHeight);
     ctx.fillStyle = darken(rack.color, 30);
@@ -713,6 +703,33 @@ export class CanvasEngine {
       rack: box.rack, face,
       x: startX + index * (width + gap), y: box.y + 17, width, height: 28,
     }));
+  }
+
+  drawRackFaceControls(ctx, rackBoxes) {
+    for (const box of rackBoxes) {
+      const controls = this.rackFaceControls(box);
+      const first = controls[0];
+      const last = controls.at(-1);
+      ctx.save();
+      ctx.fillStyle = "rgba(5, 14, 16, .98)";
+      ctx.strokeStyle = "rgba(90, 151, 154, .58)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(first.x - 5, first.y - 4, last.x + last.width - first.x + 10, first.height + 8, 6);
+      ctx.fill(); ctx.stroke();
+      for (const control of controls) {
+        const active = control.face === box.face;
+        ctx.fillStyle = active ? "#174b47" : "#0a1719";
+        ctx.strokeStyle = active ? "#8ff4e8" : "#415d60";
+        ctx.lineWidth = active ? 1.5 : 1;
+        ctx.beginPath(); ctx.roundRect(control.x, control.y, control.width, control.height, 4); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = active ? "#d7fffa" : "#9bb1b2";
+        ctx.font = "700 9px Bahnschrift Condensed, sans-serif";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(control.face.toUpperCase(), control.x + control.width / 2, control.y + control.height / 2);
+      }
+      ctx.restore();
+    }
   }
 
   drawDeviceShadow(ctx, box) {

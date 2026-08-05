@@ -46,4 +46,31 @@ assert.deepEqual([...tracedRackIDs({
   links: [{ id: "trace-link", sourceDeviceId: "front-device", targetDeviceId: "rear-device" }],
 }, new Set(["trace-link"]))].sort(), ["rack-front", "rack-rear"]);
 
+const paintOrder = [];
+const layerEngine = Object.create(CanvasEngine.prototype);
+Object.assign(layerEngine, {
+  ratio: 1,
+  state: { topology: null },
+  shadowDeviceBoxes: [],
+  rackTiles: { query: () => [{}] },
+  deviceTiles: { query: () => [] },
+  drawGrid: () => {},
+  layoutScene: () => {},
+  viewportWorldRect: () => ({ x: 0, y: 0, width: 100, height: 100 }),
+  drawRack: () => paintOrder.push("rack"),
+  drawLinks: () => paintOrder.push("links"),
+  drawRackPortals: () => paintOrder.push("portals"),
+  drawPortDescriptions: () => paintOrder.push("descriptions"),
+  drawAnnotations: () => paintOrder.push("annotations"),
+  drawRackFaceControls: () => paintOrder.push("controls"),
+});
+const layerContext = {
+  setTransform() {}, fillRect() {}, save() {}, restore() {}, translate() {}, scale() {},
+};
+layerEngine.renderFrame(layerContext, 100, 100, { x: 0, y: 0, zoom: 1 }, 0, false, {});
+assert.ok(paintOrder.indexOf("controls") > paintOrder.indexOf("links"),
+  "rack face controls must paint above cable links");
+assert.ok(paintOrder.indexOf("controls") > paintOrder.indexOf("portals"),
+  "rack face controls must paint above hidden-face portal groups");
+
 console.log("canvas hit-testing boundary checks passed");
