@@ -67,6 +67,38 @@ func TestTopologyValidateRackPlacements(t *testing.T) {
 			wantError: true,
 		},
 		{
+			name: "same units on opposite faces",
+			configure: func(_ *testing.T, topology *Topology, rack Rack) {
+				topology.Devices[0].RackID = rack.ID
+				topology.Devices[0].RackUnit = 1
+				topology.Devices[0].RackFace = RackFaceFront
+				topology.Devices[1].RackID = rack.ID
+				topology.Devices[1].RackUnit = 1
+				topology.Devices[1].RackFace = RackFaceRear
+			},
+		},
+		{
+			name: "overlapping ranges on rear face",
+			configure: func(_ *testing.T, topology *Topology, rack Rack) {
+				topology.Devices[0].RackID = rack.ID
+				topology.Devices[0].RackUnit = 1
+				topology.Devices[0].RackFace = RackFaceRear
+				topology.Devices[1].RackID = rack.ID
+				topology.Devices[1].RackUnit = 1
+				topology.Devices[1].RackFace = RackFaceRear
+			},
+			wantError: true,
+		},
+		{
+			name: "unknown rack face",
+			configure: func(_ *testing.T, topology *Topology, rack Rack) {
+				topology.Devices[0].RackID = rack.ID
+				topology.Devices[0].RackUnit = 1
+				topology.Devices[0].RackFace = RackFace("side")
+			},
+			wantError: true,
+		},
+		{
 			name: "placement above rack capacity",
 			configure: func(_ *testing.T, topology *Topology, rack Rack) {
 				topology.Devices[0].RackID = rack.ID
@@ -101,6 +133,28 @@ func TestTopologyValidateRackPlacements(t *testing.T) {
 				t.Fatalf("Validate() error = %v", err)
 			}
 		})
+	}
+}
+
+func TestTopologyNormalizeRackFaces(t *testing.T) {
+	t.Parallel()
+	topology := mustDemo(t)
+	rack := Rack{
+		ID: mustID(t), Name: "RACK A01", PositionX: 80, PositionY: 80,
+		HeightU: 12, Color: "#2c4b4e",
+	}
+	topology.Racks = append(topology.Racks, rack)
+	topology.Devices[0].RackID = rack.ID
+	topology.Devices[0].RackUnit = 1
+	topology.Devices[1].RackFace = RackFaceRear
+
+	topology.Normalize()
+
+	if got := topology.Devices[0].RackFace; got != RackFaceFront {
+		t.Fatalf("mounted legacy device rack face = %q, want %q", got, RackFaceFront)
+	}
+	if got := topology.Devices[1].RackFace; got != "" {
+		t.Fatalf("unmounted device rack face = %q, want empty", got)
 	}
 }
 

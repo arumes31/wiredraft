@@ -86,7 +86,17 @@ func (t Topology) Validate() error {
 			if device.RackUnit != 0 {
 				return fmt.Errorf("device %q has a rack unit without a rack", device.Name)
 			}
+			if device.RackFace != "" {
+				return fmt.Errorf("device %q has a rack face without a rack", device.Name)
+			}
 		} else {
+			face := device.RackFace
+			if face == "" {
+				face = RackFaceFront
+			}
+			if face != RackFaceFront && face != RackFaceRear {
+				return fmt.Errorf("device %q has unknown rack face %q", device.Name, device.RackFace)
+			}
 			rack, exists := rackByID[device.RackID]
 			if !exists {
 				return fmt.Errorf("device %q references unknown rack %q", device.Name, device.RackID)
@@ -96,13 +106,14 @@ func (t Topology) Validate() error {
 			if firstUnit < 1 || lastUnit > rack.HeightU {
 				return fmt.Errorf("device %q does not fit in rack %q", device.Name, rack.Name)
 			}
-			for _, current := range placements[rack.ID] {
+			placementKey := rack.ID + "\x00" + string(face)
+			for _, current := range placements[placementKey] {
 				overlaps := firstUnit <= current.lastUnit && lastUnit >= current.firstUnit
 				if overlaps {
 					return fmt.Errorf("devices %q and %q overlap in rack %q", current.deviceName, device.Name, rack.Name)
 				}
 			}
-			placements[rack.ID] = append(placements[rack.ID], placement{
+			placements[placementKey] = append(placements[placementKey], placement{
 				deviceName: device.Name,
 				firstUnit:  firstUnit,
 				lastUnit:   lastUnit,

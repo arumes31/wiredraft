@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import {
   findRackLanding,
   isRackPlacementAvailable,
+  layoutRackGroups,
   mountedDevicePosition,
   rackBounds,
+  RackFace,
   usedRackUnits,
 } from "./static/js/rack.js";
 
@@ -42,8 +44,12 @@ const occupiedTopology = {
   ],
 };
 assert.equal(isRackPlacementAvailable(occupiedTopology, device, rack.id, 5), false);
+assert.equal(isRackPlacementAvailable(occupiedTopology, device, rack.id, 5, RackFace.REAR), true);
 assert.equal(findRackLanding(occupiedTopology, device, proposedAtU5)?.isValid, false);
 assert.equal(usedRackUnits(occupiedTopology, rack.id), 2);
+assert.equal(usedRackUnits(occupiedTopology, rack.id, RackFace.FRONT), 2);
+assert.equal(usedRackUnits(occupiedTopology, rack.id, RackFace.REAR), 0);
+assert.equal(findRackLanding(occupiedTopology, device, proposedAtU5, { [rack.id]: RackFace.REAR })?.isValid, true);
 assert.equal(findRackLanding(topology, device, { x: 2000, y: 2000 }), null);
 
 const smallRack = { ...rack, id: "rack-small", heightU: 6 };
@@ -59,5 +65,14 @@ assert.equal(capacityLanding?.rackUnit, 1);
 
 const movedRack = { ...rack, positionX: 300, positionY: 400 };
 assert.deepEqual(mountedDevicePosition(movedRack, { ...device, rackUnit: 5 }), { x: 330, y: 1064 });
+
+const neighborRack = { ...rack, id: "rack-b", positionX: 900 };
+const packed = layoutRackGroups([rack, neighborRack], new Set([rack.id, neighborRack.id]));
+assert.equal(packed.get(rack.id).x, rack.positionX);
+assert.equal(packed.get(neighborRack.id).x, rack.positionX + 750 * 2 + 90 + 90,
+  "a neighboring rack must move beyond both expanded faces and their clearance");
+const lowerRack = { ...neighborRack, id: "rack-c", positionX: rack.positionX, positionY: 1800 };
+assert.equal(layoutRackGroups([rack, lowerRack], new Set([rack.id])).get(lowerRack.id).x, lowerRack.positionX,
+  "racks with separated vertical spans must retain their saved horizontal position");
 
 console.log("rack placement checks passed");

@@ -94,7 +94,7 @@ The published runtime image is `FROM scratch`, contains only the statically link
 
 ### Rack and hardware planning
 
-- Multi-rack layouts with 6U–48U frames, numbered rails, whole-U snapping, collision prevention, capacity reporting, free-floating devices, and a navigable minimap.
+- Multi-rack layouts with 6U–48U frames, independent front/rear rails, per-rack face switching, whole-U snapping, collision prevention, hidden-side silhouettes, grouped cable portals, trace-expanded dual-face views, capacity reporting, free-floating devices, and a navigable minimap.
 - High-DPI faceplates for switches, firewalls, routers, carrier handoffs, modems, access points, servers, patch panels, storage, power, and console equipment.
 - Offline 542-profile hardware catalog with vendor-family layouts and 25 connector types up to 800G OSFP, plus JSON profile import.
 - Generic 1U–4U server rear builder with mixed card bays and independently cableable ports.

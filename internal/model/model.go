@@ -189,6 +189,16 @@ type Rack struct {
 	Color     string  `json:"color"`
 }
 
+// RackFace identifies the physical rail plane where a device is mounted.
+// Empty persisted values from older maps are interpreted as the front face.
+type RackFace string
+
+// Supported physical rack mounting faces.
+const (
+	RackFaceFront RackFace = "front"
+	RackFaceRear  RackFace = "rear"
+)
+
 // DeviceLocation records organizational placement independently from canvas
 // geometry and rack membership.
 type DeviceLocation struct {
@@ -217,6 +227,7 @@ type Device struct {
 	PositionY    float64        `json:"positionY"`
 	RackID       string         `json:"rackId,omitempty"`
 	RackUnit     int            `json:"rackUnit,omitempty"`
+	RackFace     RackFace       `json:"rackFace,omitempty"`
 	Faceplate    FaceplateSpec  `json:"faceplate"`
 	Ports        []Port         `json:"ports"`
 }
@@ -500,6 +511,11 @@ func (t *Topology) Normalize() {
 	}
 	for deviceIndex := range t.Devices {
 		device := &t.Devices[deviceIndex]
+		if device.RackID == "" {
+			device.RackFace = ""
+		} else if device.RackFace == "" {
+			device.RackFace = RackFaceFront
+		}
 		if device.Ports == nil {
 			device.Ports = []Port{}
 		}

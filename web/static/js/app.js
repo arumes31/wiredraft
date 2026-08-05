@@ -16,7 +16,7 @@ import {
   availablePatchPanelPorts, isRearPanelLink, panelMapAvailability, patchPanelDevices,
   planPatchPanelMapping, planRearPanelLinkUpdate,
 } from "./patch-panels.js";
-import { usedRackUnits } from "./rack.js";
+import { normalizeRackFace, RackFace, usedRackUnits } from "./rack.js";
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./link-groups.js";
 import { describeLinkGroupMembers } from "./link-group-display.js";
 import {
@@ -65,6 +65,7 @@ const elements = Object.fromEntries([
   "account-user-count", "account-organizations",
   "photo-dialog", "photo-manager-count", "photo-manager-list", "photo-preview", "photo-preview-meta",
   "photo-details-form", "delete-photo-button",
+  "trace-session", "trace-session-label", "close-trace",
 ].map((id) => [id, document.getElementById(id)]));
 
 const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state, {
@@ -133,9 +134,12 @@ state.addEventListener("change", ({ detail }) => {
     renderNavigator();
   }
   if (detail.kind === "analysis" || detail.kind === "topology") renderAnalysis();
+  if (["trace", "topology"].includes(detail.kind)) renderTraceSession();
+  if (detail.kind === "rack-view") renderInspector();
   if (detail.kind === "topology" && elements["resources-dialog"]?.open) renderResources();
   if (detail.kind === "topology" && elements["photo-dialog"]?.open) renderPhotoManager();
 });
+elements["close-trace"]?.addEventListener("click", () => state.setTrace([]));
 autosave.addEventListener("status", ({ detail }) => {
   renderSaveStatus(detail);
   if (detail.error && !isRevisionConflict(detail.error)) showError(detail.error);
@@ -182,6 +186,23 @@ async function loadTopology(id) {
   await refreshAnalysis();
   elements["loading-skeleton"].hidden = true;
   minimap.draw();
+}
+
+function renderTraceSession() {
+  if (!elements["trace-session"]) return;
+  const linkIDs = state.traceLinkIDs || new Set();
+  elements["trace-session"].hidden = linkIDs.size === 0;
+  if (!linkIDs.size || !state.topology) return;
+  const deviceByID = new Map(state.topology.devices.map((device) => [device.id, device]));
+  const rackIDs = new Set();
+  for (const link of state.topology.links) {
+    if (!linkIDs.has(link.id)) continue;
+    for (const deviceID of [link.sourceDeviceId, link.targetDeviceId]) {
+      const rackID = deviceByID.get(deviceID)?.rackId;
+      if (rackID) rackIDs.add(rackID);
+    }
+  }
+  elements["trace-session-label"].textContent = `TRACE VIEW · ${linkIDs.size} CABLE${linkIDs.size === 1 ? "" : "S"} · ${rackIDs.size} RACK${rackIDs.size === 1 ? "" : "S"} EXPANDED`;
 }
 
 function fillTopologySelect(topologies) {
@@ -663,11 +684,14 @@ async function handlePlanCommentAction(event) {
 function renderRackInspector(rackID) {
   const rack = (state.topology.racks || []).find((item) => item.id === rackID);
   if (!rack) return;
-  const used = usedRackUnits(state.topology, rack.id);
+  const frontUsed = usedRackUnits(state.topology, rack.id, RackFace.FRONT);
+  const rearUsed = usedRackUnits(state.topology, rack.id, RackFace.REAR);
+  const face = state.rackFace(rack.id);
   const devices = state.topology.devices.filter((device) => device.rackId === rack.id).length;
   elements["inspector-content"].innerHTML = `
-    <div class="inspector-title"><p class="eyebrow">RACK ENCLOSURE</p><h3>${escapeHTML(rack.name)}</h3><p>WHOLE-U FRONT RAIL · ${rack.heightU}U</p></div>
-    <div class="metric-grid"><span>CAPACITY<b>${rack.heightU}U</b></span><span>OCCUPIED<b>${used}U</b></span><span>FREE<b>${rack.heightU - used}U</b></span><span>DEVICES<b>${devices}</b></span></div>
+    <div class="inspector-title"><p class="eyebrow">RACK ENCLOSURE</p><h3>${escapeHTML(rack.name)}</h3><p>INDEPENDENT FRONT / REAR RAILS · ${rack.heightU}U PER FACE</p></div>
+    <div class="metric-grid"><span>FRONT USED<b>${frontUsed}U</b></span><span>FRONT FREE<b>${rack.heightU - frontUsed}U</b></span><span>REAR USED<b>${rearUsed}U</b></span><span>REAR FREE<b>${rack.heightU - rearUsed}U</b></span><span>DEVICES<b>${devices}</b></span><span>VIEWING<b>${face.toUpperCase()}</b></span></div>
+    <div class="rack-face-inspector"><span>DISPLAYED FACE</span><div class="radio-row">${[RackFace.FRONT, RackFace.REAR].map((item) => `<label><input type="radio" name="rackViewFace" value="${item}" ${face === item ? "checked" : ""}><span>${item.toUpperCase()}</span></label>`).join("")}</div><p>This view is local to your session and does not change the saved rack.</p></div>
     <form id="rack-inspector-form" class="inspector-form">
       <label><span>RACK NAME</span><input name="name" maxlength="120" value="${escapeHTML(rack.name)}" required></label>
       <label><span>RACK HEIGHT</span><input name="heightU" type="number" min="6" max="48" value="${rack.heightU}" required></label>
@@ -684,6 +708,9 @@ function renderRackInspector(rackID) {
     await updateFrom(() => api.updateRack(state.topology.id, next), true, "Rack updated");
   });
   document.getElementById("delete-rack").addEventListener("click", () => deleteRack(rack));
+  document.querySelectorAll('input[name="rackViewFace"]').forEach((input) => {
+    input.addEventListener("change", () => state.setRackFace(rack.id, input.value));
+  });
 }
 
 function renderPortInspector(portID) {
@@ -724,7 +751,8 @@ function renderDeviceInspector(deviceID) {
   if (!device) return;
   const connected = state.topology.links.filter((link) => link.sourceDeviceId === device.id || link.targetDeviceId === device.id).length;
   const rack = (state.topology.racks || []).find((item) => item.id === device.rackId);
-  const location = rack ? `${rack.name} · U${device.rackUnit}` : `${Math.round(device.positionX)}, ${Math.round(device.positionY)}`;
+  const rackFace = normalizeRackFace(device.rackFace);
+  const location = rack ? `${rack.name} · ${rackFace.toUpperCase()} · U${device.rackUnit}` : `${Math.round(device.positionX)}, ${Math.round(device.positionY)}`;
   const system = switchSystemForDevice(state.topology, device.id);
   const cluster = firewallClusterForDevice(state.topology, device.id);
   const switchSystemMarkup = device.category === "Switch" ? renderSwitchSystemInspector(device, system) : "";
@@ -763,6 +791,10 @@ function renderDeviceInspector(deviceID) {
           <label><span>U POSITION</span><input name="locationRackUnit" type="number" min="0" max="48" value="${escapeHTML(locationRackUnit)}"></label>
         </div>
       </fieldset>
+      ${rack ? `<fieldset class="device-metadata-block"><legend>PHYSICAL MOUNTING</legend>
+        <div><span>RACK FACE</span><div class="radio-row">${[RackFace.FRONT, RackFace.REAR].map((face) => `<label><input type="radio" name="rackFace" value="${face}" ${rackFace === face ? "checked" : ""}><span>${face.toUpperCase()}</span></label>`).join("")}</div></div>
+        <p>Front and rear have independent U-space. Changing face keeps this device at U${device.rackUnit}.</p>
+      </fieldset>` : ""}
       ${spanningTreeMarkup}
       <div class="inspector-actions"><button class="primary">UPDATE DEVICE RECORD</button><button id="delete-device" type="button" class="danger">DELETE</button></div>
     </form>
@@ -789,6 +821,7 @@ function renderDeviceInspector(deviceID) {
       rackUnit: Number(form.get("locationRackUnit") || 0),
     };
     if (device.category === "Switch") next.stpPriority = Number(form.get("stpPriority") || 0);
+    if (rack) next.rackFace = String(form.get("rackFace") || RackFace.FRONT);
     await updateFrom(() => api.updateDevice(state.topology.id, next), true, "Device record updated");
   });
   document.getElementById("delete-device").addEventListener("click", () => deleteDevice(device));

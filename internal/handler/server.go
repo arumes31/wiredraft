@@ -386,6 +386,7 @@ func (s *Server) deleteRack(w http.ResponseWriter, request *http.Request) {
 			device.PositionX, device.PositionY = mountedDevicePosition(rack, *device)
 			device.RackID = ""
 			device.RackUnit = 0
+			device.RackFace = ""
 		}
 		topology.Racks = append(topology.Racks[:index], topology.Racks[index+1:]...)
 		pruneAttachedPlanReferences(topology)

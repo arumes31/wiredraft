@@ -9,6 +9,7 @@ export class AppState extends EventTarget {
     this.selection = null;
     this.analysis = { issues: [], loops: [], stp: [] };
     this.traceLinkIDs = new Set();
+    this.rackFaces = new Map();
     this.history = [];
     this.future = [];
   }
@@ -20,6 +21,8 @@ export class AppState extends EventTarget {
       this.future = [];
     }
     this.topology = clone(topology);
+    const liveRackIDs = new Set((this.topology?.racks || []).map((rack) => rack.id));
+    this.rackFaces = new Map([...this.rackFaces].filter(([rackID]) => liveRackIDs.has(rackID)));
     this.ensureSelection();
     this.emit("topology");
   }
@@ -45,7 +48,17 @@ export class AppState extends EventTarget {
 
   setTrace(linkIDs) {
     this.traceLinkIDs = new Set(linkIDs || []);
-    this.emit("analysis");
+    this.emit("trace");
+  }
+
+  rackFace(rackID) {
+    return this.rackFaces.get(rackID) === "rear" ? "rear" : "front";
+  }
+
+  setRackFace(rackID, face) {
+    if (!rackID) return;
+    this.rackFaces.set(rackID, face === "rear" ? "rear" : "front");
+    this.emit("rack-view");
   }
 
   undo() {

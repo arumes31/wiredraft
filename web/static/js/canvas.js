@@ -20,8 +20,8 @@ import {
   GraphicsMode, graphicsAnimationActive, graphicsEffectActive, normalizeGraphicsMode, resolveGraphicsProfile,
 } from "./graphics-quality.js";
 import {
-  findRackLanding, mountedDevicePosition, rackBounds, RACK_DEVICE_INSET,
-  RACK_HEADER_HEIGHT, RACK_UNIT_HEIGHT, usedRackUnits,
+  findRackLanding, layoutRackGroups, mountedDevicePosition, normalizeRackFace, oppositeRackFace, RackFace,
+  RACK_DEVICE_INSET, RACK_FACE_GAP, RACK_HEADER_HEIGHT, RACK_UNIT_HEIGHT, RACK_WIDTH, usedRackUnits,
 } from "./rack.js";
 import { SceneTileIndex } from "./scene-tiles.js";
 
@@ -53,12 +53,18 @@ export class CanvasEngine {
     this.ctx = canvas.getContext("2d", { alpha: false });
     this.camera = { x: 35, y: 35, zoom: 0.85 };
     this.deviceBoxes = [];
+    this.shadowDeviceBoxes = [];
+    this.routingDeviceBoxes = [];
     this.rackBoxes = [];
+    this.rackFaceBoxes = [];
     this.rackTiles = new SceneTileIndex();
     this.deviceTiles = new SceneTileIndex();
     this.portBoxes = [];
+    this.routingPortBoxes = [];
     this.deviceBoxByID = new Map();
     this.portBoxByID = new Map();
+    this.routingPortBoxByID = new Map();
+    this.rackPortalMarkers = [];
     this.portBoxesByDevice = new Map();
     this.linkIDsByPort = new Map();
     this.linkIDsByDevice = new Map();
@@ -108,7 +114,7 @@ export class CanvasEngine {
     this.loop = this.loop.bind(this);
     this.graphicsProfileKey = "";
     this.onStateChange = ({ detail }) => {
-      const layoutChanged = detail?.kind === "topology";
+      const layoutChanged = ["topology", "rack-view", "trace"].includes(detail?.kind);
       if (detail?.kind === "analysis") this.rebuildSTPPortStateCache();
       this.invalidate(layoutChanged);
       if (!layoutChanged) return;
@@ -161,7 +167,10 @@ export class CanvasEngine {
     this.canvas.addEventListener("contextmenu", (event) => this.contextMenu(event));
     window.addEventListener("keydown", (event) => {
       if (event.code === "Space" && !isFormField(event.target)) this.isSpaceDown = true;
-      if (event.key === "Escape") this.setTool("select");
+      if (event.key === "Escape") {
+        this.setTool("select");
+        if (this.state.traceLinkIDs?.size) this.state.setTrace([]);
+      }
     });
     window.addEventListener("keyup", (event) => {
       if (event.code === "Space") this.isSpaceDown = false;
@@ -224,8 +233,12 @@ export class CanvasEngine {
     const viewport = this.viewportWorldRect(camera, width, height, 180);
     for (const rackBox of this.rackTiles.query(viewport)) this.drawRack(ctx, rackBox);
     if (overlays) this.drawRackLanding(ctx);
+    for (const box of this.shadowDeviceBoxes) {
+      if (intersects(box, viewport)) this.drawDeviceShadow(ctx, box);
+    }
     for (const box of this.deviceTiles.query(viewport)) this.drawDevice(ctx, box.device, time);
     this.drawLinks(ctx, time, !overlays, overlays);
+    this.drawRackPortals(ctx);
     this.drawPortDescriptions(ctx);
     this.drawAnnotations(ctx, overlays);
     if (overlays) {
@@ -406,17 +419,80 @@ export class CanvasEngine {
     ctx.restore();
   }
 
+  addVisibleDevice(device, rack, position) {
+    const height = Math.max(UNIT_HEIGHT, (device.faceplate.unitsU || 1) * UNIT_HEIGHT);
+    const deviceBox = { device, rack, x: position.x, y: position.y, width: DEVICE_WIDTH, height };
+    this.deviceBoxes.push(deviceBox);
+    this.routingDeviceBoxes.push(deviceBox);
+    this.deviceBoxByID.set(device.id, deviceBox);
+    this.deviceTiles.insert(deviceBox);
+    const devicePortBoxes = [];
+    const rows = Math.max(1, Math.min(4, device.faceplate.rows || 1));
+    const columns = Math.ceil(device.ports.length / rows);
+    const startX = position.x + 170;
+    const available = 475;
+    const stepX = columns > 1 ? Math.min(31, available / (columns - 1)) : 0;
+    const groupWidth = stepX * Math.max(0, columns - 1);
+    const baseX = startX + Math.max(0, (available - groupWidth) / 2);
+    const stepY = rows === 1 ? 0 : 29;
+    const baseY = position.y + height / 2 - (stepY * (rows - 1)) / 2;
+    device.ports.forEach((port, index) => {
+      const row = index % rows;
+      const column = Math.floor(index / rows);
+      const hasFaceplatePosition = port.faceplateX > 0 && port.faceplateY > 0;
+      const centerX = hasFaceplatePosition ? position.x + port.faceplateX * DEVICE_WIDTH : baseX + column * stepX;
+      const centerY = hasFaceplatePosition ? position.y + port.faceplateY * height : baseY + row * stepY;
+      const connector = connectorSize(port.type);
+      const portBox = {
+        port, device,
+        x: centerX - connector.width / 2, y: centerY - connector.height / 2,
+        width: connector.width, height: connector.height, centerX, centerY,
+      };
+      this.portBoxes.push(portBox);
+      this.routingPortBoxes.push(portBox);
+      devicePortBoxes.push(portBox);
+      this.portBoxByID.set(port.id, portBox);
+      this.routingPortBoxByID.set(port.id, portBox);
+    });
+    this.portBoxesByDevice.set(device.id, devicePortBoxes);
+  }
+
+  addPortalDevice(device, rack, marker) {
+    const centerX = marker.x + marker.width / 2;
+    const centerY = marker.y + marker.height / 2;
+    const deviceBox = { device, rack, x: centerX - 10, y: centerY - 10, width: 20, height: 20, portal: true };
+    this.routingDeviceBoxes.push(deviceBox);
+    marker.deviceIDs.add(device.id);
+    device.ports.forEach((port, index) => {
+      const portCenterY = centerY + ((index % 5) - 2) * 2;
+      const portBox = {
+        port, device, portal: true,
+        x: centerX - 3, y: portCenterY - 3, width: 6, height: 6,
+        centerX, centerY: portCenterY,
+      };
+      this.routingPortBoxes.push(portBox);
+      this.routingPortBoxByID.set(port.id, portBox);
+      marker.portIDs.add(port.id);
+    });
+  }
+
   layoutScene() {
     if (!this.sceneDirty) return;
-    const previousGeometry = captureRoutingGeometry(this.deviceBoxes, this.rackBoxes, this.portBoxes);
+    const previousGeometry = captureRoutingGeometry(this.routingDeviceBoxes, this.rackBoxes, this.routingPortBoxes);
     this.rackBoxes = [];
+    this.rackFaceBoxes = [];
     this.deviceBoxes = [];
+    this.shadowDeviceBoxes = [];
+    this.routingDeviceBoxes = [];
     this.rackTiles.clear();
     this.deviceTiles.clear();
     this.portBoxes = [];
+    this.routingPortBoxes = [];
     this.deviceBoxByID = new Map();
     this.portBoxByID = new Map();
+    this.routingPortBoxByID = new Map();
     this.portBoxesByDevice = new Map();
+    this.rackPortalMarkers = [];
     this.linkIDsByPort = new Map();
     this.linkIDsByDevice = new Map();
     this.linksByPort = new Map();
@@ -435,52 +511,62 @@ export class CanvasEngine {
       return;
     }
     const racks = new Map((topology.racks || []).map((rack) => [rack.id, rack]));
+    const expandedRackIDs = tracedRackIDs(topology, this.state.traceLinkIDs);
+    const rackGroupLayouts = layoutRackGroups([...racks.values()], expandedRackIDs);
+    const faceBoxes = new Map();
+    const portalByRack = new Map();
     for (const rack of racks.values()) {
-      const box = { rack, ...rackBounds(rack) };
-      this.rackBoxes.push(box);
-      this.rackTiles.insert(box);
+      const currentFace = this.state.rackFace(rack.id);
+      const expanded = expandedRackIDs.has(rack.id);
+      const faces = expanded ? [currentFace, oppositeRackFace(currentFace)] : [currentFace];
+      const base = rackGroupLayouts.get(rack.id);
+      const container = {
+        rack, x: base.x, y: base.y,
+        width: base.width,
+        height: base.height, face: currentFace, expanded,
+      };
+      this.rackBoxes.push(container);
+      faces.forEach((face, index) => {
+        const box = {
+          rack, face, expanded, primary: index === 0,
+          x: base.x + index * (RACK_WIDTH + RACK_FACE_GAP), y: base.y,
+          width: RACK_WIDTH, height: base.height,
+        };
+        this.rackFaceBoxes.push(box);
+        this.rackTiles.insert(box);
+        faceBoxes.set(`${rack.id}:${face}`, box);
+      });
+      if (!expanded) {
+        const marker = {
+          rack, face: oppositeRackFace(currentFace),
+          x: base.x + RACK_WIDTH - 270, y: base.y + 15, width: 112, height: 32,
+          deviceIDs: new Set(), portIDs: new Set(), linkIDs: new Set(),
+        };
+        this.rackPortalMarkers.push(marker);
+        portalByRack.set(rack.id, marker);
+      }
     }
     for (const device of topology.devices) {
-      const height = Math.max(UNIT_HEIGHT, (device.faceplate.unitsU || 1) * UNIT_HEIGHT);
       const rack = device.rackId ? racks.get(device.rackId) : null;
-      const position = rack && device.rackUnit > 0 ? mountedDevicePosition(rack, device) : {
-        x: device.positionX,
-        y: device.positionY,
-      };
-      const deviceBox = { device, rack, x: position.x, y: position.y, width: DEVICE_WIDTH, height };
-      this.deviceBoxes.push(deviceBox);
-      this.deviceBoxByID.set(device.id, deviceBox);
-      this.deviceTiles.insert(deviceBox);
-      const devicePortBoxes = [];
-      const rows = Math.max(1, Math.min(4, device.faceplate.rows || 1));
-      const columns = Math.ceil(device.ports.length / rows);
-      const startX = position.x + 170;
-      const available = 475;
-      const stepX = columns > 1 ? Math.min(31, available / (columns - 1)) : 0;
-      const groupWidth = stepX * Math.max(0, columns - 1);
-      const baseX = startX + Math.max(0, (available - groupWidth) / 2);
-      const stepY = rows === 1 ? 0 : 29;
-      const baseY = position.y + height / 2 - (stepY * (rows - 1)) / 2;
-      device.ports.forEach((port, index) => {
-        const row = index % rows;
-        const column = Math.floor(index / rows);
-		const hasFaceplatePosition = port.faceplateX > 0 && port.faceplateY > 0;
-		const centerX = hasFaceplatePosition ? position.x + port.faceplateX * DEVICE_WIDTH : baseX + column * stepX;
-		const centerY = hasFaceplatePosition ? position.y + port.faceplateY * height : baseY + row * stepY;
-        const connector = connectorSize(port.type);
-        const portBox = {
-          port, device,
-          x: centerX - connector.width / 2,
-          y: centerY - connector.height / 2,
-          width: connector.width,
-          height: connector.height,
-          centerX, centerY,
-        };
-        this.portBoxes.push(portBox);
-        devicePortBoxes.push(portBox);
-        this.portBoxByID.set(port.id, portBox);
+      if (!rack || device.rackUnit < 1) {
+        this.addVisibleDevice(device, null, { x: device.positionX, y: device.positionY });
+        continue;
+      }
+      const face = normalizeRackFace(device.rackFace);
+      const visibleRackBox = faceBoxes.get(`${rack.id}:${face}`);
+      if (visibleRackBox) {
+        const visualRack = { ...rack, positionX: visibleRackBox.x, positionY: visibleRackBox.y };
+        this.addVisibleDevice(device, rack, mountedDevicePosition(visualRack, device));
+        continue;
+      }
+      const primaryBox = faceBoxes.get(`${rack.id}:${this.state.rackFace(rack.id)}`);
+      const visualRack = { ...rack, positionX: primaryBox.x, positionY: primaryBox.y };
+      const position = mountedDevicePosition(visualRack, device);
+      this.shadowDeviceBoxes.push({
+        device, rack, face, x: position.x, y: position.y, width: DEVICE_WIDTH,
+        height: Math.max(UNIT_HEIGHT, (device.faceplate.unitsU || 1) * UNIT_HEIGHT),
       });
-      this.portBoxesByDevice.set(device.id, devicePortBoxes);
+      this.addPortalDevice(device, rack, portalByRack.get(rack.id));
     }
     this.vlanByID = new Map((topology.vlans || []).map((vlan) => [vlan.id, vlan]));
     this.patchPanelPathLinkIDsByLink = patchPanelPathIndex(topology);
@@ -494,8 +580,8 @@ export class CanvasEngine {
     }
     this.orderedLinks = orderedCableLinks(topology);
     for (const link of topology.links || []) {
-      const source = this.portBoxByID.get(link.sourcePortId);
-      const target = this.portBoxByID.get(link.targetPortId);
+      const source = this.routingPortBoxByID.get(link.sourcePortId);
+      const target = this.routingPortBoxByID.get(link.targetPortId);
       for (const portID of new Set([link.sourcePortId, link.targetPortId])) {
         addMapSetValue(this.linkIDsByPort, portID, link.id);
         addMapArrayValue(this.linksByPort, portID, link);
@@ -507,8 +593,12 @@ export class CanvasEngine {
         addMapSetValue(this.linkIDsByDevice, deviceID, link.id);
         addMapArrayValue(this.linksByDevice, deviceID, link);
       }
+      for (const marker of this.rackPortalMarkers) {
+        if (marker.portIDs.has(link.sourcePortId) || marker.portIDs.has(link.targetPortId)) marker.linkIDs.add(link.id);
+      }
     }
-    const currentGeometry = captureRoutingGeometry(this.deviceBoxes, this.rackBoxes, this.portBoxes);
+    this.rackPortalMarkers = this.rackPortalMarkers.filter((marker) => marker.linkIDs.size > 0);
+    const currentGeometry = captureRoutingGeometry(this.routingDeviceBoxes, this.rackBoxes, this.routingPortBoxes);
     this.routingChanges = compareRoutingGeometry(previousGeometry, currentGeometry, this.sceneRevision === 0);
     this.routingGeometryKey = currentGeometry.key;
     this.sceneDirty = false;
@@ -546,7 +636,7 @@ export class CanvasEngine {
     const selected = this.state.selection?.type === "rack" && this.state.selection.id === rack.id;
     const bayTop = box.y + RACK_HEADER_HEIGHT;
     const bayHeight = rack.heightU * RACK_UNIT_HEIGHT;
-    const used = usedRackUnits(this.state.topology, rack.id);
+    const used = usedRackUnits(this.state.topology, rack.id, box.face);
     const profile = this.activeGraphicsProfile || QUALITY_FALLBACK;
     ctx.save();
     if (profile.shadows) {
@@ -568,13 +658,25 @@ export class CanvasEngine {
     ctx.fillStyle = "#f1f8f7";
     ctx.font = "700 18px Bahnschrift Condensed, sans-serif";
     ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
-    ctx.fillText(rack.name, box.x + 26, box.y + 28, box.width - 210);
+    ctx.fillText(rack.name, box.x + 26, box.y + 28, box.width - 430);
     ctx.fillStyle = "rgba(230, 244, 243, .68)";
     ctx.font = "700 9px Bahnschrift Condensed, sans-serif";
-    ctx.fillText(`${rack.heightU}U ENCLOSURE · DRAG HEADER TO MOVE`, box.x + 27, box.y + 46);
+    ctx.fillText(`${rack.heightU}U ENCLOSURE · ${box.face.toUpperCase()} FACE · DRAG HEADER TO MOVE`, box.x + 27, box.y + 46);
     ctx.textAlign = "right";
     ctx.fillStyle = used === rack.heightU ? "#f36c63" : "#8ff4e8";
-    ctx.fillText(`${used}U USED · ${rack.heightU - used}U FREE`, box.x + box.width - 25, box.y + 34);
+    ctx.fillText(`${used}U USED · ${rack.heightU - used}U FREE`, box.x + box.width - 290, box.y + 34);
+
+    for (const control of this.rackFaceControls(box)) {
+      const active = control.face === box.face;
+      ctx.fillStyle = active ? "rgba(102, 237, 221, .2)" : "rgba(4, 11, 13, .48)";
+      ctx.strokeStyle = active ? "#8ff4e8" : "rgba(196, 221, 220, .32)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(control.x, control.y, control.width, control.height, 4); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = active ? "#cafff8" : "#9bb1b2";
+      ctx.font = "700 9px Bahnschrift Condensed, sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(control.face.toUpperCase(), control.x + control.width / 2, control.y + control.height / 2);
+    }
 
     ctx.fillStyle = "rgba(10, 17, 19, .88)";
     ctx.fillRect(box.x + RACK_DEVICE_INSET, bayTop, box.width - RACK_DEVICE_INSET * 2, bayHeight);
@@ -603,6 +705,46 @@ export class CanvasEngine {
     ctx.restore();
   }
 
+  rackFaceControls(box) {
+    const width = 57;
+    const gap = 5;
+    const startX = box.x + box.width - width * 2 - gap - 24;
+    return [RackFace.FRONT, RackFace.REAR].map((face, index) => ({
+      rack: box.rack, face,
+      x: startX + index * (width + gap), y: box.y + 17, width, height: 28,
+    }));
+  }
+
+  drawDeviceShadow(ctx, box) {
+    ctx.save();
+    ctx.globalAlpha = .18;
+    ctx.fillStyle = "#718185";
+    ctx.strokeStyle = "#a9b8ba";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([10, 8]);
+    ctx.beginPath(); ctx.roundRect(box.x, box.y, box.width, box.height, 6); ctx.fill(); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(8, 14, 16, .55)";
+    ctx.fillRect(box.x + 22, box.y + box.height * .34, box.width - 44, Math.max(8, box.height * .32));
+    ctx.restore();
+  }
+
+  drawRackPortals(ctx) {
+    for (const marker of this.rackPortalMarkers) {
+      ctx.save();
+      ctx.fillStyle = "rgba(7, 16, 19, .94)";
+      ctx.strokeStyle = "#56c9db";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect(marker.x, marker.y, marker.width, marker.height, 6); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#b9f7f1";
+      ctx.font = "700 9px Bahnschrift Condensed, sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(`${marker.face.toUpperCase()} · ${marker.linkIDs.size} LINK${marker.linkIDs.size === 1 ? "" : "S"}`,
+        marker.x + marker.width / 2, marker.y + marker.height / 2);
+      ctx.restore();
+    }
+  }
+
   drawRackLanding(ctx) {
     const preview = this.rackDropPreview;
     if (!preview) return;
@@ -628,9 +770,10 @@ export class CanvasEngine {
     const groupSignature = (this.state.topology?.linkGroups || []).map((group) =>
       `${group.id}:${group.mode}:${group.linkIds.join(",")}:${group.primaryLinkId || ""}`).join("|");
     const structureKey = `${(this.state.topology?.racks || []).map((rack) => rack.id).join(",")}|${
-      (this.state.topology?.devices || []).map((device) => `${device.id}:${device.rackId || "free"}:${
+      (this.state.topology?.devices || []).map((device) => `${device.id}:${device.rackId || "free"}:${normalizeRackFace(device.rackFace)}:${
         (device.ports || []).map((port) => `${port.id}:${port.portIndex || 0}:${port.label}:${port.type}:${port.mediaType || ""}`).join(",")}`).join("|")}|${orderedLinks.map((link) =>
-      `${link.id}:${link.sourcePortId}:${link.sourceSide || "front"}:${link.targetPortId}:${link.targetSide || "front"}:${link.cableType}:${link.rearChannelId || ""}:${link.rearChannelType || ""}`).join("|")}|${groupSignature}`;
+      `${link.id}:${link.sourcePortId}:${link.sourceSide || "front"}:${link.targetPortId}:${link.targetSide || "front"}:${link.cableType}:${link.rearChannelId || ""}:${link.rearChannelType || ""}`).join("|")}|${groupSignature}|${
+      (this.state.topology?.racks || []).map((rack) => `${rack.id}:${this.state.rackFace?.(rack.id) || RackFace.FRONT}`).join(",")}|${[...(this.state.traceLinkIDs || [])].sort().join(",")}`;
     if (this.trackPlanCache?.structureKey === structureKey && this.trackPlanCache?.geometryKey === this.routingGeometryKey) {
       this.lastRoutingStats = {
         mode: "reused", totalLinks: orderedLinks.length, reroutedLinks: 0, crossingPairs: 0,
@@ -658,8 +801,8 @@ export class CanvasEngine {
       : null;
     const baseTracks = assignCableTracks({
       links: orderedLinks,
-      portBoxes: this.portBoxes,
-      deviceBoxes: this.deviceBoxes,
+      portBoxes: this.routingPortBoxes || this.portBoxes,
+      deviceBoxes: this.routingDeviceBoxes || this.deviceBoxes,
       rackBoxes: this.rackBoxes,
       linkGroups: this.state.topology?.linkGroups || [],
     }, incremental ? { previousTracks: previousBaseTracks, rerouteLinkIDs: affectedLinkIDs } : undefined);
@@ -731,7 +874,8 @@ export class CanvasEngine {
   drawLinks(ctx, time, showAllLabels = false, showInteractionHighlights = true) {
     const topology = this.state.topology;
     if (!topology) return;
-    const portMap = this.portBoxByID || new Map(this.portBoxes.map((box) => [box.port.id, box]));
+    const routingPortBoxes = this.routingPortBoxes || this.portBoxes || [];
+    const portMap = this.routingPortBoxByID || new Map(routingPortBoxes.map((box) => [box.port.id, box]));
     const vlanMap = this.vlanByID || new Map((topology.vlans || []).map((vlan) => [vlan.id, vlan]));
     const groupByLink = this.groupByLink || new Map((topology.linkGroups || []).flatMap((group) =>
       (group.linkIds || []).map((linkID) => [linkID, group])));
@@ -1761,6 +1905,11 @@ export class CanvasEngine {
       return;
     }
     if (event.button !== 0) return;
+    const rackFaceControl = this.hitRackFaceControl(world);
+    if (rackFaceControl) {
+      this.state.setRackFace(rackFaceControl.rack.id, rackFaceControl.face);
+      return;
+    }
     if (this.activeTool && this.activeTool !== "select") {
       const type = this.activeTool.replace("annotation-", "");
       this.annotationDraft = { type, start: world, end: world };
@@ -1785,6 +1934,7 @@ export class CanvasEngine {
     if (link) {
       this.mode = CableMode.SELECTED_LINK;
       this.state.select("link", link.link.id);
+      this.state.setTrace?.([link.link.id]);
       if (!isRearPanelLink(link.link)) this.linkDrag = { sourceLinkID: link.link.id, start: world, targetLinkID: null, active: false };
       return;
     }
@@ -1881,9 +2031,10 @@ export class CanvasEngine {
         };
         device.rackId = "";
         device.rackUnit = 0;
+        device.rackFace = "";
         device.positionX = proposed.x;
         device.positionY = proposed.y;
-        const landing = findRackLanding(this.state.topology, device, proposed);
+        const landing = findRackLanding(this.state.topology, device, proposed, (rackID) => this.state.rackFace(rackID));
         if (!landing) continue;
         this.rackDropPreview = { ...landing, device };
         if (!landing.isValid) {
@@ -1892,6 +2043,7 @@ export class CanvasEngine {
         }
         device.rackId = landing.rack.id;
         device.rackUnit = landing.rackUnit;
+        device.rackFace = landing.rackFace;
         device.positionX = landing.position.x;
         device.positionY = landing.position.y;
       }
@@ -1920,9 +2072,10 @@ export class CanvasEngine {
     this.hoveredPort = this.hoveredAnnotation ? null : this.hitPort(world, 4 / this.camera.zoom);
     this.hoveredLink = this.hoveredAnnotation || this.hoveredPort || this.draft ? null : this.hitLink(world);
     this.hoveredDevice = this.hoveredAnnotation || this.hoveredPort || this.hoveredLink || this.draft ? null : this.hitDevice(world);
+    const faceControl = this.hitRackFaceControl(world);
     const rack = this.hitRack(world);
     const rackHeader = rack && world.y <= rack.y + RACK_HEADER_HEIGHT;
-    this.canvas.style.cursor = this.hoveredAnnotation || this.hoveredPort || this.hoveredLink || this.hoveredDevice ? "pointer" : this.draft ? "crosshair" : rackHeader ? "grab" : "default";
+    this.canvas.style.cursor = faceControl || this.hoveredAnnotation || this.hoveredPort || this.hoveredLink || this.hoveredDevice ? "pointer" : this.draft ? "crosshair" : rackHeader ? "grab" : "default";
   }
 
   pointerUp(event) {
@@ -2049,9 +2202,21 @@ export class CanvasEngine {
   }
 
   hitRack(point) {
-    for (let index = this.rackBoxes.length - 1; index >= 0; index -= 1) {
-      const box = this.rackBoxes[index];
+    const boxes = this.rackFaceBoxes || this.rackBoxes || [];
+    for (let index = boxes.length - 1; index >= 0; index -= 1) {
+      const box = boxes[index];
       if (point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height) return box;
+    }
+    return null;
+  }
+
+  hitRackFaceControl(point) {
+    const boxes = this.rackFaceBoxes || [];
+    for (let index = boxes.length - 1; index >= 0; index -= 1) {
+      for (const control of this.rackFaceControls(boxes[index])) {
+        if (point.x >= control.x && point.x <= control.x + control.width &&
+          point.y >= control.y && point.y <= control.y + control.height) return control;
+      }
     }
     return null;
   }
@@ -2188,6 +2353,20 @@ function endpointTooltip(topology, endpoint, side = "front") {
 
 function rackLabel(topology, device) {
   return topology.racks?.find((rack) => rack.id === device.rackId)?.name || "FREE CANVAS";
+}
+
+export function tracedRackIDs(topology, traceLinkIDs) {
+  if (!traceLinkIDs?.size) return new Set();
+  const devices = new Map((topology?.devices || []).map((device) => [device.id, device]));
+  const racks = new Set();
+  for (const link of topology?.links || []) {
+    if (!traceLinkIDs.has(link.id)) continue;
+    for (const deviceID of [link.sourceDeviceId, link.targetDeviceId]) {
+      const rackID = devices.get(deviceID)?.rackId;
+      if (rackID) racks.add(rackID);
+    }
+  }
+  return racks;
 }
 
 function addMapSetValue(map, key, value) {

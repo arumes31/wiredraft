@@ -25,8 +25,10 @@ test("topology state clones inputs and reports typed changes", () => {
   state.select("device", "device-1");
   state.setAnalysis({ issues: [{ code: "warning" }], loops: [], stp: [] });
   state.setTrace(["link-1", "link-2"]);
-  assert.deepEqual(changes, ["topology", "selection", "analysis", "analysis"]);
+  state.setRackFace("rack-1", "rear");
+  assert.deepEqual(changes, ["topology", "selection", "analysis", "trace", "rack-view"]);
   assert.deepEqual([...state.traceLinkIDs], ["link-1", "link-2"]);
+  assert.equal(state.rackFace("rack-1"), "rear");
   state.setAnalysis(null);
   assert.deepEqual(state.analysis, { issues: [], loops: [], stp: [] });
   state.select("", "");

@@ -4,6 +4,16 @@ export const RACK_FOOTER_HEIGHT = 20;
 export const RACK_DEVICE_INSET = 30;
 export const RACK_UNIT_HEIGHT = 100;
 export const RACK_MOUNTED_DEVICE_WIDTH = 690;
+export const RACK_FACE_GAP = 90;
+export const RackFace = Object.freeze({ FRONT: "front", REAR: "rear" });
+
+export function normalizeRackFace(face) {
+  return face === RackFace.REAR ? RackFace.REAR : RackFace.FRONT;
+}
+
+export function oppositeRackFace(face) {
+  return normalizeRackFace(face) === RackFace.FRONT ? RackFace.REAR : RackFace.FRONT;
+}
 
 export function rackBounds(rack) {
   return {
@@ -12,6 +22,30 @@ export function rackBounds(rack) {
     width: RACK_WIDTH,
     height: RACK_HEADER_HEIGHT + rack.heightU * RACK_UNIT_HEIGHT + RACK_FOOTER_HEIGHT,
   };
+}
+
+export function layoutRackGroups(racks, expandedRackIDs, clearance = RACK_FACE_GAP) {
+  const layouts = new Map();
+  const placed = [];
+  const ordered = [...(racks || [])].sort((left, right) =>
+    left.positionX - right.positionX || left.positionY - right.positionY || String(left.id).localeCompare(String(right.id)));
+  for (const rack of ordered) {
+    const bounds = rackBounds(rack);
+    const expanded = expandedRackIDs?.has(rack.id) || false;
+    const width = expanded ? RACK_WIDTH * 2 + RACK_FACE_GAP : RACK_WIDTH;
+    let x = bounds.x;
+    while (true) {
+      const collisions = placed.filter((current) =>
+        bounds.y < current.y + current.height + clearance && bounds.y + bounds.height + clearance > current.y &&
+        x < current.x + current.width + clearance && x + width + clearance > current.x);
+      if (!collisions.length) break;
+      x = Math.max(x, ...collisions.map((current) => current.x + current.width + clearance));
+    }
+    const layout = { rack, x, y: bounds.y, width, height: bounds.height, expanded };
+    layouts.set(rack.id, layout);
+    placed.push(layout);
+  }
+  return layouts;
 }
 
 export function mountedDevicePosition(rack, device) {
@@ -23,25 +57,30 @@ export function mountedDevicePosition(rack, device) {
   };
 }
 
-export function isRackPlacementAvailable(topology, device, rackID, rackUnit) {
+export function isRackPlacementAvailable(topology, device, rackID, rackUnit, rackFace = RackFace.FRONT) {
   const rack = topology.racks?.find((candidate) => candidate.id === rackID);
   if (!rack) return false;
+  const face = normalizeRackFace(rackFace);
   const units = Math.max(1, Number(device.faceplate?.unitsU) || 1);
   const lastUnit = rackUnit + units - 1;
   if (!Number.isInteger(rackUnit) || rackUnit < 1 || lastUnit > rack.heightU) return false;
   return topology.devices.every((current) => {
-    if (current.id === device.id || current.rackId !== rackID || current.rackUnit < 1) return true;
+    if (current.id === device.id || current.rackId !== rackID || current.rackUnit < 1 ||
+      normalizeRackFace(current.rackFace) !== face) return true;
     const currentUnits = Math.max(1, Number(current.faceplate?.unitsU) || 1);
     const currentLastUnit = current.rackUnit + currentUnits - 1;
     return lastUnit < current.rackUnit || rackUnit > currentLastUnit;
   });
 }
 
-export function findRackLanding(topology, device, proposedPosition) {
+export function findRackLanding(topology, device, proposedPosition, rackFaces = null) {
   const units = Math.max(1, Number(device.faceplate?.unitsU) || 1);
   const centerX = proposedPosition.x + RACK_MOUNTED_DEVICE_WIDTH / 2;
   const centerY = proposedPosition.y + units * RACK_UNIT_HEIGHT / 2;
   for (const rack of [...(topology.racks || [])].reverse()) {
+    const rackFace = normalizeRackFace(typeof rackFaces === "function"
+      ? rackFaces(rack.id)
+      : rackFaces?.get?.(rack.id) ?? rackFaces?.[rack.id]);
     const bounds = rackBounds(rack);
     const bayTop = rack.positionY + RACK_HEADER_HEIGHT;
     const bayBottom = bayTop + rack.heightU * RACK_UNIT_HEIGHT;
@@ -51,6 +90,7 @@ export function findRackLanding(topology, device, proposedPosition) {
     if (units > rack.heightU) {
       return {
         rack,
+        rackFace,
         rackUnit: 1,
         position: { x: rack.positionX + RACK_DEVICE_INSET, y: bayTop },
         isValid: false,
@@ -61,9 +101,10 @@ export function findRackLanding(topology, device, proposedPosition) {
     const topIndex = Math.max(0, Math.min(maxTopIndex,
       Math.round((proposedPosition.y - bayTop) / RACK_UNIT_HEIGHT)));
     const rackUnit = rack.heightU - units - topIndex + 1;
-    const isValid = isRackPlacementAvailable(topology, device, rack.id, rackUnit);
+    const isValid = isRackPlacementAvailable(topology, device, rack.id, rackUnit, rackFace);
     return {
       rack,
+      rackFace,
       rackUnit,
       position: mountedDevicePosition(rack, { ...device, rackUnit }),
       isValid,
@@ -73,10 +114,11 @@ export function findRackLanding(topology, device, proposedPosition) {
   return null;
 }
 
-export function usedRackUnits(topology, rackID) {
+export function usedRackUnits(topology, rackID, rackFace = null) {
   const units = new Set();
   for (const device of topology.devices || []) {
     if (device.rackId !== rackID || device.rackUnit < 1) continue;
+    if (rackFace && normalizeRackFace(device.rackFace) !== normalizeRackFace(rackFace)) continue;
     const height = Math.max(1, Number(device.faceplate?.unitsU) || 1);
     for (let unit = device.rackUnit; unit < device.rackUnit + height; unit += 1) units.add(unit);
   }

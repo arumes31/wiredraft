@@ -121,6 +121,10 @@
 
     <section class="diagram-stage" aria-label="Network diagram canvas">
       <canvas id="diagram-canvas" tabindex="0" aria-label="Interactive network rack diagram"></canvas>
+      <div id="trace-session" class="trace-session" hidden>
+        <span id="trace-session-label">TRACE VIEW</span>
+        <button id="close-trace" type="button" aria-label="Close trace view">CLOSE <kbd>ESC</kbd></button>
+      </div>
       <div id="loading-skeleton" class="loading-skeleton" aria-live="polite"><i></i><i></i><i></i><p>LOADING TOPOLOGY</p></div>
       <div class="canvas-tools" role="toolbar" aria-label="Canvas annotation tools">
         <button type="button" data-canvas-tool="select" class="is-active" aria-pressed="true" title="Selection and cabling (Esc)">↖<span>SELECT</span></button>
