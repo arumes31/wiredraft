@@ -251,6 +251,8 @@ jobs:
             --env PGDATABASE=wiredraft \
             --env PGUSER=wiredraft \
             --env PGPASSWORD=wiredraft-ci-postgres \
+            --env WIREDRAFT_MEDIA_DIR=/media \
+            --volume wiredraft-ci-media:/media \
             --env WIREDRAFT_ADMIN_PASSWORD='WireDraft-Smoke-Only-2026!' wiredraft:ci
           for _ in {1..20}; do
             if docker exec wiredraft-ci /wiredraft -healthcheck; then
@@ -279,4 +281,5 @@ jobs:
         if: always()
         run: |
           docker rm --force --volumes wiredraft-ci wiredraft-ci-postgres 2>/dev/null || true
+          docker volume rm wiredraft-ci-media 2>/dev/null || true
           docker network rm wiredraft-ci 2>/dev/null || true
