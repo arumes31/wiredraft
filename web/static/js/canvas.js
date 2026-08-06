@@ -949,7 +949,6 @@ export class CanvasEngine {
       this.drawRearChannelSheaths(ctx, trackPlan.tracks, {
         hoverFocusLinkIDs,
         hasHoverFocus,
-        rearHoverIsolation,
       });
     };
     for (const link of orderedLinks) {
@@ -1036,19 +1035,23 @@ export class CanvasEngine {
     if (showAllLabels) this.drawExportEndpointLabels(ctx, topology);
   }
 
-  drawRearChannelSheaths(ctx, tracks, { hoverFocusLinkIDs, hasHoverFocus, rearHoverIsolation }) {
+  drawRearChannelSheaths(ctx, tracks, { hoverFocusLinkIDs, hasHoverFocus }) {
     const rendered = new Set();
     for (const { route } of tracks.values()) {
       const sheath = route.rearChannelSheath;
       if (!sheath || rendered.has(sheath.key)) continue;
       rendered.add(sheath.key);
       const focused = sheath.linkIds.some((linkID) => hoverFocusLinkIDs.has(linkID));
-      const alphaFactor = rearHoverIsolation || !hasHoverFocus || focused ? 1 : .2;
-      if (focused) this.strokeCurve(ctx, sheath.route, "#ffd786", sheath.width + 10, .17, { glow: true, lineCap: "round" });
+      const alphaFactor = !hasHoverFocus || focused ? 1 : .16;
+      if (focused) {
+        this.strokeCurve(ctx, sheath.route, "#ffd786", sheath.width + 14, .28, { glow: true, lineCap: "round" });
+        this.strokeCurve(ctx, sheath.route, "#ffe7a8", sheath.width + 6, .52, { glow: true, lineCap: "round" });
+      }
       this.strokeCurve(ctx, sheath.route, "#020607", sheath.width + 4, .82 * alphaFactor, { lineCap: "round" });
       this.strokeCurve(ctx, sheath.route, RearPanelLinkVisual.color, sheath.width + 1, .78 * alphaFactor, { lineCap: "round" });
       this.strokeCurve(ctx, sheath.route, "#152326", Math.max(2, sheath.width - 2), .94 * alphaFactor, { lineCap: "round" });
-      this.strokeCurve(ctx, sheath.route, "#e6bd72", 1.25, .72 * alphaFactor, { dash: [9, 5], lineCap: "butt" });
+      this.strokeCurve(ctx, sheath.route, focused ? "#fff1c2" : "#e6bd72", focused ? 1.75 : 1.25,
+        (focused ? .98 : .72) * alphaFactor, { dash: [9, 5], lineCap: "butt" });
     }
   }
 

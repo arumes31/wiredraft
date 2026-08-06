@@ -176,6 +176,40 @@ groupHighlightEngine.drawHoveredLinkHighlight({}, 0);
 assert.deepEqual(highlightedGroupMembers, ["left", "right"],
   "the complete highlight pass must redraw every logical-group member and no unrelated cable");
 
+const focusedTubeRoute = { points: [{ x: 0, y: 10 }, { x: 100, y: 10 }] };
+const unrelatedTubeRoute = { points: [{ x: 0, y: 30 }, { x: 100, y: 30 }] };
+const tubeHighlightEngine = Object.create(CanvasEngine.prototype);
+const tubeStrokes = [];
+tubeHighlightEngine.strokeCurve = (_context, drawnCurve, color, width, alpha, options = {}) => {
+  tubeStrokes.push({ drawnCurve, color, width, alpha, options });
+};
+panelPathFocusEngine.hoveredDevice = null;
+panelPathFocusEngine.hoveredLink = { link: panelPathTopology.links[0] };
+const panelCableFocusIDs = panelPathFocusEngine.hoverFocusLinkIDs();
+tubeHighlightEngine.drawRearChannelSheaths({}, new Map([
+  ["focused-strand", { route: { rearChannelSheath: {
+    key: "tube-focused", linkIds: ["path-rear"], route: focusedTubeRoute, width: 9,
+  } } }],
+  ["unrelated-strand", { route: { rearChannelSheath: {
+    key: "tube-unrelated", linkIds: ["other-rear"], route: unrelatedTubeRoute, width: 9,
+  } } }],
+]), { hoverFocusLinkIDs: panelCableFocusIDs, hasHoverFocus: true });
+const focusedTubeStrokes = tubeStrokes.filter(({ drawnCurve }) => drawnCurve === focusedTubeRoute);
+const unrelatedTubeStrokes = tubeStrokes.filter(({ drawnCurve }) => drawnCurve === unrelatedTubeRoute);
+assert.equal(focusedTubeStrokes.length, 6,
+  "a tube touched by the expanded panel path must receive two dedicated halo layers and its complete sheath redraw");
+assert.deepEqual(focusedTubeStrokes.slice(0, 2).map(({ color, width, alpha }) => ({ color, width, alpha })), [
+  { color: "#ffd786", width: 23, alpha: .28 },
+  { color: "#ffe7a8", width: 15, alpha: .52 },
+]);
+assert.deepEqual(focusedTubeStrokes.at(-1), {
+  drawnCurve: focusedTubeRoute, color: "#fff1c2", width: 1.75, alpha: .98,
+  options: { dash: [9, 5], lineCap: "butt" },
+}, "the active tube must finish with a bright static center trace");
+assert.equal(unrelatedTubeStrokes.length, 4, "an unrelated tube must not receive hover halo layers");
+assert.equal(unrelatedTubeStrokes.every(({ alpha }) => alpha <= .16), true,
+  "unrelated tube sheaths must visibly dim while a panel path is focused");
+
 assert.equal(cableHoverAlphaFactor({ rearIsolation: true, rearMapping: false, hasHoverFocus: true, hoverFocused: true }), .1,
   "rear isolation must dim even attached front cables to exactly ten percent");
 assert.equal(cableHoverAlphaFactor({ rearIsolation: true, rearMapping: true, hasHoverFocus: true, hoverFocused: false }), 1,
