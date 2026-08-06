@@ -319,6 +319,32 @@ test("export menu opens below the toolbar and closes after export", async ({ pag
   expect(svg).toContain('data-layer="cable-outline"');
   expect(svg).toContain('data-layer="link-end-label"');
   await expect(menu).not.toHaveAttribute("open", "");
+
+  await menu.locator("summary").click();
+  const htmlDownload = page.waitForEvent("download");
+  await page.locator("#html-button").click();
+  const exportedHTML = await htmlDownload;
+  await expect(exportedHTML.suggestedFilename()).toMatch(/\.html$/);
+  const htmlPath = await exportedHTML.path();
+  const html = await readFile(htmlPath, "utf8");
+  expect(html).toContain('id="wiredraft-export-css"');
+  expect(html).not.toMatch(/<script\b[^>]*src=|<link\b[^>]*rel=["']stylesheet/i);
+
+  const exportErrors = [];
+  page.on("pageerror", (error) => exportErrors.push(error.message));
+  await page.route("http://standalone.wiredraft.test/export.html", (route) => route.fulfill({
+    status: 200, contentType: "text/html; charset=utf-8", body: html,
+  }));
+  await page.goto("http://standalone.wiredraft.test/export.html", { waitUntil: "load" });
+  expect(exportErrors).toEqual([]);
+  await expect(page.locator("#map-viewport")).toBeVisible();
+  await expect(page.locator("#map-inspector")).toContainText("SELECT AN OBJECT");
+  await page.locator('[data-action="zoom-in"]').click();
+  await expect(page.locator("#map-status")).toHaveText(/%/);
+  await page.locator('[data-entity="device"]').first().click({ force: true });
+  await expect(page.locator("#map-inspector .inspector-tag")).toBeVisible();
+  await page.locator("#map-search").fill("rack");
+  await expect(page.locator("#map-search-results button").first()).toBeVisible();
 });
 
 test("stores plan comments in the inspector and manages map resources", async ({ page, request }) => {

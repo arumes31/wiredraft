@@ -82,6 +82,16 @@ assert.equal(html.includes("</script><script>alert(1)</script>"), false, "embedd
 assert.match(html, /safe \\u003c\/script\\u003e\\u003cscript\\u003ealert\(1\)\\u003c\/script\\u003e/, "HTML must retain escaped source data");
 assert.match(html, /ATTACHED DOCUMENTATION[^]*Runbook[^]*https:\/\/docs\.example\.test\/runbook/, "HTML reports must preserve attached documentation links");
 assert.equal(/<(?:link|script)\b[^>]+(?:src|href)="https?:/i.test(html), false, "standalone HTML must not depend on remote assets");
+assert.match(html, /<style id="wiredraft-export-css">[^]*\.map-workspace[^]*#map-viewport[^]*#map-inspector[^]*<\/style>/,
+  "interactive exports must embed the complete viewer stylesheet");
+assert.match(html, /id="map-search"[^]*data-action="zoom-out"[^]*data-action="fit"[^]*data-face="rear"/,
+  "interactive exports must include search, zoom, fit, and rack-face controls");
+assert.match(html, /id="map-viewport" tabindex="0"[^]*id="map-inspector"/,
+  "the standalone map and inspector must be keyboard reachable");
+assert.match(html, /function standaloneExportBootstrap\(\)[^]*\}\)\(\);<\/script>/,
+  "the complete interaction controller must be embedded in the HTML document");
+assert.equal(/<link\b[^>]*rel=["']stylesheet|<script\b[^>]*src=/i.test(html), false,
+  "standalone interaction must not load external CSS or JavaScript");
 
 const staticRackA = { id: "static-rack-a", name: "RACK A01", heightU: 4, color: "#27575d" };
 const staticRackB = { id: "static-rack-b", name: "RACK B01", heightU: 4, color: "#27575d" };
@@ -121,6 +131,14 @@ const staticEngine = {
   ],
 };
 const staticSVG = buildSVGDocument(staticTopology, staticEngine);
+assert.match(staticSVG, /id="topology-map"[^>]*data-export-version="2"/,
+  "interactive SVG exports need a stable map root and metadata version");
+assert.match(staticSVG, /data-entity="rack" data-rack-id="static-rack-a"[^]*data-entity="device" data-device-id="static-a"/,
+  "racks and devices must expose stable identities to the standalone inspector");
+assert.match(staticSVG, /data-entity="port" data-port-id="static-a-mgmt" data-device-id="static-a"/,
+  "ports must remain individually interactive in standalone exports");
+assert.match(staticSVG, /data-entity="link" data-link-id="static-link"[^]*data-layer="interactive-hit"[^]*stroke="transparent"[^]*pointer-events="stroke"/,
+  "cables need identity metadata and a wide invisible pointer target");
 assert.match(staticSVG, /data-layer="cable-outline"[^]*stroke-width="6\.25"/, "static SVG must contain a one-pixel cable outline");
 assert.match(staticSVG, /data-role="management"[^]*stroke-dasharray="4 4"/, "management paths need a non-color dash cue");
 assert.match(staticSVG, /data-layer="link-end-label" data-endpoint="source"[^]*➔ B01:P23/, "source badge must identify its remote rack and port");
@@ -170,6 +188,8 @@ assert.ok(sheathIndex > rearLayerIndex && sheathIndex < frontLayerIndex,
   "tube sheaths must cover the common rear-strand run while remaining below every front cable");
 assert.match(layeredSVG, /data-layer="rear-channel-sheath"[^>]*data-channel-type="tube"[^>]*data-strands="1"/,
   "static exports must retain tube channel semantics for traceable documentation");
+assert.match(layeredSVG, /data-entity="channel" data-channel-id="[^"]+" data-channel-name="STATIC EXPORT TUBE"/,
+  "tube sheaths must be selectable and inspectable in standalone exports");
 assert.match(layeredSVG, /data-layer="rear-channel-sheath-core"[^>]*opacity="\.94"/,
   "static exports must render the shared tube as an opaque thick run instead of exposed parallel strands");
 

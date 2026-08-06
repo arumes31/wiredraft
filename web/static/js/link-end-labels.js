@@ -12,6 +12,7 @@ export function linkEndpointBadges(topology, link, route) {
   return [
     {
       id: `${link.id}:source`,
+      linkId: link.id,
       endpoint: "source",
       text: `➔ ${compactEndpoint(target, endpoints.racks)}`,
       fullText: `${target.device.name}:${target.port.label}`,
@@ -19,6 +20,7 @@ export function linkEndpointBadges(topology, link, route) {
     },
     {
       id: `${link.id}:target`,
+      linkId: link.id,
       endpoint: "target",
       text: `⇠ ${compactEndpoint(source, endpoints.racks)}`,
       fullText: `${source.device.name}:${source.port.label}`,

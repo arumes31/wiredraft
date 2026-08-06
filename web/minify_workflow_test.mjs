@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import { minifyJavaScriptTree } from "../scripts/minify-js.mjs";
 
@@ -55,6 +56,30 @@ test("minifier preserves the module tree and writes a deterministic manifest", a
     assert.match(firstOutput, /export/);
     assert.match(secondOutput, /from"\.\.\/device\.js"/);
     assert.equal(await readFile(path.join(sourceDirectory, "device.js"), "utf8"), firstSource);
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("minified HTML exports retain an executable embedded interaction controller", async () => {
+  const fixtureRoot = await mkdtemp(path.join(process.cwd(), ".quality-data-export-minify-test-"));
+  const outputDirectory = path.join(fixtureRoot, "output");
+  const engine = {
+    worldBounds: () => ({ x: 0, y: 0, width: 800, height: 500 }),
+    portCenters: () => new Map(), rackRectangles: () => [], deviceRectangles: () => [],
+  };
+
+  try {
+    await minifyJavaScriptTree({ sourceDirectory: "web/static/js", outputDirectory });
+    const moduleURL = `${pathToFileURL(path.join(outputDirectory, "export.js")).href}?test=${Date.now()}`;
+    const { buildHTMLDocument } = await import(moduleURL);
+    const html = buildHTMLDocument({ name: "Minified export", racks: [], devices: [], links: [], vlans: [] }, engine);
+    const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([^]*?)<\/script>/g)].map((match) => match[1]);
+    const controller = scripts.at(-1);
+
+    assert.match(controller, /^\(function\s+[^(]+\(\)\{[^]*\}\)\(\);?$/,
+      "the mangled bootstrap must invoke itself without relying on its source identifier");
+    assert.doesNotThrow(() => new Function(controller), "the embedded minified controller must remain valid JavaScript");
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }

@@ -137,7 +137,7 @@ The published runtime image is `FROM scratch`, contains only the statically link
 
 - Revision-aware autosave, manual save, undo/redo, optimistic conflict detection, and per-topology Server-Sent Events.
 - Anchored comment threads, HTTP(S) documentation links, and revocable tokenized read-only shares.
-- Export to A3 PDF, standalone HTML, configuration workbook, PNG, SVG, and JSON; JSON can also be restored as a topology backup.
+- Export to A3 PDF, self-contained interactive HTML, configuration workbook, PNG, SVG, and JSON; the HTML viewer embeds its CSS, source data, search, pan/zoom, hover tracing, face filters, and inspector without remote assets, while JSON can be restored as a topology backup.
 - Device inventory for hostname, management IP, serial, asset tag, owner/team, site hierarchy, rack/U position, and STP priority.
 
 ### Runtime and security
