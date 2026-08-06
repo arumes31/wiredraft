@@ -75,7 +75,7 @@ docker pull ghcr.io/arumes31/wiredraft:latest
 
 Available tags include `latest`, `main`, `sha-<commit>`, `v<version>`, `<version>`, and `<major>.<minor>` according to the triggering branch or release tag. Use a version or digest instead of `latest` for repeatable production deployments.
 
-The repository includes a standalone [GHCR Compose stack](docker-compose.ghcr.yml) with both the application and PostgreSQL. It mounts `db/migrations` into new PostgreSQL containers, keeps the database and protected media on separate named volumes, waits for database readiness, and runs the application with a read-only root filesystem and dropped Linux capabilities.
+The repository includes a standalone [GHCR Compose stack](docker-compose.ghcr.yml) with both the application and PostgreSQL. It mounts `db/migrations` into new PostgreSQL containers, keeps the database and protected media on separate named volumes, waits for database readiness, and runs the application with a read-only root filesystem and dropped Linux capabilities. The accompanying [.env.example](.env.example) lists every setting accepted by this stack with runnable defaults and placeholder credentials.
 
 Start it from a WireDraft checkout:
 
@@ -87,6 +87,23 @@ docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 Set `WIREDRAFT_IMAGE` in `.env` to pin a release tag or digest without editing the Compose file, for example `WIREDRAFT_IMAGE=ghcr.io/arumes31/wiredraft:1.2.3`.
+
+Compose-specific settings are separate from the application configuration below:
+
+| Environment variable | Default | Description |
+| --- | --- | --- |
+| `COMPOSE_PROJECT_NAME` | `wiredraft` | Compose project and generated resource-name prefix |
+| `WIREDRAFT_IMAGE` | `ghcr.io/arumes31/wiredraft:latest` | Application image tag or digest |
+| `POSTGRES_IMAGE` | pinned PostgreSQL 17 Alpine digest | PostgreSQL image tag or digest |
+| `WIREDRAFT_BIND_ADDRESS` | `0.0.0.0` | Host address that publishes the web port; use `127.0.0.1` behind a local reverse proxy |
+| `WIREDRAFT_PUBLISHED_PORT` | `8080` | Host-side web port |
+| `POSTGRES_DB` | `wiredraft` | Database initialized in a new PostgreSQL volume |
+| `POSTGRES_USER` | `wiredraft` | Database owner initialized in a new PostgreSQL volume |
+| `POSTGRES_PASSWORD` | required | Password for the bundled PostgreSQL container; replace the placeholder before startup |
+
+The app connection defaults (`PGDATABASE`, `PGUSER`, and `PGPASSWORD`) must match the bundled PostgreSQL settings. `PGPASSWORD` may be left empty in `.env` to reuse `POSTGRES_PASSWORD`. For an external database, set `DATABASE_URL` or the five `PG*` connection variables; the included PostgreSQL service will still start unless you remove it from the copied deployment file.
+
+`PORT` is the container-side listen port while `WIREDRAFT_PUBLISHED_PORT` is the host-side port. If `PORT` changes, update `HEALTHCHECK_URL` to the same container port. `WIREDRAFT_MEDIA_DIR` must be an absolute in-container path in this Compose deployment; the protected `media-data` volume is mounted at that path automatically.
 
 The published runtime image is `FROM scratch`, contains only the statically linked server, runs as numeric user `10001`, and has no shell or package manager. Its built-in `-healthcheck` command probes `/api/v1/health` without adding a second binary.
 
@@ -176,7 +193,7 @@ sequenceDiagram
 Back up PostgreSQL and `media-data` together to preserve topology, authentication state, and uploaded photos. A JSON export contains attachment metadata but not the photo bytes, so it is not a replacement for these backups.
 
 ```sh
-docker compose exec -T postgres pg_dump -U wiredraft -d wiredraft > wiredraft-backup.sql
+docker compose exec -T postgres sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > wiredraft-backup.sql
 ```
 
 PostgreSQL runs on `127.0.0.1:5432` in the included development Compose file. Do not expose it publicly. The scripts in `db/migrations` are applied automatically only when PostgreSQL initializes an empty data directory; apply later migrations explicitly to existing databases before starting a newer application version.
@@ -189,6 +206,11 @@ WireDraft reads environment variables first and lets command-line flags override
 | --- | --- | --- | --- |
 | `PORT` | `-port` | `8080` | HTTP listen port |
 | `DATABASE_URL` | — | empty | PostgreSQL URL; when empty, pgx reads the standard `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, and related variables |
+| `PGHOST` | — | pgx default | PostgreSQL host when `DATABASE_URL` is empty; the GHCR Compose stack uses `postgres` |
+| `PGPORT` | — | pgx default | PostgreSQL port when `DATABASE_URL` is empty; the GHCR Compose stack uses `5432` |
+| `PGDATABASE` | — | pgx default | PostgreSQL database when `DATABASE_URL` is empty; the GHCR Compose stack uses `wiredraft` |
+| `PGUSER` | — | pgx default | PostgreSQL user when `DATABASE_URL` is empty; the GHCR Compose stack uses `wiredraft` |
+| `PGPASSWORD` | — | pgx default | PostgreSQL password when `DATABASE_URL` is empty; Compose reuses `POSTGRES_PASSWORD` when this is unset |
 | `WIREDRAFT_MEDIA_DIR` | `-media-dir` | `data/media` | Private photo root; Compose sets this to `/media` and mounts the `media-data` volume there |
 | `LOG_LEVEL` | `-log-level` | `info` | `debug`, `info`, `warn`, or `error` |
 | `LOG_FORMAT` | `-log-format` | `json` | `json` or `text` |
