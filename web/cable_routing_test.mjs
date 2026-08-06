@@ -472,6 +472,25 @@ assert.ok(firstTubeSheath.width > BACKEND_TUBE_STRAND_SPACING,
   "the shared tube run must be visibly thicker than an individual rear strand");
 assert.equal(channelTrackList.slice(8).every(({ rearChannelSheath }) => rearChannelSheath === undefined), true,
   "discrete bundles must remain loose cables without an outer sheath");
+const independentRearLinks = channelLinks.slice(0, 2).map((link) => {
+  const independent = { ...link };
+  delete independent.rearChannelId;
+  delete independent.rearChannelName;
+  delete independent.rearChannelType;
+  return independent;
+});
+const independentRearTracks = assignCableTracks({
+  links: independentRearLinks,
+  portBoxes: channelPorts,
+  deviceBoxes: [channelSource, channelTarget],
+  rackBoxes: [rackA, rackB],
+});
+const independentTrackList = independentRearLinks.map(({ id }) => independentRearTracks.get(id));
+assert.equal(new Set(independentTrackList.map(({ rearChannelKey }) => rearChannelKey)).size, independentRearLinks.length,
+  "independent rear runs must never be auto-merged into one physical channel");
+assert.equal(independentTrackList.every(({ rearChannelType, rearChannelSheath }) =>
+  rearChannelType === "independent" && rearChannelSheath === undefined), true,
+  "independent rear runs must remain loose and must never render a tube sheath");
 for (const track of channelTrackList) {
   assert.equal(track.routeKind, "rear-inter-rack-overhead");
   assert.equal(routeSegments(track).some((segment) => segment.source.y === track.bridgeY && segment.target.y === track.bridgeY), true,

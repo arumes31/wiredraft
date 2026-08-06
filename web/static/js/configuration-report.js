@@ -254,7 +254,7 @@ function linkSide(link, endpoint) {
 }
 
 function rearChannelLabel(link) {
-  if (!link.rearChannelId) return "AUTO-DERIVED LEGACY CHANNEL";
+  if (!link.rearChannelId) return "INDEPENDENT RUN";
   const construction = link.rearChannelType === "tube" ? "TUBE / BÜNDELADER" : "DISCRETE BUNDLE";
   return `${construction} · ${link.rearChannelName || "UNNAMED"}`;
 }

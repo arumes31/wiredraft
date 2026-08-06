@@ -538,10 +538,12 @@ function planRearCorridors(bundles) {
       const blockIndex = Math.floor((portOrdinal - 1) / BACKEND_CHANNEL_SIZE);
       const explicitChannelID = String(descriptor.link.rearChannelId || "").trim();
       const explicitType = String(descriptor.link.rearChannelType || "").trim().toLowerCase();
-      const channelType = ["tube", "discrete"].includes(explicitType) ? explicitType : rearChannelType(descriptor);
+      const channelType = explicitChannelID
+        ? ["tube", "discrete"].includes(explicitType) ? explicitType : rearChannelType(descriptor)
+        : "independent";
       const channelKey = explicitChannelID
         ? `${bundleKey}:channel:${explicitChannelID}`
-        : `${bundleKey}:channel:${blockIndex}:${channelType}`;
+        : `${bundleKey}:independent:${descriptor.link.id}`;
       const channel = channelsByKey.get(channelKey) || {
         key: channelKey,
         type: channelType,

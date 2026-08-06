@@ -191,6 +191,69 @@ assert.equal(editedLink.rearChannelId, editableLink.rearChannelId,
   "editing ports within one panel pair must preserve channel identity");
 assert.match(editedLink.notes, /PATCH A 2 ↔ PATCH B 2/);
 
+const independentLink = planRearPanelLinkUpdate(editTopology, editableLink.id, source.id, {
+  panelPortId: source.ports[0].id,
+  peerDeviceId: target.id,
+  peerPortId: target.ports[0].id,
+  rearChannelType: "independent",
+});
+assert.equal(independentLink.rearChannelId, undefined,
+  "an existing grouped rear run must be convertible to an independent run");
+assert.equal(independentLink.rearChannelName, undefined);
+assert.equal(independentLink.rearChannelType, undefined);
+
+const regroupedLink = planRearPanelLinkUpdate({ devices: [source, target], links: [independentLink] }, independentLink.id, source.id, {
+  panelPortId: source.ports[0].id,
+  peerDeviceId: target.id,
+  peerPortId: target.ports[0].id,
+  rearChannelType: "tube",
+  rearChannelName: "NEW TUBE",
+  rearChannelId: "10000000-0000-4000-8000-000000000100",
+});
+assert.equal(regroupedLink.rearChannelId, "10000000-0000-4000-8000-000000000100",
+  "an independent rear run must accept a new persistent channel identity");
+assert.equal(regroupedLink.rearChannelName, "NEW TUBE");
+assert.equal(regroupedLink.rearChannelType, "tube");
+
+const changedSingleChannel = planRearPanelLinkUpdate(editTopology, editableLink.id, source.id, {
+  panelPortId: source.ports[0].id,
+  peerDeviceId: target.id,
+  peerPortId: target.ports[0].id,
+  rearChannelType: "tube",
+  rearChannelName: "RENAMED TUBE",
+  rearChannelId: "10000000-0000-4000-8000-000000000101",
+});
+assert.equal(changedSingleChannel.rearChannelId, editableLink.rearChannelId,
+  "a single-member channel may change construction without replacing its stable identity");
+assert.equal(changedSingleChannel.rearChannelType, "tube");
+assert.equal(changedSingleChannel.rearChannelName, "RENAMED TUBE");
+
+const sharedChannelPeer = {
+  ...editableLink,
+  id: "shared-channel-peer",
+  sourcePortId: source.ports[1].id,
+  targetPortId: target.ports[1].id,
+};
+const detachedSharedMember = planRearPanelLinkUpdate({
+  devices: [source, target], links: [editableLink, sharedChannelPeer],
+}, editableLink.id, source.id, {
+  panelPortId: source.ports[0].id,
+  peerDeviceId: target.id,
+  peerPortId: target.ports[0].id,
+  rearChannelType: "tube",
+  rearChannelName: "ONE STRAND TUBE",
+  rearChannelId: "10000000-0000-4000-8000-000000000102",
+});
+assert.equal(detachedSharedMember.rearChannelId, "10000000-0000-4000-8000-000000000102",
+  "changing one shared member must detach it with a fresh identity");
+assert.notEqual(detachedSharedMember.rearChannelId, sharedChannelPeer.rearChannelId);
+assert.throws(() => planRearPanelLinkUpdate(editTopology, editableLink.id, source.id, {
+  panelPortId: source.ports[0].id,
+  peerDeviceId: target.id,
+  peerPortId: target.ports[0].id,
+  rearChannelType: "conduit",
+}), /independent, tube, or discrete bundle/);
+
 assert.throws(() => planRearPanelLinkUpdate({
   devices: [source, target],
   links: [editableLink, {

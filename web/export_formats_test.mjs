@@ -154,6 +154,9 @@ const layeredSVG = buildSVGDocument({
     cableType: "FIBER",
     sourceSide: "rear",
     targetSide: "rear",
+    rearChannelId: "10000000-0000-4000-8000-000000000200",
+    rearChannelName: "STATIC EXPORT TUBE",
+    rearChannelType: "tube",
   }, ...staticTopology.links],
 }, staticEngine);
 const rearLayerIndex = layeredSVG.indexOf('data-layer="panel-rear-map"');

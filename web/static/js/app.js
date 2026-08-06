@@ -17,7 +17,7 @@ import {
 } from "./server-cards.js";
 import {
   availablePatchPanelPorts, isRearPanelLink, panelMapAvailability, patchPanelDevices,
-  planPatchPanelMapping, planRearPanelLinkUpdate,
+  planPatchPanelMapping, planRearPanelLinkUpdate, RearChannelType,
 } from "./patch-panels.js";
 import { normalizeRackFace, RackFace, usedRackUnits } from "./rack.js";
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./link-groups.js";
@@ -882,9 +882,16 @@ function renderPatchPanelRearMappings(device) {
       return { link, panelPort, peerPort };
     })
     .sort((left, right) => (left.panelPort?.port.portIndex || 0) - (right.panelPort?.port.portIndex || 0));
-  const cards = mappings.map(({ link, panelPort, peerPort }) => `
+  const cards = mappings.map(({ link, panelPort, peerPort }) => {
+    const channelMode = [RearChannelType.TUBE, RearChannelType.DISCRETE].includes(link.rearChannelType)
+      ? link.rearChannelType
+      : RearChannelType.INDEPENDENT;
+    const channelLabel = channelMode === RearChannelType.TUBE
+      ? "TUBE / BÜNDELADER"
+      : channelMode === RearChannelType.DISCRETE ? "DISCRETE BUNDLE" : "INDEPENDENT";
+    return `
     <article class="panel-rear-link" data-panel-rear-link-id="${escapeHTML(link.id)}">
-      <header><span>REAR ${escapeHTML(panelPort?.port.label || "—")}</span><b>${escapeHTML(link.rearChannelName || "INDEPENDENT RUN")}</b></header>
+      <header><span>REAR ${escapeHTML(panelPort?.port.label || "—")} · ${channelLabel}</span><b>${escapeHTML(link.rearChannelName || "INDEPENDENT RUN")}</b></header>
       <div class="panel-rear-link-path">
         <span><i>THIS PANEL</i><b>${escapeHTML(device.name)}</b><em>${escapeHTML(panelPort?.port.label || "—")}</em></span>
         <strong aria-hidden="true">↔</strong>
@@ -895,10 +902,16 @@ function renderPatchPanelRearMappings(device) {
         <label><span>${escapeHTML(device.name)} · REAR PORT</span><select name="panelPortId">${rearPortOptions(device.id, panelPort?.port.id, link.id)}</select></label>
         <label><span>REMOTE PATCH PANEL</span><select name="peerDeviceId">${rearPanelOptions(device.id, peerPort?.device.id)}</select></label>
         <label><span>REMOTE REAR PORT</span><select name="peerPortId">${rearPortOptions(peerPort?.device.id, peerPort?.port.id, link.id)}</select></label>
-        <p>Moving this strand to a different panel pair detaches it from the current tube or bundle identity.</p>
+        <fieldset class="panel-rear-link-channel"><legend>PHYSICAL GROUPING</legend>
+          <label><span>RUN CONSTRUCTION</span><select name="rearChannelType"><option value="independent"${channelMode === RearChannelType.INDEPENDENT ? " selected" : ""}>INDEPENDENT RUN</option><option value="tube"${channelMode === RearChannelType.TUBE ? " selected" : ""}>TUBE / BÜNDELADER</option><option value="discrete"${channelMode === RearChannelType.DISCRETE ? " selected" : ""}>DISCRETE BUNDLE</option></select></label>
+          <label data-rear-channel-name><span>CHANNEL NAME</span><input name="rearChannelName" maxlength="120" value="${escapeHTML(link.rearChannelName || "")}" placeholder="Required for grouped runs"></label>
+          <input name="rearChannelId" type="hidden" value="${crypto.randomUUID()}">
+        </fieldset>
+        <p>Changes affect this rear run only. Moving it or changing a shared construction detaches this strand; the other channel members stay grouped.</p>
         <div><button type="button" class="secondary" data-cancel-rear-link>CANCEL</button><button type="submit" class="primary">SAVE REAR MAP</button></div>
       </form>
-    </article>`).join("");
+    </article>`;
+  }).join("");
   return `
     <section class="panel-rear-links" aria-label="Rear panel mappings">
       <header><span>REAR TERMINATION MAP</span><b>${mappings.length} ${mappings.length === 1 ? "RUN" : "RUNS"}</b></header>
@@ -931,6 +944,7 @@ function bindPatchPanelRearMappingInspector(device) {
       form.hidden = false;
       card.classList.add("is-editing");
       editButton.setAttribute("aria-expanded", "true");
+      syncRearPanelLinkChannelFields(form);
       form.elements.panelPortId.focus();
     });
     card.querySelector("[data-cancel-rear-link]").addEventListener("click", () => {
@@ -942,8 +956,21 @@ function bindPatchPanelRearMappingInspector(device) {
     form.elements.peerDeviceId.addEventListener("change", () => {
       form.elements.peerPortId.innerHTML = rearPortOptions(form.elements.peerDeviceId.value, "", linkID);
     });
+    form.elements.rearChannelType.addEventListener("change", () => syncRearPanelLinkChannelFields(form));
     form.addEventListener("submit", (event) => saveRearPanelLinkEdit(event, device, linkID).catch(showError));
   });
+}
+
+function syncRearPanelLinkChannelFields(form) {
+  const channelName = form.elements.rearChannelName;
+  const independent = form.elements.rearChannelType.value === RearChannelType.INDEPENDENT;
+  channelName.disabled = independent;
+  channelName.closest("[data-rear-channel-name]")?.classList.toggle("is-disabled", independent);
+  if (!independent && !channelName.value.trim()) {
+    const prefix = form.elements.rearChannelType.value === RearChannelType.TUBE ? "TUBE" : "BUNDLE";
+    const portLabel = form.elements.panelPortId.selectedOptions[0]?.textContent?.split(" · ")[0] || "RUN";
+    channelName.value = `${prefix} ${portLabel}`;
+  }
 }
 
 async function saveRearPanelLinkEdit(event, device, linkID) {
@@ -1095,13 +1122,13 @@ function renderLinkInspector(linkID) {
 }
 
 function renderRearPanelLinkInspector(link, source, target) {
-  const channelType = link.rearChannelType === "tube" ? "TUBE / BÜNDELADER" : link.rearChannelType === "discrete" ? "DISCRETE BUNDLE" : "AUTO-DERIVED";
+  const channelType = link.rearChannelType === "tube" ? "TUBE / BÜNDELADER" : link.rearChannelType === "discrete" ? "DISCRETE BUNDLE" : "INDEPENDENT RUN";
   const channelMemberCount = link.rearChannelId
     ? state.topology.links.filter((candidate) => candidate.rearChannelId === link.rearChannelId).length
     : 1;
   elements["inspector-content"].innerHTML = `
     <div class="inspector-title"><p class="eyebrow">PASSIVE REAR TERMINATION</p><h3>${escapeHTML(link.cableType)}</h3><p>${escapeHTML(source?.device.name || "Unknown")} ↔ ${escapeHTML(target?.device.name || "Unknown")}</p></div>
-    <div class="metric-grid"><span>SOURCE BACKPORT<b>${escapeHTML(source?.port.label || "—")}</b></span><span>TARGET BACKPORT<b>${escapeHTML(target?.port.label || "—")}</b></span><span>CHANNEL<b>${escapeHTML(link.rearChannelName || "LEGACY / AUTO")}</b></span><span>CONSTRUCTION<b>${channelType}</b></span><span>STRANDS<b>${channelMemberCount}</b></span><span>TERMINATION<b>REAR</b></span><span>FRONT JACKS<b>AVAILABLE SEPARATELY</b></span></div>
+    <div class="metric-grid"><span>SOURCE BACKPORT<b>${escapeHTML(source?.port.label || "—")}</b></span><span>TARGET BACKPORT<b>${escapeHTML(target?.port.label || "—")}</b></span><span>CHANNEL<b>${escapeHTML(link.rearChannelName || "INDEPENDENT")}</b></span><span>CONSTRUCTION<b>${channelType}</b></span><span>STRANDS<b>${channelMemberCount}</b></span><span>TERMINATION<b>REAR</b></span><span>FRONT JACKS<b>AVAILABLE SEPARATELY</b></span></div>
     <section class="rear-map-inspector">
       <header><span>PERMANENT LINK</span><b>${link.rearChannelType === "tube" ? "ONE TUBE · PANEL-END FAN-OUT" : "FRONT JACKS REMAIN CABLEABLE"}</b></header>
       <div><span><i>SOURCE · REAR</i><b>${escapeHTML(source?.device.name || "Unknown panel")}</b><em>${escapeHTML(source?.port.label || "—")}</em></span><strong>→</strong><span><i>TARGET · REAR</i><b>${escapeHTML(target?.device.name || "Unknown panel")}</b><em>${escapeHTML(target?.port.label || "—")}</em></span></div>

@@ -52,6 +52,12 @@ for (const id of ["png-button", "svg-button", "pdf-button", "html-button", "conf
 assert.match(html, /id="toast"\s+class="toast-queue"\s+aria-live="polite"/, "the queued toast region must remain polite");
 assert.match(html, /name="rearChannelGroupSize"[^>]*>\s*<option value="all" selected>ALL SELECTED RUNS<\/option>[\s\S]*?<option value="24">24 STRANDS<\/option>/,
   "Panel Map must expose configurable strands-per-channel tube grouping");
+assert.match(appJS, /name="rearChannelType"[^>]*>[\s\S]*?<option value="independent"[\s\S]*?<option value="tube"[\s\S]*?<option value="discrete"/,
+  "an existing rear mapping must be switchable between independent, tube, and discrete construction");
+assert.match(appJS, /name="rearChannelName" maxlength="120"[\s\S]*?name="rearChannelId" type="hidden"/,
+  "grouped rear-link edits must carry an editable name and fresh persistent channel identity");
+assert.match(appJS, /syncRearPanelLinkChannelFields\(form\)/,
+  "the rear-link editor must disable grouping metadata for independent runs");
 assert.doesNotMatch(css, /@media \(max-width: 1600px\)[^{]*\{[^}]*#patch-panel-map-button[^}]*display:\s*none/,
   "responsive workbench widths must keep the rear-map tube configuration reachable");
 

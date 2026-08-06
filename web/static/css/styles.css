@@ -512,6 +512,9 @@ dialog { color: var(--ink); }
 .panel-rear-link-edit[hidden] { display: none; }
 .panel-rear-link-edit label { display: grid; gap: 5px; }
 .panel-rear-link-edit label > span { color: #93a4a6; font-family: var(--display); font-size: 7px; letter-spacing: .08em; }
+.panel-rear-link-channel { display: grid; gap: 8px; margin: 2px 0; padding: 9px; border: 1px solid #3e4c4e; border-radius: 7px; background: rgb(11 27 29 / 72%); }
+.panel-rear-link-channel legend { padding: 0 5px; color: var(--amber); font-family: var(--display); font-size: 7px; letter-spacing: .1em; }
+.panel-rear-link-channel .is-disabled { opacity: .48; }
 .panel-rear-link-edit p, .panel-rear-link-empty { margin: 0; color: #85989a; font-size: 8px; line-height: 1.5; }
 .panel-rear-link-edit > div { display: grid; grid-template-columns: auto 1fr; gap: 6px; }
 .panel-rear-link-empty { padding: 13px 10px; border: 1px dashed #3e463c; border-radius: 7px; background: rgb(240 179 90 / 3%); }

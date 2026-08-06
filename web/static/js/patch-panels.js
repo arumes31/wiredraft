@@ -1,6 +1,8 @@
 export const PatchPanelPortCounts = Object.freeze([12, 24, 48, 96]);
 export const LinkEndpointSide = Object.freeze({ FRONT: "front", REAR: "rear" });
-export const RearChannelType = Object.freeze({ AUTO: "auto", TUBE: "tube", DISCRETE: "discrete" });
+export const RearChannelType = Object.freeze({
+  INDEPENDENT: "independent", AUTO: "auto", TUBE: "tube", DISCRETE: "discrete",
+});
 export const RearChannelGroupSizes = Object.freeze([1, 2, 4, 6, 8, 12, 24]);
 export const RearPanelLinkVisual = Object.freeze({
   color: "#f0b35a",
@@ -244,12 +246,44 @@ export function planRearPanelLinkUpdate(topology, linkID, panelID, input) {
 
   const originalPair = [link.sourceDeviceId, link.targetDeviceId].sort().join("\u0000");
   const nextPair = [next.sourceDeviceId, next.targetDeviceId].sort().join("\u0000");
-  if (originalPair !== nextPair) {
-    delete next.rearChannelId;
-    delete next.rearChannelName;
-    delete next.rearChannelType;
+  const pairChanged = originalPair !== nextPair;
+  const requestedChannelType = String(input.rearChannelType || "").trim().toLowerCase();
+  if (!requestedChannelType) {
+    if (pairChanged) clearRearChannel(next);
+    return next;
   }
+  if (requestedChannelType === RearChannelType.INDEPENDENT) {
+    clearRearChannel(next);
+    return next;
+  }
+  if (![RearChannelType.TUBE, RearChannelType.DISCRETE].includes(requestedChannelType)) {
+    throw new Error("Rear channel type must be independent, tube, or discrete bundle");
+  }
+
+  const requestedChannelName = String(input.rearChannelName || "").trim();
+  if (!requestedChannelName) throw new Error("Rear channel name is required for tube and discrete runs");
+  if (requestedChannelName.length > 120) throw new Error("Rear channel name must not exceed 120 characters");
+  const existingMembers = link.rearChannelId
+    ? (topology.links || []).filter((candidate) => candidate.rearChannelId === link.rearChannelId)
+    : [];
+  const metadataUnchanged = !pairChanged && link.rearChannelId &&
+    link.rearChannelType === requestedChannelType &&
+    String(link.rearChannelName || "").trim() === requestedChannelName;
+  const canReuseChannelID = !pairChanged && link.rearChannelId && existingMembers.length === 1;
+  const rearChannelID = metadataUnchanged || canReuseChannelID
+    ? link.rearChannelId
+    : String(input.rearChannelId || "").trim().toLowerCase();
+  if (!isVersion4UUID(rearChannelID)) throw new Error("Rear channel identifier must be a version 4 UUID");
+  next.rearChannelId = rearChannelID;
+  next.rearChannelName = requestedChannelName;
+  next.rearChannelType = requestedChannelType;
   return next;
+}
+
+function clearRearChannel(link) {
+  delete link.rearChannelId;
+  delete link.rearChannelName;
+  delete link.rearChannelType;
 }
 
 function rearChannelPlan(input, panel, port, sourceStart, sourceEnd) {

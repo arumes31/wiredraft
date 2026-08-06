@@ -1866,7 +1866,7 @@ export class CanvasEngine {
           lines = [
             `REAR PANEL MAP · ${link.cableType}`,
             endpoints,
-            `${link.rearChannelName || "AUTO CHANNEL"} · ${link.rearChannelType === "tube" ? "TUBE / BÜNDELADER" : link.rearChannelType === "discrete" ? "DISCRETE BUNDLE" : "DERIVED BY MEDIA"}`,
+            `${link.rearChannelName || "INDEPENDENT RUN"} · ${link.rearChannelType === "tube" ? "TUBE / BÜNDELADER" : link.rearChannelType === "discrete" ? "DISCRETE BUNDLE" : "NO SHARED CHANNEL"}`,
             "FRONT JACKS REMAIN INDEPENDENT",
           ];
           accent = "#f0b35a";
