@@ -22,6 +22,7 @@ test("loads a topology and opens primary editing tools", async ({ page }) => {
 test("opens and closes the all-rack dual-face editing workspace", async ({ page }) => {
   const toggle = page.locator("#dual-face-all-button");
   const canvas = page.locator("#diagram-canvas");
+  await expect(page.locator("#rack-count")).not.toHaveText("0");
   await expect(toggle).toBeEnabled();
   await expect(toggle).toHaveText("EXPAND ALL");
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
