@@ -8,6 +8,29 @@ assert.equal(emptyCanvasAction(true), EmptyCanvasAction.SELECT);
 assert.equal(nextCanvasTool("annotation-arrow", "annotation-arrow"), "select", "clicking the active drawing tool must unselect it");
 assert.equal(nextCanvasTool("annotation-arrow", "annotation-text"), "annotation-text");
 
+const rackFaceEngine = Object.create(CanvasEngine.prototype);
+const rackFaceChanges = [];
+const rackFaceBox = {
+  rack: { id: "rack-dual" }, face: "front", x: 100, y: 200, width: 750,
+  expanded: false, primary: true,
+};
+Object.assign(rackFaceEngine, {
+  canvas: { setPointerCapture() {}, style: {} },
+  state: {
+    isRackDualFace: () => false,
+    setRackDualFace: (rackID, expanded) => rackFaceChanges.push({ rackID, expanded }),
+  },
+  invalidate() {}, eventPoint: () => ({ x: 0, y: 0 }), screenToWorld: (point) => point,
+});
+const rackFaceControls = rackFaceEngine.rackFaceControls(rackFaceBox);
+assert.deepEqual(rackFaceControls.map((control) => control.label), ["FRONT", "REAR", "DUAL"]);
+assert.equal(rackFaceEngine.rackFaceControls({ ...rackFaceBox, expanded: true, primary: false }).length, 0,
+  "the secondary elevation must not duplicate header controls");
+rackFaceEngine.hitRackFaceControl = () => rackFaceControls.at(-1);
+rackFaceEngine.pointerDown({ button: 0, pointerId: 5, preventDefault() {} });
+assert.deepEqual(rackFaceChanges, [{ rackID: "rack-dual", expanded: true }],
+  "the per-rack DUAL control must open an editable second elevation");
+
 const annotationSelections = [];
 const annotationEngine = Object.create(CanvasEngine.prototype);
 Object.assign(annotationEngine, {

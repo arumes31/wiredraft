@@ -15,6 +15,12 @@ export function oppositeRackFace(face) {
   return normalizeRackFace(face) === RackFace.FRONT ? RackFace.REAR : RackFace.FRONT;
 }
 
+export function visibleRackFaces(face, expanded) {
+  return expanded
+    ? [RackFace.FRONT, RackFace.REAR]
+    : [normalizeRackFace(face)];
+}
+
 export function rackBounds(rack) {
   return {
     x: rack.positionX,
@@ -74,17 +80,39 @@ export function isRackPlacementAvailable(topology, device, rackID, rackUnit, rac
 }
 
 export function findRackLanding(topology, device, proposedPosition, rackFaces = null) {
+  const targets = [...(topology.racks || [])].reverse().map((rack) => ({
+    rack,
+    rackFace: normalizeRackFace(typeof rackFaces === "function"
+      ? rackFaces(rack.id)
+      : rackFaces?.get?.(rack.id) ?? rackFaces?.[rack.id]),
+    x: rack.positionX,
+    y: rack.positionY,
+    width: RACK_WIDTH,
+  }));
+  return findLanding(topology, device, proposedPosition, targets);
+}
+
+export function findRackFaceLanding(topology, device, proposedPosition, rackFaceBoxes) {
+  const targets = [...(rackFaceBoxes || [])].reverse().map((box) => ({
+    rack: box.rack,
+    rackFace: normalizeRackFace(box.face),
+    x: box.x,
+    y: box.y,
+    width: box.width || RACK_WIDTH,
+  }));
+  return findLanding(topology, device, proposedPosition, targets);
+}
+
+function findLanding(topology, device, proposedPosition, targets) {
   const units = Math.max(1, Number(device.faceplate?.unitsU) || 1);
   const centerX = proposedPosition.x + RACK_MOUNTED_DEVICE_WIDTH / 2;
   const centerY = proposedPosition.y + units * RACK_UNIT_HEIGHT / 2;
-  for (const rack of [...(topology.racks || [])].reverse()) {
-    const rackFace = normalizeRackFace(typeof rackFaces === "function"
-      ? rackFaces(rack.id)
-      : rackFaces?.get?.(rack.id) ?? rackFaces?.[rack.id]);
-    const bounds = rackBounds(rack);
-    const bayTop = rack.positionY + RACK_HEADER_HEIGHT;
+  for (const target of targets) {
+    const { rack, rackFace } = target;
+    const visualRack = { ...rack, positionX: target.x, positionY: target.y };
+    const bayTop = target.y + RACK_HEADER_HEIGHT;
     const bayBottom = bayTop + rack.heightU * RACK_UNIT_HEIGHT;
-    const isInside = centerX >= bounds.x && centerX <= bounds.x + bounds.width &&
+    const isInside = centerX >= target.x && centerX <= target.x + target.width &&
       centerY >= bayTop && centerY <= bayBottom;
     if (!isInside) continue;
     if (units > rack.heightU) {
@@ -92,7 +120,7 @@ export function findRackLanding(topology, device, proposedPosition, rackFaces = 
         rack,
         rackFace,
         rackUnit: 1,
-        position: { x: rack.positionX + RACK_DEVICE_INSET, y: bayTop },
+        position: { x: target.x + RACK_DEVICE_INSET, y: bayTop },
         isValid: false,
         reason: "capacity",
       };
@@ -106,7 +134,7 @@ export function findRackLanding(topology, device, proposedPosition, rackFaces = 
       rack,
       rackFace,
       rackUnit,
-      position: mountedDevicePosition(rack, { ...device, rackUnit }),
+      position: mountedDevicePosition(visualRack, { ...device, rackUnit }),
       isValid,
       reason: isValid ? "available" : "occupied",
     };

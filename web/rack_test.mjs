@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 
 import {
   findRackLanding,
+  findRackFaceLanding,
   isRackPlacementAvailable,
   layoutRackGroups,
   mountedDevicePosition,
+  normalizeRackFace,
+  oppositeRackFace,
   rackBounds,
   RackFace,
   usedRackUnits,
+  visibleRackFaces,
 } from "./static/js/rack.js";
 
 const rack = {
@@ -25,6 +29,13 @@ const device = {
   faceplate: { unitsU: 2 },
 };
 const topology = { racks: [rack], devices: [device] };
+
+assert.equal(normalizeRackFace("invalid"), RackFace.FRONT);
+assert.equal(oppositeRackFace(RackFace.FRONT), RackFace.REAR);
+assert.equal(oppositeRackFace(RackFace.REAR), RackFace.FRONT);
+assert.deepEqual(visibleRackFaces(RackFace.REAR, false), [RackFace.REAR]);
+assert.deepEqual(visibleRackFaces(RackFace.REAR, true), [RackFace.FRONT, RackFace.REAR],
+  "expanded racks must always render front-left and rear-right");
 
 assert.deepEqual(rackBounds(rack), { x: 100, y: 200, width: 750, height: 1284 });
 assert.deepEqual(mountedDevicePosition(rack, { ...device, rackUnit: 1 }), { x: 130, y: 1264 });
@@ -50,7 +61,27 @@ assert.equal(usedRackUnits(occupiedTopology, rack.id), 2);
 assert.equal(usedRackUnits(occupiedTopology, rack.id, RackFace.FRONT), 2);
 assert.equal(usedRackUnits(occupiedTopology, rack.id, RackFace.REAR), 0);
 assert.equal(findRackLanding(occupiedTopology, device, proposedAtU5, { [rack.id]: RackFace.REAR })?.isValid, true);
+assert.equal(findRackLanding(occupiedTopology, device, proposedAtU5, () => RackFace.REAR)?.isValid, true);
 assert.equal(findRackLanding(topology, device, { x: 2000, y: 2000 }), null);
+
+const expandedRearBox = {
+  rack,
+  face: RackFace.REAR,
+  x: rack.positionX + 750 + 90,
+  y: rack.positionY,
+};
+const proposedOnRear = mountedDevicePosition(
+  { ...rack, positionX: expandedRearBox.x },
+  { ...device, rackUnit: 5 },
+);
+const rearLanding = findRackFaceLanding(topology, device, proposedOnRear, [
+  { rack, face: RackFace.FRONT, x: rack.positionX, y: rack.positionY, width: 750 },
+  expandedRearBox,
+]);
+assert.equal(rearLanding?.rack.id, rack.id);
+assert.equal(rearLanding?.rackFace, RackFace.REAR, "the rendered rear elevation must be the authoritative drop target");
+assert.equal(rearLanding?.rackUnit, 5);
+assert.deepEqual(rearLanding?.position, proposedOnRear);
 
 const smallRack = { ...rack, id: "rack-small", heightU: 6 };
 const oversized = { ...device, id: "device-tall", faceplate: { unitsU: 12 } };

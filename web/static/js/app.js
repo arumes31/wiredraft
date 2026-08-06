@@ -69,7 +69,7 @@ const elements = Object.fromEntries([
   "account-user-count", "account-organizations",
   "photo-dialog", "photo-manager-count", "photo-manager-list", "photo-preview", "photo-preview-meta",
   "photo-details-form", "delete-photo-button",
-  "trace-session", "trace-session-label", "close-trace",
+  "trace-session", "trace-session-label", "close-trace", "dual-face-all-button",
 ].map((id) => [id, document.getElementById(id)]));
 
 const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state, {
@@ -140,6 +140,7 @@ state.addEventListener("change", ({ detail }) => {
   }
   if (detail.kind === "analysis" || detail.kind === "topology") renderAnalysis();
   if (["trace", "topology"].includes(detail.kind)) renderTraceSession();
+  if (["rack-view", "topology"].includes(detail.kind)) renderDualFaceControls();
   if (detail.kind === "rack-view") renderInspector();
   if (detail.kind === "topology" && elements["resources-dialog"]?.open) renderResources();
   if (detail.kind === "topology" && elements["photo-dialog"]?.open) renderPhotoManager();
@@ -183,6 +184,7 @@ async function loadTopology(id) {
   activePhotoID = "";
   state.selection = null;
   state.setTrace([]);
+  state.setAllRacksDualFace(false);
   state.setTopology(topology);
   autosave.markSaved();
   elements["topology-select"].value = id;
@@ -208,6 +210,19 @@ function renderTraceSession() {
     }
   }
   elements["trace-session-label"].textContent = `TRACE VIEW · ${linkIDs.size} CABLE${linkIDs.size === 1 ? "" : "S"} · ${rackIDs.size} RACK${rackIDs.size === 1 ? "" : "S"} EXPANDED`;
+}
+
+function renderDualFaceControls() {
+  const button = elements["dual-face-all-button"];
+  if (!button) return;
+  const rackIDs = (state.topology?.racks || []).map((rack) => rack.id);
+  const allExpanded = rackIDs.length > 0 && rackIDs.every((rackID) => state.isRackDualFace(rackID));
+  button.disabled = rackIDs.length === 0;
+  button.setAttribute("aria-pressed", String(allExpanded));
+  button.textContent = allExpanded ? "COLLAPSE ALL" : "EXPAND ALL";
+  button.title = allExpanded
+    ? "Close the editable front and rear elevations for every rack"
+    : "Show editable front and rear elevations for every rack";
 }
 
 function fillTopologySelect(topologies) {
@@ -717,11 +732,12 @@ function renderRackInspector(rackID) {
   const frontUsed = usedRackUnits(state.topology, rack.id, RackFace.FRONT);
   const rearUsed = usedRackUnits(state.topology, rack.id, RackFace.REAR);
   const face = state.rackFace(rack.id);
+  const dualFace = state.isRackDualFace(rack.id);
   const devices = state.topology.devices.filter((device) => device.rackId === rack.id).length;
   elements["inspector-content"].innerHTML = `
     <div class="inspector-title"><p class="eyebrow">RACK ENCLOSURE</p><h3>${escapeHTML(rack.name)}</h3><p>INDEPENDENT FRONT / REAR RAILS · ${rack.heightU}U PER FACE</p></div>
     <div class="metric-grid"><span>FRONT USED<b>${frontUsed}U</b></span><span>FRONT FREE<b>${rack.heightU - frontUsed}U</b></span><span>REAR USED<b>${rearUsed}U</b></span><span>REAR FREE<b>${rack.heightU - rearUsed}U</b></span><span>DEVICES<b>${devices}</b></span><span>VIEWING<b>${face.toUpperCase()}</b></span></div>
-    <div class="rack-face-inspector"><span>DISPLAYED FACE</span><div class="radio-row">${[RackFace.FRONT, RackFace.REAR].map((item) => `<label><input type="radio" name="rackViewFace" value="${item}" ${face === item ? "checked" : ""}><span>${item.toUpperCase()}</span></label>`).join("")}</div><p>This view is local to your session and does not change the saved rack.</p></div>
+    <div class="rack-face-inspector"><span>RACK FACE WORKSPACE</span><div class="radio-row">${[RackFace.FRONT, RackFace.REAR].map((item) => `<label><input type="radio" name="rackViewFace" value="${item}" ${face === item ? "checked" : ""}><span>${item.toUpperCase()}</span></label>`).join("")}</div><button id="toggle-dual-face" type="button" class="secondary" aria-pressed="${dualFace}">${dualFace ? "CLOSE DUAL-FACE EDIT" : "OPEN DUAL-FACE EDIT"}</button><p>Dual-face edit shows both elevations in parallel. Drop a device on the exact front or rear rail, then cable its visible ports normally. This view is local to your session.</p></div>
     <form id="rack-inspector-form" class="inspector-form">
       <label><span>RACK NAME</span><input name="name" maxlength="120" value="${escapeHTML(rack.name)}" required></label>
       <label><span>RACK HEIGHT</span><input name="heightU" type="number" min="6" max="48" value="${rack.heightU}" required></label>
@@ -740,6 +756,9 @@ function renderRackInspector(rackID) {
   document.getElementById("delete-rack").addEventListener("click", () => deleteRack(rack));
   document.querySelectorAll('input[name="rackViewFace"]').forEach((input) => {
     input.addEventListener("change", () => state.setRackFace(rack.id, input.value));
+  });
+  document.getElementById("toggle-dual-face").addEventListener("click", () => {
+    state.setRackDualFace(rack.id, !state.isRackDualFace(rack.id));
   });
 }
 
@@ -1171,6 +1190,16 @@ function bindControls() {
     renderNavigationInput();
   });
   document.getElementById("fit-button").addEventListener("click", () => canvas.fit());
+  elements["dual-face-all-button"].addEventListener("click", () => {
+    const rackIDs = (state.topology?.racks || []).map((rack) => rack.id);
+    const allExpanded = rackIDs.length > 0 && rackIDs.every((rackID) => state.isRackDualFace(rackID));
+    const expanding = !allExpanded;
+    state.setAllRacksDualFace(expanding);
+    requestAnimationFrame(() => canvas.fit());
+    toast(expanding
+      ? `Dual-face edit opened for ${rackIDs.length} rack${rackIDs.length === 1 ? "" : "s"}`
+      : "Dual-face edit closed");
+  });
   document.getElementById("navigator-toggle").addEventListener("click", toggleNavigator);
   document.querySelectorAll("[data-canvas-tool]").forEach((button) => button.addEventListener("click", () => selectCanvasTool(button.dataset.canvasTool)));
   document.getElementById("add-rack-button").addEventListener("click", () => elements["rack-dialog"].showModal());

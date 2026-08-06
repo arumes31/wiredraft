@@ -19,6 +19,24 @@ test("loads a topology and opens primary editing tools", async ({ page }) => {
   await expect(page.locator("#vlan-modal")).toBeVisible();
 });
 
+test("opens and closes the all-rack dual-face editing workspace", async ({ page }) => {
+  const toggle = page.locator("#dual-face-all-button");
+  const canvas = page.locator("#diagram-canvas");
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).toHaveText("EXPAND ALL");
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  const compactPixels = await canvas.evaluate((element) => element.toDataURL());
+
+  await toggle.click();
+  await expect(toggle).toHaveText("COLLAPSE ALL");
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => canvas.evaluate((element) => element.toDataURL())).not.toBe(compactPixels);
+
+  await page.keyboard.press("Escape");
+  await expect(toggle).toHaveText("EXPAND ALL");
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+});
+
 test("creates, switches, and remembers another network map", async ({ page, request }, testInfo) => {
   const originalID = await page.locator("#topology-select").inputValue();
   const originalName = await page.locator("#topology-name").textContent();

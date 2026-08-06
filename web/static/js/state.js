@@ -10,6 +10,7 @@ export class AppState extends EventTarget {
     this.analysis = { issues: [], loops: [], stp: [] };
     this.traceLinkIDs = new Set();
     this.rackFaces = new Map();
+    this.dualFaceRackIDs = new Set();
     this.history = [];
     this.future = [];
   }
@@ -24,6 +25,7 @@ export class AppState extends EventTarget {
     const liveRackIDs = new Set((this.topology?.racks || []).map((rack) => rack.id));
     const liveLinkIDs = new Set((this.topology?.links || []).map((link) => link.id));
     this.rackFaces = new Map([...this.rackFaces].filter(([rackID]) => liveRackIDs.has(rackID)));
+    this.dualFaceRackIDs = new Set([...this.dualFaceRackIDs].filter((rackID) => liveRackIDs.has(rackID)));
     this.traceLinkIDs = new Set([...this.traceLinkIDs].filter((linkID) => liveLinkIDs.has(linkID)));
     this.ensureSelection();
     this.emit("topology");
@@ -60,6 +62,29 @@ export class AppState extends EventTarget {
   setRackFace(rackID, face) {
     if (!rackID) return;
     this.rackFaces.set(rackID, face === "rear" ? "rear" : "front");
+    this.emit("rack-view");
+  }
+
+  isRackDualFace(rackID) {
+    return this.dualFaceRackIDs.has(rackID);
+  }
+
+  setRackDualFace(rackID, expanded) {
+    if (!rackID) return;
+    const next = new Set(this.dualFaceRackIDs);
+    if (expanded) next.add(rackID);
+    else next.delete(rackID);
+    if (next.size === this.dualFaceRackIDs.size && [...next].every((id) => this.dualFaceRackIDs.has(id))) return;
+    this.dualFaceRackIDs = next;
+    this.emit("rack-view");
+  }
+
+  setAllRacksDualFace(expanded) {
+    const next = expanded
+      ? new Set((this.topology?.racks || []).map((rack) => rack.id))
+      : new Set();
+    if (next.size === this.dualFaceRackIDs.size && [...next].every((id) => this.dualFaceRackIDs.has(id))) return;
+    this.dualFaceRackIDs = next;
     this.emit("rack-view");
   }
 

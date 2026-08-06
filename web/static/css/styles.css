@@ -85,6 +85,7 @@ textarea { resize: vertical; }
 #edit-topology-button { padding-bottom: 1px; font-size: 15px; }
 .toolbar { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0 12px; }
 .toolbar button, .toolbar summary { font-size: 10px; }
+.toolbar button[aria-pressed="true"] { border-color: var(--cyan-dim); background: #16302e; color: var(--cyan); box-shadow: inset 2px 0 var(--cyan); }
 .icon-button { width: 34px; padding: 0; font-size: 18px !important; }
 .tool-divider { height: 26px; width: 1px; margin: 0 3px; background: var(--line); }
 .connection-status { min-width: 104px; padding: 0 16px; border-left: 1px solid var(--line); display: flex; align-items: center; gap: 8px; font-family: var(--display); font-size: 9px; letter-spacing: .12em; }
@@ -162,6 +163,7 @@ textarea { resize: vertical; }
 .rack-face-inspector { display: grid; gap: 8px; margin: 0 0 15px; padding: 11px; border: 1px solid #2d464b; border-radius: 7px; background: #0a1416; }
 .rack-face-inspector > span { color: var(--muted); font-family: var(--display); font-size: 8px; letter-spacing: .1em; }
 .rack-face-inspector p { margin: 0; color: #7f9598; font-size: 8px; line-height: 1.45; }
+.rack-face-inspector .secondary[aria-pressed="true"] { border-color: var(--cyan-dim); background: #173a38; color: var(--cyan); box-shadow: inset 0 -2px var(--cyan); }
 .workspace.navigator-collapsed .rail-left { overflow: hidden; transform: translateX(-100%); }
 .rail { position: relative; z-index: 3; background: var(--panel); overflow: auto; scrollbar-width: thin; scrollbar-color: #34474c transparent; }
 .rail-left { border-right: 1px solid var(--line); }

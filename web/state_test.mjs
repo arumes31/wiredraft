@@ -26,15 +26,36 @@ test("topology state clones inputs and reports typed changes", () => {
   state.setAnalysis({ issues: [{ code: "warning" }], loops: [], stp: [] });
   state.setTrace(["link-1", "link-2"]);
   state.setRackFace("rack-1", "rear");
-  assert.deepEqual(changes, ["topology", "selection", "analysis", "trace", "rack-view"]);
+  state.setRackDualFace("rack-1", true);
+  assert.deepEqual(changes, ["topology", "selection", "analysis", "trace", "rack-view", "rack-view"]);
   assert.deepEqual([...state.traceLinkIDs], ["link-1", "link-2"]);
   assert.equal(state.rackFace("rack-1"), "rear");
+  assert.equal(state.isRackDualFace("rack-1"), true);
   state.setAnalysis(null);
   assert.deepEqual(state.analysis, { issues: [], loops: [], stp: [] });
   state.setTopology({ ...topology(), links: [] });
   assert.equal(state.traceLinkIDs.size, 0, "deleted links must leave trace view immediately");
+  assert.equal(state.isRackDualFace("rack-1"), true, "live rack expansion remains session-local across refreshes");
+  state.setTopology({ ...topology(), racks: [] });
+  assert.equal(state.dualFaceRackIDs.size, 0, "deleted racks must leave dual-face view immediately");
   state.select("", "");
   assert.equal(state.selection, null);
+});
+
+test("dual-face rack view supports selected and all-rack expansion", () => {
+  const state = new AppState();
+  state.setTopology({ ...topology(), racks: [{ id: "rack-1" }, { id: "rack-2" }] });
+  state.setRackDualFace("rack-1", true);
+  state.setRackDualFace("rack-1", true);
+  state.setRackDualFace("", true);
+  assert.deepEqual([...state.dualFaceRackIDs], ["rack-1"]);
+  state.setAllRacksDualFace(true);
+  state.setAllRacksDualFace(true);
+  assert.deepEqual([...state.dualFaceRackIDs], ["rack-1", "rack-2"]);
+  state.setRackDualFace("rack-1", false);
+  assert.deepEqual([...state.dualFaceRackIDs], ["rack-2"]);
+  state.setAllRacksDualFace(false);
+  assert.equal(state.dualFaceRackIDs.size, 0);
 });
 
 test("commit, undo, and redo preserve independent snapshots", () => {

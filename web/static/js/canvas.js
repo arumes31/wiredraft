@@ -24,8 +24,9 @@ import {
   GraphicsMode, graphicsAnimationActive, graphicsEffectActive, normalizeGraphicsMode, resolveGraphicsProfile,
 } from "./graphics-quality.js";
 import {
-  findRackLanding, layoutRackGroups, mountedDevicePosition, normalizeRackFace, oppositeRackFace, RackFace,
+  findRackFaceLanding, layoutRackGroups, mountedDevicePosition, normalizeRackFace, oppositeRackFace, RackFace,
   RACK_DEVICE_INSET, RACK_FACE_GAP, RACK_HEADER_HEIGHT, RACK_UNIT_HEIGHT, RACK_WIDTH, usedRackUnits,
+  visibleRackFaces,
 } from "./rack.js";
 import { SceneTileIndex } from "./scene-tiles.js";
 
@@ -182,6 +183,7 @@ export class CanvasEngine {
       if (event.key === "Escape") {
         this.setTool("select");
         if (this.state.traceLinkIDs?.size) this.state.setTrace([]);
+        if (this.state.dualFaceRackIDs?.size) this.state.setAllRacksDualFace(false);
       }
     });
     window.addEventListener("keyup", (event) => {
@@ -526,14 +528,16 @@ export class CanvasEngine {
       return;
     }
     const racks = new Map((topology.racks || []).map((rack) => [rack.id, rack]));
-    const expandedRackIDs = tracedRackIDs(topology, this.state.traceLinkIDs);
+    const traceExpandedRackIDs = tracedRackIDs(topology, this.state.traceLinkIDs);
+    const manualExpandedRackIDs = this.state.dualFaceRackIDs || new Set();
+    const expandedRackIDs = new Set([...traceExpandedRackIDs, ...manualExpandedRackIDs]);
     const rackGroupLayouts = layoutRackGroups([...racks.values()], expandedRackIDs);
     const faceBoxes = new Map();
     const portalByRack = new Map();
     for (const rack of racks.values()) {
       const currentFace = this.state.rackFace(rack.id);
       const expanded = expandedRackIDs.has(rack.id);
-      const faces = expanded ? [currentFace, oppositeRackFace(currentFace)] : [currentFace];
+      const faces = visibleRackFaces(currentFace, expanded);
       const base = rackGroupLayouts.get(rack.id);
       const container = {
         rack, x: base.x, y: base.y,
@@ -544,6 +548,8 @@ export class CanvasEngine {
       faces.forEach((face, index) => {
         const box = {
           rack, face, expanded, primary: index === 0,
+          manualExpanded: manualExpandedRackIDs.has(rack.id),
+          traceExpanded: traceExpandedRackIDs.has(rack.id),
           routingKey: `${rack.id}:${face}`,
           x: base.x + index * (RACK_WIDTH + RACK_FACE_GAP), y: base.y,
           width: RACK_WIDTH, height: base.height,
@@ -722,11 +728,17 @@ export class CanvasEngine {
   }
 
   rackFaceControls(box) {
+    if (box.expanded && !box.primary) return [];
     const width = 57;
     const gap = 5;
-    const startX = box.x + box.width - width * 2 - gap - 24;
-    return [RackFace.FRONT, RackFace.REAR].map((face, index) => ({
-      rack: box.rack, face,
+    const definitions = [
+      { action: "face", face: RackFace.FRONT, label: "FRONT" },
+      { action: "face", face: RackFace.REAR, label: "REAR" },
+      { action: "dual", label: "DUAL" },
+    ];
+    const startX = box.x + box.width - width * definitions.length - gap * (definitions.length - 1) - 24;
+    return definitions.map((definition, index) => ({
+      rack: box.rack, ...definition,
       x: startX + index * (width + gap), y: box.y + 17, width, height: 28,
     }));
   }
@@ -734,6 +746,7 @@ export class CanvasEngine {
   drawRackFaceControls(ctx, rackBoxes) {
     for (const box of rackBoxes) {
       const controls = this.rackFaceControls(box);
+      if (!controls.length) continue;
       const first = controls[0];
       const last = controls.at(-1);
       ctx.save();
@@ -744,7 +757,9 @@ export class CanvasEngine {
       ctx.roundRect(first.x - 5, first.y - 4, last.x + last.width - first.x + 10, first.height + 8, 6);
       ctx.fill(); ctx.stroke();
       for (const control of controls) {
-        const active = control.face === box.face;
+        const active = control.action === "dual"
+          ? this.state.isRackDualFace?.(box.rack.id)
+          : control.face === box.face;
         ctx.fillStyle = active ? "#174b47" : "#0a1719";
         ctx.strokeStyle = active ? "#8ff4e8" : "#415d60";
         ctx.lineWidth = active ? 1.5 : 1;
@@ -752,7 +767,7 @@ export class CanvasEngine {
         ctx.fillStyle = active ? "#d7fffa" : "#9bb1b2";
         ctx.font = "700 9px Bahnschrift Condensed, sans-serif";
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText(control.face.toUpperCase(), control.x + control.width / 2, control.y + control.height / 2);
+        ctx.fillText(control.label, control.x + control.width / 2, control.y + control.height / 2);
       }
       ctx.restore();
     }
@@ -803,8 +818,9 @@ export class CanvasEngine {
     ctx.fillStyle = preview.isValid ? "#8ff4e8" : "#ff9189";
     ctx.font = "700 11px Bahnschrift Condensed, sans-serif";
     ctx.textAlign = "center";
-    const label = preview.isValid ? `MOUNT AT U${preview.rackUnit}` :
-      preview.reason === "capacity" ? `DEVICE EXCEEDS ${preview.rack.heightU}U CAPACITY` : `U${preview.rackUnit} RANGE OCCUPIED`;
+    const face = normalizeRackFace(preview.rackFace).toUpperCase();
+    const label = preview.isValid ? `MOUNT ${face} · U${preview.rackUnit}` :
+      preview.reason === "capacity" ? `DEVICE EXCEEDS ${preview.rack.heightU}U ${face} CAPACITY` : `${face} · U${preview.rackUnit} RANGE OCCUPIED`;
     ctx.fillText(label, preview.position.x + DEVICE_WIDTH / 2, preview.position.y - 10);
     ctx.restore();
   }
@@ -816,7 +832,7 @@ export class CanvasEngine {
       (this.state.topology?.devices || []).map((device) => `${device.id}:${device.rackId || "free"}:${normalizeRackFace(device.rackFace)}:${
         (device.ports || []).map((port) => `${port.id}:${port.portIndex || 0}:${port.label}:${port.type}:${port.mediaType || ""}`).join(",")}`).join("|")}|${orderedLinks.map((link) =>
       `${link.id}:${link.sourcePortId}:${link.sourceSide || "front"}:${link.targetPortId}:${link.targetSide || "front"}:${link.cableType}:${link.rearChannelId || ""}:${link.rearChannelType || ""}`).join("|")}|${groupSignature}|${
-      (this.state.topology?.racks || []).map((rack) => `${rack.id}:${this.state.rackFace?.(rack.id) || RackFace.FRONT}`).join(",")}|${[...(this.state.traceLinkIDs || [])].sort().join(",")}`;
+      (this.state.topology?.racks || []).map((rack) => `${rack.id}:${this.state.rackFace?.(rack.id) || RackFace.FRONT}`).join(",")}|${[...(this.state.traceLinkIDs || [])].sort().join(",")}|${[...(this.state.dualFaceRackIDs || [])].sort().join(",")}`;
     if (this.trackPlanCache?.structureKey === structureKey && this.trackPlanCache?.geometryKey === this.routingGeometryKey) {
       this.lastRoutingStats = {
         mode: "reused", totalLinks: orderedLinks.length, reroutedLinks: 0, crossingPairs: 0,
@@ -1953,7 +1969,11 @@ export class CanvasEngine {
     if (event.button !== 0) return;
     const rackFaceControl = this.hitRackFaceControl(world);
     if (rackFaceControl) {
-      this.state.setRackFace(rackFaceControl.rack.id, rackFaceControl.face);
+      if (rackFaceControl.action === "dual") {
+        this.state.setRackDualFace(rackFaceControl.rack.id, !this.state.isRackDualFace(rackFaceControl.rack.id));
+      } else {
+        this.state.setRackFace(rackFaceControl.rack.id, rackFaceControl.face);
+      }
       return;
     }
     if (this.activeTool && this.activeTool !== "select") {
@@ -2093,7 +2113,7 @@ export class CanvasEngine {
         device.rackFace = "";
         device.positionX = proposed.x;
         device.positionY = proposed.y;
-        const landing = findRackLanding(this.state.topology, device, proposed, (rackID) => this.state.rackFace(rackID));
+        const landing = findRackFaceLanding(this.state.topology, device, proposed, this.rackFaceBoxes);
         if (!landing) continue;
         this.rackDropPreview = { ...landing, device };
         if (!landing.isValid) {
