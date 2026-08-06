@@ -120,4 +120,88 @@ assert.equal(rearMappedPortEngine.isEligibleTarget(
   rearMappedTarget,
 ), true, "a rear-mapped jack must remain eligible as an independent front target");
 
+const jitterDevice = {
+  id: "jitter-device", name: "JITTER DEVICE", rackId: "", rackUnit: 0, rackFace: "",
+  positionX: 100, positionY: 100, faceplate: { unitsU: 1 }, ports: [],
+};
+let jitterPoint = { x: 120, y: 120 };
+let jitterDeviceUpdates = 0;
+const jitterEngine = Object.create(CanvasEngine.prototype);
+Object.assign(jitterEngine, {
+  canvas: {
+    setPointerCapture() {}, hasPointerCapture: () => false, releasePointerCapture() {}, style: {},
+  },
+  state: {
+    topology: { devices: [jitterDevice], racks: [], links: [] },
+    selection: null, history: [], future: [],
+    select(type, id) { this.selection = type ? { type, id } : null; },
+    emit() {},
+  },
+  callbacks: { onDeviceUpdate: () => { jitterDeviceUpdates += 1; } },
+  camera: { zoom: 1 }, activeTool: "select", isSpaceDown: false, selectedDevices: new Set(),
+  deviceBoxes: [{ device: jitterDevice, x: 100, y: 100, width: 690, height: 100 }],
+  invalidate() {}, eventPoint: () => jitterPoint, screenToWorld: (point) => point,
+  hitRackFaceControl: () => null, hitAnnotation: () => null, hitPort: () => null, hitLink: () => null,
+  hitDevice: () => jitterEngine.deviceBoxes[0], hitRack: () => null,
+});
+jitterEngine.pointerDown({ button: 0, pointerId: 8, preventDefault() {} });
+jitterPoint = { x: 122, y: 122 };
+jitterEngine.pointerMove({});
+assert.equal(jitterEngine.drag.active, false, "sub-threshold touchpad jitter must not begin a device drag");
+jitterEngine.pointerUp({ pointerId: 8 });
+assert.equal(jitterEngine.state.history.length, 0, "a jitter-only click must not create an undo entry");
+assert.equal(jitterDeviceUpdates, 0, "a jitter-only click must not persist a device update");
+
+const jitterRack = { id: "jitter-rack", positionX: 40, positionY: 40, heightU: 42 };
+let rackPoint = { x: 80, y: 55 };
+let rackUpdates = 0;
+const rackJitterEngine = Object.create(CanvasEngine.prototype);
+Object.assign(rackJitterEngine, {
+  canvas: { setPointerCapture() {}, hasPointerCapture: () => false, releasePointerCapture() {}, style: {} },
+  state: {
+    topology: { devices: [], racks: [jitterRack], links: [] }, selection: null, history: [], future: [],
+    select(type, id) { this.selection = type ? { type, id } : null; }, emit() {},
+  },
+  callbacks: { onRackUpdate: () => { rackUpdates += 1; } },
+  camera: { zoom: 1 }, activeTool: "select", isSpaceDown: false, selectedDevices: new Set(),
+  deviceBoxes: [], invalidate() {}, eventPoint: () => rackPoint, screenToWorld: (point) => point,
+  hitRackFaceControl: () => null, hitAnnotation: () => null, hitPort: () => null, hitLink: () => null,
+  hitDevice: () => null, hitRack: () => ({ rack: jitterRack, x: 40, y: 40, width: 750, height: 1000 }),
+});
+rackJitterEngine.pointerDown({ button: 0, pointerId: 9, preventDefault() {} });
+rackPoint = { x: 82, y: 57 };
+rackJitterEngine.pointerMove({});
+assert.equal(rackJitterEngine.rackDrag.active, false, "sub-threshold touchpad jitter must not begin a rack drag");
+rackJitterEngine.pointerUp({ pointerId: 9 });
+assert.equal(rackJitterEngine.state.history.length, 0);
+assert.equal(rackUpdates, 0, "a jitter-only rack click must not persist an update");
+
+const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+let navigationFlush = null;
+let navigationFrames = 0;
+globalThis.requestAnimationFrame = (callback) => {
+  navigationFrames += 1;
+  navigationFlush = callback;
+  return navigationFrames;
+};
+try {
+  const navigationEngine = Object.create(CanvasEngine.prototype);
+  Object.assign(navigationEngine, {
+    navigationMode: "trackpad", navigationDetector: {}, lastDetectedNavigationMode: "",
+    navigationFrame: 0, pendingNavigation: null, camera: { x: 0, y: 0, zoom: 1 }, height: 600,
+    pointerScreen: { x: 0, y: 0 }, pointerWorld: { x: 0, y: 0 }, callbacks: {},
+    eventPoint: () => ({ x: 200, y: 150 }), invalidate() {},
+  });
+  navigationEngine.flushNavigation = navigationEngine.flushNavigation.bind(navigationEngine);
+  const wheelEvent = { deltaX: 5, deltaY: 20, deltaMode: 0, timeStamp: 10, preventDefault() {} };
+  navigationEngine.wheel(wheelEvent);
+  navigationEngine.wheel({ ...wheelEvent, timeStamp: 20 });
+  assert.equal(navigationFrames, 1, "rapid touchpad input must share one animation frame");
+  assert.deepEqual(navigationEngine.camera, { x: 0, y: 0, zoom: 1 }, "camera changes must wait for the frame boundary");
+  navigationFlush();
+  assert.deepEqual(navigationEngine.camera, { x: -10, y: -40, zoom: 1 });
+} finally {
+  globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+}
+
 console.log("canvas interaction checks passed");

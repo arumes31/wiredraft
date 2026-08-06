@@ -6,6 +6,9 @@ import {
   GRAPHICS_STORAGE_KEY, GraphicsMode, graphicsProfileSummary, normalizeGraphicsMode,
 } from "./graphics-quality.js";
 import {
+  NAVIGATION_STORAGE_KEY, NavigationMode, navigationGestureHints, navigationModeSummary, normalizeNavigationMode,
+} from "./canvas-navigation.js";
+import {
   TopologyCollaboration, absoluteShareURL, isRevisionConflict, validateDocumentationURL,
 } from "./collaboration.js";
 import { commentThreadsForAnchor, selectedCommentAnchor } from "./plan-comments.js";
@@ -55,7 +58,8 @@ const elements = Object.fromEntries([
   "link-group-dialog", "link-group-form", "link-group-summary", "switch-system-dialog", "switch-system-form",
   "switch-system-members", "switch-system-member-count", "firewall-cluster-dialog", "firewall-cluster-form",
   "firewall-cluster-members", "firewall-cluster-member-count", "import-file", "catalog-file",
-  "graphics-quality", "graphics-quality-detail", "export-menu",
+  "graphics-quality", "graphics-quality-detail", "navigation-mode", "navigation-mode-detail", "navigation-readout",
+  "navigation-pan-gesture", "navigation-zoom-gesture", "export-menu",
   "autosave-menu", "autosave-enabled", "autosave-interval", "save-state-label", "loading-skeleton",
   "topology-tree", "topology-size-warning", "topology-minimap", "annotation-dialog", "annotation-form",
   "resources-dialog", "documentation-list", "documentation-form", "documentation-preview",
@@ -79,10 +83,11 @@ const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state
   onLinkDelete: deleteLink,
   onLinkGroupRequest: openLinkGroupDialog,
   onViewChange: () => minimap?.draw(),
+  onNavigationInput: renderNavigationInput,
   onAnnotationCreate: createAnnotation,
   onAnnotationTextRequest: openTextAnnotationDialog,
   onToolChange: renderCanvasToolState,
-}, { graphicsMode: loadGraphicsMode() });
+}, { graphicsMode: loadGraphicsMode(), navigationMode: loadNavigationMode() });
 
 const notifications = new ToastQueue(elements.toast);
 const minimap = new TopologyMinimap(elements["topology-minimap"], canvas, state);
@@ -380,6 +385,7 @@ function renderTopology() {
   renderTopologySize();
   minimap.draw();
   renderGraphicsQuality();
+  renderNavigationInput();
 }
 
 function renderNavigator() {
@@ -431,11 +437,35 @@ function loadGraphicsMode() {
   }
 }
 
+function loadNavigationMode() {
+  try {
+    return normalizeNavigationMode(localStorage.getItem(NAVIGATION_STORAGE_KEY));
+  } catch {
+    return NavigationMode.AUTO;
+  }
+}
+
 function renderGraphicsQuality() {
   const profile = canvas.graphicsProfile();
   elements["graphics-quality"].value = canvas.graphicsMode;
   elements["graphics-quality-detail"].textContent = graphicsProfileSummary(profile);
   elements["graphics-quality-detail"].dataset.mode = profile.resolvedMode;
+}
+
+function renderNavigationInput(input = {}) {
+  const mode = canvas.navigationMode;
+  const detectedInput = input.detectedMode || canvas.lastDetectedNavigationMode;
+  const detectedMode = mode === NavigationMode.AUTO &&
+    [NavigationMode.TRACKPAD, NavigationMode.MOUSE].includes(detectedInput) ? detectedInput : "";
+  const hints = navigationGestureHints(mode);
+  elements["navigation-mode"].value = mode;
+  elements["navigation-mode-detail"].textContent = navigationModeSummary(mode);
+  elements["navigation-pan-gesture"].textContent = hints.pan;
+  elements["navigation-zoom-gesture"].textContent = hints.zoom;
+  elements["navigation-readout"].textContent = detectedMode
+    ? `AUTO · ${detectedMode.toUpperCase()}`
+    : `${mode.toUpperCase()} NAV`;
+  elements["navigation-readout"].dataset.mode = detectedMode || mode;
 }
 
 async function renderAnalysis() {
@@ -1102,6 +1132,16 @@ function bindControls() {
       // Storage can be unavailable in private or embedded browsing contexts.
     }
     renderGraphicsQuality();
+  });
+  elements["navigation-mode"].addEventListener("change", (event) => {
+    const mode = normalizeNavigationMode(event.target.value);
+    canvas.setNavigationMode(mode);
+    try {
+      localStorage.setItem(NAVIGATION_STORAGE_KEY, mode);
+    } catch {
+      // Storage can be unavailable in private or embedded browsing contexts.
+    }
+    renderNavigationInput();
   });
   document.getElementById("fit-button").addEventListener("click", () => canvas.fit());
   document.getElementById("navigator-toggle").addEventListener("click", toggleNavigator);

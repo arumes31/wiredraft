@@ -3,6 +3,10 @@ import {
   orderedCableLinks, pointOnRoute, routeSegments, routesWithCrossingBridges, segmentIntersectsRectangle,
 } from "./cabling.js";
 import { EmptyCanvasAction, emptyCanvasAction } from "./canvas-interactions.js";
+import {
+  applyNavigationFrame, classifyWheelGesture, DRAG_ACTIVATION_DISTANCE, NavigationGesture,
+  normalizeNavigationMode, normalizeWheelDelta, wheelZoomLogDelta,
+} from "./canvas-navigation.js";
 import { commentPreviewLines } from "./plan-comments.js";
 import { resolveFaceplateTemplate } from "./faceplate.js";
 import { groupAccent, linkGroupPortBadges, peerLinkIDs, summarizeLinkGroup } from "./link-group-display.js";
@@ -85,6 +89,12 @@ export class CanvasEngine {
     this.lastRoutingStats = { mode: "full", totalLinks: 0, reroutedLinks: 0, crossingPairs: 0 };
     this.stpPortStateCache = new Map();
     this.graphicsMode = normalizeGraphicsMode(options.graphicsMode);
+    this.navigationMode = normalizeNavigationMode(options.navigationMode);
+    this.navigationDetector = {};
+    this.lastDetectedNavigationMode = "";
+    this.pendingNavigation = null;
+    this.navigationFrame = 0;
+    this.flushNavigation = this.flushNavigation.bind(this);
     this.reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || false;
     this.activeGraphicsProfile = null;
     this.sceneDirty = true;
@@ -146,6 +156,7 @@ export class CanvasEngine {
 
   destroy() {
     cancelAnimationFrame(this.frame);
+    cancelAnimationFrame(this.navigationFrame);
     this.resizeObserver.disconnect();
     this.intersectionObserver?.disconnect();
     this.state.removeEventListener("change", this.onStateChange);
@@ -202,7 +213,7 @@ export class CanvasEngine {
     const animationActive = graphicsAnimationActive(profile, {
       hasLinks: Boolean(topology?.links?.length),
       hasFocus: Boolean(hoverNeedsAnimation(this) || this.state.selection?.type === "link" || this.state.traceLinkIDs?.size),
-      isInteracting: Boolean(this.draft || this.linkDrag?.active || this.drag || this.rackDrag || this.pan || this.selectionBox),
+      isInteracting: Boolean(this.draft || this.linkDrag?.active || this.drag?.active || this.rackDrag?.active || this.pan || this.selectionBox),
     });
     const frameInterval = profile.maxFPS > 0 ? 1000 / profile.maxFPS : Infinity;
     const deviceHoverInterval = deviceHoverFrameInterval(profile, this.hoveredDevice);
@@ -393,7 +404,7 @@ export class CanvasEngine {
   }
 
   drawDragGhosts(ctx) {
-    if (this.drag) {
+    if (this.drag?.active) {
       for (const original of this.drag.originals.values()) {
         const height = Math.max(UNIT_HEIGHT, (original.device.faceplate.unitsU || 1) * UNIT_HEIGHT);
         ctx.save();
@@ -406,7 +417,7 @@ export class CanvasEngine {
         ctx.restore();
       }
     }
-    if (!this.rackDrag) return;
+    if (!this.rackDrag?.active) return;
     const selected = this.rackBoxes.find((box) => box.rack.id === this.state.selection?.id);
     if (!selected) return;
     const collision = this.rackBoxes.some((box) => box.rack.id !== selected.rack.id && intersects(expand(selected, 18), expand(box, 18)));
@@ -624,6 +635,17 @@ export class CanvasEngine {
     this.resize();
     this.invalidate();
     return this.graphicsProfile();
+  }
+
+  setNavigationMode(mode) {
+    this.navigationMode = normalizeNavigationMode(mode);
+    this.navigationDetector = {};
+    this.lastDetectedNavigationMode = "";
+    this.callbacks.onNavigationInput?.({
+      mode: this.navigationMode,
+      detectedMode: this.navigationMode,
+      gesture: null,
+    });
   }
 
   invalidate(layout = false) {
@@ -1968,6 +1990,8 @@ export class CanvasEngine {
       this.state.select("device", device.device.id);
       this.drag = {
         start: world,
+        startScreen: screen,
+        active: false,
         originals: new Map(),
         invalidIDs: new Set(),
         snapshot: structuredClone(this.state.topology),
@@ -1991,6 +2015,8 @@ export class CanvasEngine {
       if (world.y <= rack.y + RACK_HEADER_HEIGHT) {
         this.rackDrag = {
           start: world,
+          startScreen: screen,
+          active: false,
           original: { x: rack.rack.positionX, y: rack.rack.positionY },
           snapshot: structuredClone(this.state.topology),
         };
@@ -2029,6 +2055,10 @@ export class CanvasEngine {
       return;
     }
     if (this.rackDrag) {
+      if (!this.rackDrag.active) {
+        if (screenDistance(screen, this.rackDrag.startScreen) < DRAG_ACTIVATION_DISTANCE) return;
+        this.rackDrag.active = true;
+      }
       const rack = this.state.topology.racks.find((item) => item.id === this.state.selection?.id);
       if (!rack) return;
       const dx = world.x - this.rackDrag.start.x;
@@ -2039,6 +2069,11 @@ export class CanvasEngine {
       return;
     }
     if (this.drag) {
+      if (!this.drag.active) {
+        if (screenDistance(screen, this.drag.startScreen) < DRAG_ACTIVATION_DISTANCE) return;
+        this.drag.active = true;
+        this.canvas.style.cursor = "grabbing";
+      }
       const dx = world.x - this.drag.start.x;
       const dy = world.y - this.drag.start.y;
       this.drag.invalidIDs.clear();
@@ -2112,10 +2147,12 @@ export class CanvasEngine {
       this.pan = null; this.canvas.style.cursor = "default";
     } else if (this.rackDrag) {
       const rack = this.state.topology.racks.find((item) => item.id === this.state.selection?.id);
-      this.state.history.push(this.rackDrag.snapshot);
-      this.state.history = this.state.history.slice(-50);
-      this.state.future = [];
-      if (rack) this.callbacks.onRackUpdate?.(structuredClone(rack));
+      if (this.rackDrag.active) {
+        this.state.history.push(this.rackDrag.snapshot);
+        this.state.history = this.state.history.slice(-50);
+        this.state.future = [];
+        if (rack) this.callbacks.onRackUpdate?.(structuredClone(rack));
+      }
       this.rackDrag = null;
       this.canvas.style.cursor = "default";
     } else if (this.draft) {
@@ -2132,16 +2169,19 @@ export class CanvasEngine {
       this.linkDrag = null;
       this.canvas.style.cursor = "default";
     } else if (wasDrag) {
-      this.state.history.push(wasDrag.snapshot);
-      this.state.history = this.state.history.slice(-50);
-      this.state.future = [];
-      for (const id of wasDrag.originals.keys()) {
-        const device = this.state.topology.devices.find((item) => item.id === id);
-        if (device && wasDrag.invalidIDs.has(id)) Object.assign(device, structuredClone(wasDrag.originals.get(id).device));
-        if (device) this.callbacks.onDeviceUpdate?.(structuredClone(device));
+      if (wasDrag.active) {
+        this.state.history.push(wasDrag.snapshot);
+        this.state.history = this.state.history.slice(-50);
+        this.state.future = [];
+        for (const id of wasDrag.originals.keys()) {
+          const device = this.state.topology.devices.find((item) => item.id === id);
+          if (device && wasDrag.invalidIDs.has(id)) Object.assign(device, structuredClone(wasDrag.originals.get(id).device));
+          if (device) this.callbacks.onDeviceUpdate?.(structuredClone(device));
+        }
       }
       this.drag = null;
       this.rackDropPreview = null;
+      this.canvas.style.cursor = "default";
     } else if (this.selectionBox) {
       const left = Math.min(this.selectionBox.start.x, this.selectionBox.end.x);
       const top = Math.min(this.selectionBox.start.y, this.selectionBox.end.y);
@@ -2156,16 +2196,35 @@ export class CanvasEngine {
   }
 
   wheel(event) {
-    this.invalidate();
     event.preventDefault();
     const screen = this.eventPoint(event);
-    const before = this.screenToWorld(screen);
-    const factor = Math.exp(-event.deltaY * .0015);
-    this.camera.zoom = Math.max(.1, Math.min(5, this.camera.zoom * factor));
-    this.camera.x = screen.x - before.x * this.camera.zoom;
-    this.camera.y = screen.y - before.y * this.camera.zoom;
+    const input = classifyWheelGesture(event, this.navigationMode, this.navigationDetector);
+    const delta = normalizeWheelDelta(event, this.height);
+    this.pendingNavigation ||= { panX: 0, panY: 0, zoomLog: 0, zoomAnchor: null };
+    if (input.gesture === NavigationGesture.PAN) {
+      this.pendingNavigation.panX -= delta.x;
+      this.pendingNavigation.panY -= delta.y;
+    } else {
+      this.pendingNavigation.zoomLog += wheelZoomLogDelta(delta.y);
+      this.pendingNavigation.zoomAnchor = screen;
+    }
+    this.pointerScreen = screen;
+    if (input.detectedMode !== this.lastDetectedNavigationMode) {
+      this.lastDetectedNavigationMode = input.detectedMode;
+      this.callbacks.onNavigationInput?.({ mode: this.navigationMode, ...input });
+    }
+    if (!this.navigationFrame) this.navigationFrame = requestAnimationFrame(this.flushNavigation);
+  }
+
+  flushNavigation() {
+    this.navigationFrame = 0;
+    if (!this.pendingNavigation) return;
+    this.camera = applyNavigationFrame(this.camera, this.pendingNavigation);
+    this.pendingNavigation = null;
+    this.pointerWorld = this.screenToWorld(this.pointerScreen);
     this.callbacks.onPointer?.(this.pointerWorld, this.camera.zoom);
     this.callbacks.onViewChange?.(this.viewportWorldRect());
+    this.invalidate();
   }
 
   contextMenu(event) {
@@ -2478,6 +2537,10 @@ function intersects(left, right) {
 
 function expand(box, amount) {
   return { x: box.x - amount, y: box.y - amount, width: box.width + amount * 2, height: box.height + amount * 2 };
+}
+
+function screenDistance(left, right) {
+  return Math.hypot((left?.x || 0) - (right?.x || 0), (left?.y || 0) - (right?.y || 0));
 }
 
 function distanceToLineSegment(point, line) {

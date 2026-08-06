@@ -94,6 +94,15 @@
           </select>
           <small id="graphics-quality-detail">AUTO · MEASURING TOPOLOGY</small>
         </div>
+        <div class="navigation-control">
+          <label for="navigation-mode"><span>NAVIGATION</span><b>INPUT PROFILE</b></label>
+          <select id="navigation-mode" aria-describedby="navigation-mode-detail">
+            <option value="auto">AUTO</option>
+            <option value="trackpad">TRACKPAD</option>
+            <option value="mouse">MOUSE</option>
+          </select>
+          <small id="navigation-mode-detail">AUTO · TOUCHPAD / MOUSE DETECTION</small>
+        </div>
         <p id="topology-size-warning" class="topology-size-warning" hidden></p>
       </section>
       <section class="rail-section topology-tree-section">
@@ -113,7 +122,7 @@
         <div id="stp-list" class="stp-list" aria-live="polite"></div>
       </section>
       <footer class="rail-foot">
-        <kbd>DRAG</kbd> EMPTY SPACE PAN <kbd>WHEEL</kbd> ZOOM<br>
+        <kbd id="navigation-pan-gesture">2-FINGER / DRAG</kbd> PAN · <kbd id="navigation-zoom-gesture">WHEEL / PINCH</kbd> ZOOM<br>
         <kbd>SHIFT</kbd> + DRAG BOX SELECT · RACK HEADER TO MOVE<br>
         PORT → PORT TO PATCH · CABLE → CABLE TO GROUP
       </footer>
@@ -134,6 +143,7 @@
       </div>
       <aside class="minimap-panel" aria-label="Topology minimap"><div><span>OVERVIEW</span><b>DRAG TO NAVIGATE</b></div><canvas id="topology-minimap" width="220" height="132"></canvas></aside>
       <div class="canvas-readout">
+        <span id="navigation-readout" data-mode="auto">AUTO NAV</span>
         <span id="zoom-readout">100%</span>
         <span id="pointer-readout">X 0000 · Y 0000</span>
       </div>
