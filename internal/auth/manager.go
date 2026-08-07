@@ -77,12 +77,17 @@ func New(dataDir string, config Config, existingTopologyIDs []string) (*Manager,
 		return nil, err
 	}
 	statePath := filepath.Join(authDirectory, "accounts.json")
-	state, _, err := loadPersistentState(statePath)
+	state, _, migrated, err := loadPersistentState(statePath)
 	if err != nil {
 		return nil, err
 	}
 	if err := validatePersistentState(state, encryptionKey); err != nil {
 		return nil, err
+	}
+	if migrated {
+		if err := savePersistentState(statePath, state); err != nil {
+			return nil, fmt.Errorf("persisting migrated authentication state: %w", err)
+		}
 	}
 	manager := newManager(state, encryptionKey, config, func(_ context.Context, next persistentState) error {
 		return savePersistentState(statePath, next)
@@ -158,7 +163,7 @@ func (m *Manager) bootstrap(ctx context.Context, config Config, existingTopology
 		}
 		admin := persistedUser{
 			ID: bootstrapAdminID, Username: config.AdminUsername, UsernameKey: usernameKey,
-			Role: RoleAdmin, PasswordHash: passwordHash, IsBootstrapAdministrator: true,
+			Role: RoleAdmin, PasswordHash: passwordHash, AuthSource: AuthSourceLocal, IsBootstrapAdministrator: true,
 			CreatedAt: now, UpdatedAt: now,
 		}
 		next.Users = append(next.Users, admin)
@@ -185,6 +190,7 @@ func (m *Manager) bootstrap(ctx context.Context, config Config, existingTopology
 			changed = true
 		}
 		admin.IsBootstrapAdministrator = true
+		admin.AuthSource = AuthSourceLocal
 		if changed {
 			admin.UpdatedAt = now
 		}
@@ -239,7 +245,7 @@ func (m *Manager) StartLogin(username, password, remote string) (LoginChallenge,
 	user, found := m.userByUsernameKeyLocked(usernameKey)
 	passwordHash := m.dummyPasswordHash
 	credentialShapeValid := len(password) > 0 && len(password) <= 1024
-	if found && credentialShapeValid {
+	if found && user.AuthSource == AuthSourceLocal && credentialShapeValid {
 		passwordHash = user.PasswordHash
 	}
 	m.mu.Unlock()
@@ -250,7 +256,7 @@ func (m *Manager) StartLogin(username, password, remote string) (LoginChallenge,
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !found || !credentialShapeValid || !matches || user.Disabled {
+	if !found || user.AuthSource != AuthSourceLocal || !credentialShapeValid || !matches || user.Disabled {
 		m.recordLoginFailureLocked(attemptKey, now)
 		return LoginChallenge{}, ErrInvalidCredentials
 	}
@@ -474,7 +480,8 @@ func (m *Manager) CreateUser(ctx context.Context, username, password string, org
 	}
 	user := persistedUser{
 		ID: id, Username: username, UsernameKey: usernameKey, Role: RoleUser,
-		PasswordHash: passwordHash, Organizations: organizations, CreatedAt: now, UpdatedAt: now,
+		PasswordHash: passwordHash, AuthSource: AuthSourceLocal,
+		Organizations: organizations, CreatedAt: now, UpdatedAt: now,
 	}
 	next := clonePersistentState(m.state)
 	next.Users = append(next.Users, user)
@@ -482,6 +489,122 @@ func (m *Manager) CreateUser(ctx context.Context, username, password string, org
 		return UserView{}, err
 	}
 	return userView(user), nil
+}
+
+// CreateEntraUser creates an organization-scoped account that must link a
+// pre-approved Microsoft Entra login before it can open a session.
+func (m *Manager) CreateEntraUser(
+	ctx context.Context,
+	username string,
+	externalLogin string,
+	organizations []string,
+) (UserView, error) {
+	username = strings.TrimSpace(username)
+	if err := validateUsername(username); err != nil {
+		return UserView{}, err
+	}
+	externalLogin = strings.TrimSpace(externalLogin)
+	if err := validateExternalLogin(externalLogin); err != nil {
+		return UserView{}, err
+	}
+	organizations, err := normalizeOrganizations(organizations)
+	if err != nil {
+		return UserView{}, err
+	}
+	id, err := randomToken(16)
+	if err != nil {
+		return UserView{}, err
+	}
+	now := m.now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	usernameKey := normalizeUsername(username)
+	if _, exists := m.userByUsernameKeyLocked(usernameKey); exists || m.externalLoginExistsLocked(externalLogin, "") {
+		return UserView{}, ErrConflict
+	}
+	user := persistedUser{
+		ID: id, Username: username, UsernameKey: usernameKey, Role: RoleUser,
+		AuthSource: AuthSourceEntra, ExternalLogin: externalLogin,
+		Organizations: organizations, CreatedAt: now, UpdatedAt: now,
+	}
+	next := clonePersistentState(m.state)
+	next.Users = append(next.Users, user)
+	if err := m.commitLocked(ctx, next); err != nil {
+		return UserView{}, err
+	}
+	return userView(user), nil
+}
+
+// CompleteEntraLogin binds or resolves a verified Entra identity and creates
+// the same server-side session used by local authentication.
+func (m *Manager) CompleteEntraLogin(ctx context.Context, identity ExternalIdentity) (Session, error) {
+	identity.TenantID = strings.TrimSpace(identity.TenantID)
+	identity.ObjectID = strings.TrimSpace(identity.ObjectID)
+	identity.PreferredUsername = strings.TrimSpace(identity.PreferredUsername)
+	if identity.TenantID == "" || identity.ObjectID == "" || validateExternalLogin(identity.PreferredUsername) != nil {
+		return Session{}, ErrInvalidExternalIdentity
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	index := slices.IndexFunc(m.state.Users, func(user persistedUser) bool {
+		return user.AuthSource == AuthSourceEntra &&
+			strings.EqualFold(user.ExternalTenantID, identity.TenantID) &&
+			strings.EqualFold(user.ExternalObjectID, identity.ObjectID)
+	})
+	if index < 0 {
+		index = slices.IndexFunc(m.state.Users, func(user persistedUser) bool {
+			return user.AuthSource == AuthSourceEntra && user.ExternalObjectID == "" &&
+				normalizeUsername(user.ExternalLogin) == normalizeUsername(identity.PreferredUsername)
+		})
+		if index < 0 {
+			return Session{}, ErrInvalidCredentials
+		}
+		if m.state.Users[index].Disabled {
+			return Session{}, ErrInvalidCredentials
+		}
+		next := clonePersistentState(m.state)
+		next.Users[index].ExternalTenantID = identity.TenantID
+		next.Users[index].ExternalObjectID = identity.ObjectID
+		next.Users[index].ExternalLinkedAt = now
+		next.Users[index].UpdatedAt = now
+		if err := m.commitLocked(ctx, next); err != nil {
+			return Session{}, err
+		}
+	}
+	user := m.state.Users[index]
+	if user.Disabled || user.AuthSource != AuthSourceEntra {
+		return Session{}, ErrInvalidCredentials
+	}
+	return m.newSessionLocked(user, now)
+}
+
+// ResetEntraBinding removes the immutable Entra object binding so the
+// pre-approved login can link again on its next successful sign-in.
+func (m *Manager) ResetEntraBinding(ctx context.Context, id string) (UserView, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	next := clonePersistentState(m.state)
+	index := slices.IndexFunc(next.Users, func(user persistedUser) bool { return user.ID == id })
+	if index < 0 {
+		return UserView{}, ErrNotFound
+	}
+	if next.Users[index].AuthSource != AuthSourceEntra {
+		return UserView{}, ErrForbidden
+	}
+	next.Users[index].ExternalTenantID = ""
+	next.Users[index].ExternalObjectID = ""
+	next.Users[index].ExternalLinkedAt = time.Time{}
+	next.Users[index].UpdatedAt = m.now()
+	if err := m.commitLocked(ctx, next); err != nil {
+		return UserView{}, err
+	}
+	for token, session := range m.sessions {
+		if session.Principal.UserID == id {
+			delete(m.sessions, token)
+		}
+	}
+	return userView(next.Users[index]), nil
 }
 
 // UpdateUser changes organization membership and disabled state.
@@ -699,6 +822,7 @@ func userView(user persistedUser) UserView {
 	return UserView{
 		ID: user.ID, Username: user.Username, Role: user.Role,
 		Organizations: slices.Clone(user.Organizations), TOTPConfigured: user.EncryptedTOTPSecret != "",
+		AuthSource: user.AuthSource, ExternalLogin: user.ExternalLogin, ExternalLinked: user.ExternalObjectID != "",
 		Disabled: user.Disabled, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt,
 	}
 }
@@ -725,6 +849,26 @@ func validateUsername(value string) error {
 		}
 	}
 	return nil
+}
+
+func validateExternalLogin(value string) error {
+	value = strings.TrimSpace(value)
+	if len(value) < 3 || len(value) > 254 || !strings.Contains(value, "@") {
+		return errors.New("auth: Microsoft account login must be a valid user principal name")
+	}
+	for _, character := range value {
+		if character <= 0x20 || character == 0x7f {
+			return errors.New("auth: Microsoft account login contains invalid characters")
+		}
+	}
+	return nil
+}
+
+func (m *Manager) externalLoginExistsLocked(externalLogin, exceptID string) bool {
+	key := normalizeUsername(externalLogin)
+	return slices.ContainsFunc(m.state.Users, func(user persistedUser) bool {
+		return user.ID != exceptID && user.AuthSource == AuthSourceEntra && normalizeUsername(user.ExternalLogin) == key
+	})
 }
 
 func normalizeOrganizations(values []string) ([]string, error) {
@@ -776,6 +920,8 @@ func normalizeIDs(values []string) []string {
 func validatePersistentState(state persistentState, encryptionKey []byte) error {
 	userIDs := make(map[string]struct{}, len(state.Users))
 	usernames := make(map[string]struct{}, len(state.Users))
+	externalLogins := make(map[string]struct{}, len(state.Users))
+	externalObjects := make(map[string]struct{}, len(state.Users))
 	for _, user := range state.Users {
 		if user.ID == "" || user.UsernameKey == "" || normalizeUsername(user.Username) != user.UsernameKey {
 			return errors.New("auth: account state contains an invalid identity")
@@ -791,8 +937,42 @@ func validatePersistentState(state persistentState, encryptionKey []byte) error 
 		if user.Role != RoleAdmin && user.Role != RoleUser {
 			return errors.New("auth: account state contains an invalid role")
 		}
-		if _, _, _, err := parsePasswordHash(user.PasswordHash); err != nil {
-			return err
+		switch user.AuthSource {
+		case AuthSourceLocal:
+			if user.ExternalLogin != "" || user.ExternalTenantID != "" || user.ExternalObjectID != "" || !user.ExternalLinkedAt.IsZero() {
+				return errors.New("auth: local account contains an external identity")
+			}
+			if _, _, _, err := parsePasswordHash(user.PasswordHash); err != nil {
+				return err
+			}
+		case AuthSourceEntra:
+			if user.Role != RoleUser || user.PasswordHash != "" || user.EncryptedTOTPSecret != "" ||
+				len(user.RecoveryCodeHashes) != 0 || user.LastTOTPStep != 0 || user.IsBootstrapAdministrator {
+				return errors.New("auth: Entra account contains local authentication secrets")
+			}
+			if err := validateExternalLogin(user.ExternalLogin); err != nil {
+				return err
+			}
+			loginKey := normalizeUsername(user.ExternalLogin)
+			if _, exists := externalLogins[loginKey]; exists {
+				return errors.New("auth: account state contains duplicate external logins")
+			}
+			externalLogins[loginKey] = struct{}{}
+			if (user.ExternalTenantID == "") != (user.ExternalObjectID == "") {
+				return errors.New("auth: account state contains an incomplete external identity")
+			}
+			if (user.ExternalObjectID == "") != user.ExternalLinkedAt.IsZero() {
+				return errors.New("auth: account state contains an inconsistent external link timestamp")
+			}
+			if user.ExternalObjectID != "" {
+				objectKey := strings.ToLower(user.ExternalTenantID + "|" + user.ExternalObjectID)
+				if _, exists := externalObjects[objectKey]; exists {
+					return errors.New("auth: account state contains duplicate external identities")
+				}
+				externalObjects[objectKey] = struct{}{}
+			}
+		default:
+			return errors.New("auth: account state contains an invalid authentication source")
 		}
 		if user.EncryptedTOTPSecret != "" {
 			secret, err := openSecret(encryptionKey, user.EncryptedTOTPSecret)

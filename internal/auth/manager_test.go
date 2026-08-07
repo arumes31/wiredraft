@@ -277,6 +277,48 @@ func TestManagerAccountAndSessionLifecycle(t *testing.T) {
 	}
 }
 
+func TestManagerEntraAccountLinkingAndReset(t *testing.T) {
+	manager, err := New(t.TempDir(), Config{AdminUsername: "admin", AdminPassword: testPassword}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := manager.CreateEntraUser(t.Context(), "Vienna Microsoft", "operator@example.com", []string{"Vienna"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.AuthSource != AuthSourceEntra || user.ExternalLinked || user.TOTPConfigured {
+		t.Fatalf("new Entra user = %#v", user)
+	}
+	if _, err := manager.StartLogin(user.Username, testPassword, "127.0.0.1"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("local login for Entra account error = %v", err)
+	}
+	session, err := manager.CompleteEntraLogin(t.Context(), ExternalIdentity{
+		TenantID: "tenant-a", ObjectID: "object-a", PreferredUsername: "OPERATOR@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Principal.UserID != user.ID || !slices.Equal(session.Principal.Organizations, []string{"Vienna"}) {
+		t.Fatalf("Entra session = %#v", session)
+	}
+	linked := manager.Users()[slices.IndexFunc(manager.Users(), func(candidate UserView) bool { return candidate.ID == user.ID })]
+	if !linked.ExternalLinked {
+		t.Fatal("Entra identity was not bound")
+	}
+	if _, err := manager.CompleteEntraLogin(t.Context(), ExternalIdentity{
+		TenantID: "tenant-a", ObjectID: "different-object", PreferredUsername: "operator@example.com",
+	}); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("identity substitution error = %v", err)
+	}
+	reset, err := manager.ResetEntraBinding(t.Context(), user.ID)
+	if err != nil || reset.ExternalLinked {
+		t.Fatalf("reset user = %#v, error = %v", reset, err)
+	}
+	if _, ok := manager.Session(session.Token); ok {
+		t.Fatal("reset identity retained an active session")
+	}
+}
+
 func TestManagerValidationAndExpiryEdges(t *testing.T) {
 	t.Parallel()
 	if remoteHost("EXAMPLE.COM:443") != "example.com" || remoteHost(" HostOnly ") != "hostonly" {
@@ -311,7 +353,12 @@ func TestManagerValidationAndExpiryEdges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validUser := persistedUser{ID: "user", Username: "User", UsernameKey: "user", Role: RoleUser, PasswordHash: passwordHash}
+	validUser := persistedUser{ID: "user", Username: "User", UsernameKey: "user", Role: RoleUser, PasswordHash: passwordHash, AuthSource: AuthSourceLocal}
+	validEntraUser := persistedUser{
+		ID: "entra-user", Username: "Entra User", UsernameKey: "entra user", Role: RoleUser,
+		AuthSource: AuthSourceEntra, ExternalLogin: "entra@example.com",
+	}
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name  string
 		state persistentState
@@ -321,6 +368,19 @@ func TestManagerValidationAndExpiryEdges(t *testing.T) {
 		{name: "duplicate username", state: persistentState{Users: []persistedUser{validUser, {ID: "other", Username: "USER", UsernameKey: "user", Role: RoleUser, PasswordHash: passwordHash}}}},
 		{name: "invalid role", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleGuest, PasswordHash: passwordHash}}}},
 		{name: "invalid password hash", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, PasswordHash: "invalid"}}}},
+		{name: "invalid auth source", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, AuthSource: "unknown"}}}},
+		{name: "local external identity", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, PasswordHash: passwordHash, AuthSource: AuthSourceLocal, ExternalLogin: "other@example.com"}}}},
+		{name: "Entra local secret", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, PasswordHash: passwordHash, AuthSource: AuthSourceEntra, ExternalLogin: "other@example.com"}}}},
+		{name: "duplicate external login", state: persistentState{Users: []persistedUser{
+			validEntraUser,
+			{ID: "entra-other", Username: "Entra Other", UsernameKey: "entra other", Role: RoleUser, AuthSource: AuthSourceEntra, ExternalLogin: "ENTRA@example.com"},
+		}}},
+		{name: "incomplete external identity", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, AuthSource: AuthSourceEntra, ExternalLogin: "other@example.com", ExternalTenantID: "tenant"}}}},
+		{name: "inconsistent link timestamp", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, AuthSource: AuthSourceEntra, ExternalLogin: "other@example.com", ExternalTenantID: "tenant", ExternalObjectID: "object"}}}},
+		{name: "duplicate external identity", state: persistentState{Users: []persistedUser{
+			{ID: "entra-one", Username: "Entra One", UsernameKey: "entra one", Role: RoleUser, AuthSource: AuthSourceEntra, ExternalLogin: "one@example.com", ExternalTenantID: "tenant", ExternalObjectID: "object", ExternalLinkedAt: now},
+			{ID: "entra-two", Username: "Entra Two", UsernameKey: "entra two", Role: RoleUser, AuthSource: AuthSourceEntra, ExternalLogin: "two@example.com", ExternalTenantID: "TENANT", ExternalObjectID: "OBJECT", ExternalLinkedAt: now},
+		}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -331,7 +391,6 @@ func TestManagerValidationAndExpiryEdges(t *testing.T) {
 		})
 	}
 
-	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	manager := newManager(persistentState{Users: []persistedUser{validUser}}, make([]byte, 32), Config{}, func(context.Context, persistentState) error { return nil })
 	manager.now = func() time.Time { return now }
 	manager.sessions["expired"] = Session{Token: "expired", ExpiresAt: now}

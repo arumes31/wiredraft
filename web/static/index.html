@@ -168,7 +168,7 @@
   <dialog id="account-dialog" class="panel-dialog wide-dialog account-dialog" aria-labelledby="account-dialog-title">
     <div class="dialog-shell">
       <header><div><p class="eyebrow">IDENTITY CONTROL</p><h2 id="account-dialog-title">ORGANIZATION ACCOUNTS</h2></div><button type="button" class="dialog-close" data-close="account-dialog" aria-label="Close account management dialog">×</button></header>
-      <p class="dialog-note">Create local operator accounts and grant access to one or more existing organizations. Every new account must pair an authenticator on first login.</p>
+      <p class="dialog-note">Create local or Microsoft Entra operator accounts and grant access to one or more existing organizations.</p>
       <div class="account-manager-grid">
         <section>
           <div class="section-heading"><h3>LOCAL ACCOUNTS</h3><span id="account-user-count">0 USERS</span></div>
@@ -176,10 +176,12 @@
         </section>
         <form id="account-form">
           <p class="eyebrow">CREATE OPERATOR</p>
+          <fieldset class="account-auth-source"><legend>AUTHENTICATION SOURCE</legend><div class="radio-row"><label><input type="radio" name="authSource" value="local" checked><span>LOCAL + TOTP</span></label><label><input type="radio" name="authSource" value="entra"><span>MICROSOFT ENTRA</span></label></div></fieldset>
           <label><span>USERNAME</span><input name="username" minlength="3" maxlength="80" autocomplete="off" required></label>
-          <label><span>INITIAL PASSWORD</span><input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+          <label id="account-password-field"><span>INITIAL PASSWORD</span><input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+          <label id="account-entra-field" hidden><span>MICROSOFT USER PRINCIPAL NAME</span><input name="externalLogin" type="email" maxlength="254" autocomplete="off" placeholder="operator@example.com"></label>
           <fieldset><legend>ORGANIZATION ACCESS · SELECT ONE OR MORE</legend><div id="account-organizations" class="account-organization-picker"></div></fieldset>
-          <p class="account-enrollment-note"><b>FIRST LOGIN</b>The operator scans a QR code, verifies TOTP, and receives one-use recovery codes.</p>
+          <p id="account-enrollment-note" class="account-enrollment-note"><b>FIRST LOGIN</b>The operator scans a QR code, verifies TOTP, and receives one-use recovery codes.</p>
           <button class="primary" type="submit">CREATE SECURE ACCOUNT</button>
         </form>
       </div>

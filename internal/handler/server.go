@@ -35,7 +35,13 @@ type Server struct {
 	logger *slog.Logger
 	static fs.FS
 	auth   *auth.Manager
+	entra  entraAuthenticator
 	media  *media.Store
+}
+
+type entraAuthenticator interface {
+	Begin(context.Context) (auth.EntraStart, error)
+	Complete(context.Context, string, string, string) (auth.ExternalIdentity, error)
 }
 
 // New creates the complete application handler.
@@ -45,7 +51,7 @@ func New(
 	logger *slog.Logger,
 	static fs.FS,
 ) http.Handler {
-	return newHandler(topologyStore, broker, logger, static, nil, nil)
+	return newHandler(topologyStore, broker, logger, static, nil, nil, nil)
 }
 
 // NewWithAuth creates the application handler with local authentication and
@@ -57,7 +63,7 @@ func NewWithAuth(
 	static fs.FS,
 	authManager *auth.Manager,
 ) http.Handler {
-	return newHandler(topologyStore, broker, logger, static, authManager, nil)
+	return newHandler(topologyStore, broker, logger, static, authManager, nil, nil)
 }
 
 // NewWithAuthAndMedia creates the authenticated application handler with
@@ -70,7 +76,25 @@ func NewWithAuthAndMedia(
 	authManager *auth.Manager,
 	mediaStore *media.Store,
 ) http.Handler {
-	return newHandler(topologyStore, broker, logger, static, authManager, mediaStore)
+	return newHandler(topologyStore, broker, logger, static, authManager, mediaStore, nil)
+}
+
+// NewWithAuthMediaAndEntra creates the complete authenticated application
+// handler with protected photos and optional Microsoft Entra login.
+func NewWithAuthMediaAndEntra(
+	topologyStore store.Store,
+	broker *sse.Broker,
+	logger *slog.Logger,
+	static fs.FS,
+	authManager *auth.Manager,
+	mediaStore *media.Store,
+	entraProvider *auth.EntraProvider,
+) http.Handler {
+	var authenticator entraAuthenticator
+	if entraProvider != nil {
+		authenticator = entraProvider
+	}
+	return newHandler(topologyStore, broker, logger, static, authManager, mediaStore, authenticator)
 }
 
 func newHandler(
@@ -80,8 +104,12 @@ func newHandler(
 	static fs.FS,
 	authManager *auth.Manager,
 	mediaStore *media.Store,
+	entraProvider entraAuthenticator,
 ) http.Handler {
-	server := &Server{store: topologyStore, broker: broker, logger: logger, static: static, auth: authManager, media: mediaStore}
+	server := &Server{
+		store: topologyStore, broker: broker, logger: logger, static: static,
+		auth: authManager, entra: entraProvider, media: mediaStore,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", server.health)
 	if authManager != nil {
@@ -91,6 +119,10 @@ func newHandler(
 		mux.HandleFunc("POST /api/v1/auth/setup", server.sameOrigin(server.completeTOTPSetup))
 		mux.HandleFunc("POST /api/v1/auth/recovery", server.sameOrigin(server.verifyRecoveryCode))
 		mux.HandleFunc("POST /api/v1/auth/guest", server.sameOrigin(server.guestLogin))
+		if entraProvider != nil {
+			mux.HandleFunc("GET /api/v1/auth/entra/start", server.sameOrigin(server.entraStart))
+			mux.HandleFunc("GET /api/v1/auth/entra/callback", server.entraCallback)
+		}
 		mux.HandleFunc("POST /api/v1/auth/logout", server.protected(server.logout))
 		mux.HandleFunc("GET /api/v1/admin/users", server.adminOnly(server.listUsers))
 		mux.HandleFunc("POST /api/v1/admin/users", server.adminOnly(server.createUser))

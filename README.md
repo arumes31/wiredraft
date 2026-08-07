@@ -12,7 +12,7 @@
 [![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Farumes31%2Fwiredraft-2496ED?logo=docker&logoColor=white)](https://github.com/arumes31/wiredraft/pkgs/container/wiredraft)
 [![License: MIT](https://img.shields.io/github/license/arumes31/wiredraft)](LICENSE)
 
-[Quick start](#quick-start) · [First use](#first-use) · [GHCR](#run-the-ghcr-image) · [Configuration](#configuration) · [Architecture](#architecture) · [Development](#development)
+[Quick start](#quick-start) · [First use](#first-use) · [GHCR](#run-the-ghcr-image) · [Entra login](#microsoft-entra-id-login) · [Configuration](#configuration) · [Architecture](#architecture) · [Development](#development)
 
 </div>
 
@@ -142,7 +142,7 @@ The published runtime image is `FROM scratch`, contains only the statically link
 
 ### Runtime and security
 
-- Local password and TOTP authentication, one-use recovery codes, opaque host-bound sessions, organization-scoped users, and administrator user management.
+- Local password and TOTP authentication, optional single-tenant Microsoft Entra ID login, one-use recovery codes, opaque host-bound sessions, organization-scoped users, and administrator user management.
 - Strict JSON decoding, request size limits, same-origin and CSRF enforcement, security headers, structured logs, database transactions, and graceful shutdown.
 - Embedded native ES-module frontend with no runtime Node.js dependency; release builds minify modules before `go:embed` compilation.
 - Responsive controls, keyboard-visible focus, reduced-motion support, adaptive graphics quality, bounded frame rates, and suspended rendering for hidden canvases.
@@ -160,6 +160,7 @@ flowchart LR
     A --> X[Authentication and authorization]
     M --> P[(PostgreSQL)]
     X --> P
+    X <-->|OIDC authorization code + PKCE| I[Microsoft Entra ID]
     S -. embeds at build time .-> W[web/static]
 ```
 
@@ -219,9 +220,132 @@ WireDraft reads environment variables first and lets command-line flags override
 | `WIREDRAFT_ADMIN_TOTP_SECRET` | — | empty | Optional Base32 TOTP secret; empty starts QR enrollment on first login |
 | `WIREDRAFT_GUEST_ENABLED` | — | `true` | Enables guest-workspace login |
 | `WIREDRAFT_COOKIE_SECURE` | — | `false` | Sends the session cookie only over HTTPS |
+| `WIREDRAFT_ENTRA_ENABLED` | — | `false` | Enables the Microsoft Entra ID login button and OIDC endpoints |
+| `WIREDRAFT_ENTRA_TENANT_ID` | — | empty | Directory (tenant) ID of the single permitted Entra tenant |
+| `WIREDRAFT_ENTRA_CLIENT_ID` | — | empty | Application (client) ID of the WireDraft app registration |
+| `WIREDRAFT_ENTRA_CLIENT_SECRET_FILE` | — | empty | Path to a read-only file containing the app registration client secret |
+| `WIREDRAFT_ENTRA_REDIRECT_URL` | — | empty | Exact HTTPS callback registered in Entra, ending in `/api/v1/auth/entra/callback` |
 | `HEALTHCHECK_URL` | `-healthcheck-url` | `http://127.0.0.1:8080/api/v1/health` | Target used with `-healthcheck` |
 
 The legacy `NETDIAGRAM_ADMIN_*`, `NETDIAGRAM_GUEST_ENABLED`, and `NETDIAGRAM_COOKIE_SECURE` variables remain fallback aliases. When both names are set, `WIREDRAFT_*` wins.
+
+## Microsoft Entra ID login
+
+WireDraft can use a private Microsoft 365 work account as an alternative login. This is an optional, single-tenant OpenID Connect integration: the local administrator remains available for recovery and explicitly pre-provisions every Entra user and their organization grants.
+
+No inbound Internet port is required. The user's browser visits Microsoft and is redirected back to WireDraft's private HTTPS name; Microsoft does not initiate a connection to WireDraft. The WireDraft container needs outbound DNS and HTTPS access to `login.microsoftonline.com` and to the endpoints in Microsoft's OIDC discovery document.
+
+```mermaid
+sequenceDiagram
+    participant B as User browser on LAN/VPN
+    participant W as Private WireDraft HTTPS URL
+    participant E as Microsoft Entra ID
+    B->>W: Sign in with Microsoft
+    W-->>B: Redirect with state, nonce, and PKCE challenge
+    B->>E: Authenticate and satisfy tenant policies
+    E-->>B: Authorization code
+    B->>W: Private callback with code and state
+    W->>E: Outbound token exchange and signing-key lookup
+    E-->>W: Verified ID token
+    W-->>B: WireDraft session cookie
+```
+
+### 1. Prepare the private URL
+
+Give WireDraft a stable DNS name that enrolled clients can resolve, for example `wiredraft.internal.example.com`. Terminate TLS with a certificate trusted by those clients and proxy requests to the WireDraft container. The callback in this example is:
+
+```text
+https://wiredraft.internal.example.com/api/v1/auth/entra/callback
+```
+
+The scheme, host, port, path, and letter case must match the Entra redirect URI exactly. A private CA, split DNS, LAN-only address, or VPN-only address is valid as long as each signing-in browser can reach and trust it. Set `WIREDRAFT_BIND_ADDRESS=127.0.0.1` when the reverse proxy runs on the Docker host. When the proxy is another Compose service, keep WireDraft on a private Docker network and do not publish its application port publicly.
+
+### 2. Register WireDraft in Entra
+
+1. Open the [Microsoft Entra admin center](https://entra.microsoft.com), then go to **Identity > Applications > App registrations > New registration**.
+2. Enter a recognizable name such as `WireDraft` and select **Accounts in this organizational directory only**. WireDraft intentionally rejects tokens from any other tenant.
+3. Open **Authentication > Add a platform > Web** and add the exact callback URL from the previous section. Do not configure the SPA platform, implicit grant, or a logout URL for this integration.
+4. Copy the **Directory (tenant) ID** and **Application (client) ID** from **Overview**.
+5. Open **Certificates & secrets > Client secrets > New client secret**, choose the shortest practical expiry, and securely copy the secret value while it is visible. WireDraft reads it from a file and never accepts it through the browser.
+6. Leave API permissions at the default OpenID Connect sign-in permissions. WireDraft requests `openid profile email`; it does not request Microsoft Graph or `offline_access`.
+7. Open the matching **Enterprise application > Properties**, set **Assignment required?** to **Yes**, and assign only the intended users or groups under **Users and groups**. Group assignment availability depends on the Entra edition. Without assignment enforcement, Entra generally permits every tenant user to reach the application login.
+8. Apply your normal Entra MFA and Conditional Access policy. Entra-backed WireDraft accounts do not enroll in WireDraft's local TOTP because Entra owns their primary authentication policy.
+
+Microsoft's references cover [app registration](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app), [redirect URI rules](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url), [authorization code flow with PKCE](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow), and [enterprise application assignment](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/ways-users-get-assigned-to-applications).
+
+### 3. Mount the client secret
+
+Create a file outside the repository and restrict it to the account that manages the deployment. Do not put the secret in `.env`, a Compose file, an image layer, or Git.
+
+```sh
+mkdir -p secrets
+printf '%s' 'paste-the-client-secret-value-here' > secrets/wiredraft_entra_client_secret
+sudo chown 10001:10001 secrets/wiredraft_entra_client_secret
+sudo chmod 0400 secrets/wiredraft_entra_client_secret
+```
+
+The numeric ownership matches the non-root user in the published image. On Docker Desktop or a rootless engine, use the platform's equivalent secret-file permissions and confirm that container UID `10001` can read the bind mount.
+
+Create `docker-compose.entra.yml` next to the supplied GHCR Compose file:
+
+```yaml
+services:
+  wiredraft:
+    volumes:
+      - type: bind
+        source: ./secrets/wiredraft_entra_client_secret
+        target: /run/secrets/wiredraft_entra_client_secret
+        read_only: true
+```
+
+The supplied `.gitignore` and `.dockerignore` keep `secrets/` out of version control and image build contexts. WireDraft rejects an empty secret or a secret file larger than 16 KiB and loads the value only at startup.
+
+### 4. Enable the provider
+
+Set these values in `.env`:
+
+```dotenv
+WIREDRAFT_COOKIE_SECURE=true
+WIREDRAFT_ENTRA_ENABLED=true
+WIREDRAFT_ENTRA_TENANT_ID=00000000-0000-0000-0000-000000000000
+WIREDRAFT_ENTRA_CLIENT_ID=11111111-1111-1111-1111-111111111111
+WIREDRAFT_ENTRA_CLIENT_SECRET_FILE=/run/secrets/wiredraft_entra_client_secret
+WIREDRAFT_ENTRA_REDIRECT_URL=https://wiredraft.internal.example.com/api/v1/auth/entra/callback
+```
+
+Start or recreate the stack with both Compose files:
+
+```sh
+docker compose -f docker-compose.ghcr.yml -f docker-compose.entra.yml pull
+docker compose -f docker-compose.ghcr.yml -f docker-compose.entra.yml up -d
+docker compose -f docker-compose.ghcr.yml -f docker-compose.entra.yml logs wiredraft
+```
+
+Entra configuration errors fail startup instead of silently weakening login. OIDC discovery is lazy, so a temporary Entra outage does not prevent the server or local administrator login from starting.
+
+### 5. Pre-provision and link users
+
+1. Sign in as the local WireDraft administrator.
+2. Open **Identity Control**, select **Microsoft Entra** as the account source, enter the WireDraft display username and the user's exact current Entra sign-in name (UPN), then grant the required organizations.
+3. Ask the user to select **Sign in with Microsoft**. On the first successful login, WireDraft matches the verified UPN once and binds the account to the immutable Entra tenant/object pair (`tid` + `oid`).
+4. After linking, UPN or display-name changes do not change authorization. If Microsoft deletes and recreates the identity, verify the replacement account and use **Reset Entra link** before the next login.
+
+Assignment in Entra and pre-provisioning in WireDraft are both required. An authenticated tenant user who has no matching enabled WireDraft account is rejected. Entra accounts cannot be administrators; keep at least one strong local administrator account for recovery.
+
+WireDraft validates the token issuer, signature, audience, expiry, nonce, tenant, and authorization flow state. It stores only the stable `tid`/`oid` binding and display metadata—never ID tokens, access tokens, refresh tokens, or Microsoft passwords. The local logout ends the WireDraft session but does not globally sign the browser out of Microsoft 365.
+
+### Operations and troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Microsoft button is absent | `WIREDRAFT_ENTRA_ENABLED=true`, valid startup configuration, and the current container version |
+| Startup rejects the configuration | All five Entra variables are set, the callback is absolute HTTPS, `WIREDRAFT_COOKIE_SECURE=true`, and the secret file is mounted and readable by UID `10001` |
+| `AADSTS50011` | The registered Web redirect URI and `WIREDRAFT_ENTRA_REDIRECT_URL` differ; compare every character |
+| Microsoft succeeds but the browser cannot return | The client cannot resolve, route to, or trust TLS for the private WireDraft name |
+| WireDraft rejects the authenticated user | Wrong tenant, no enabled pre-provisioned account, UPN mismatch on first login, or a stale identity binding after account recreation |
+| Provider temporarily unavailable | Verify container DNS, time synchronization, CA trust, and outbound TCP 443 to Microsoft's discovered endpoints |
+
+To rotate the secret, create a second Entra client secret, replace the mounted file securely, recreate the WireDraft container, verify login, and then delete the old secret. To disable Entra login, set `WIREDRAFT_ENTRA_ENABLED=false` and recreate the container. Existing bindings remain stored for a later re-enable, and local authentication remains available.
 
 ### Production checklist
 
@@ -232,6 +356,7 @@ The legacy `NETDIAGRAM_ADMIN_*`, `NETDIAGRAM_GUEST_ENABLED`, and `NETDIAGRAM_COO
 - Back up `media-data` with PostgreSQL; do not publish or serve the media volume directly from a reverse proxy.
 - Pin the WireDraft image to a release tag or digest and apply database migrations before upgrades.
 - Preserve the `auth_state` row with the rest of the database; its encryption key is required to read stored TOTP secrets.
+- Run one WireDraft application replica. Authentication state is currently maintained as one PostgreSQL aggregate and is not yet safe for concurrent writers across multiple replicas.
 
 ## HTTP API
 

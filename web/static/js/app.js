@@ -66,7 +66,7 @@ const elements = Object.fromEntries([
   "share-list", "share-form", "resource-target",
   "account-menu", "account-name", "account-role", "account-avatar", "account-scope",
   "manage-users-button", "account-dialog", "account-form", "account-user-list",
-  "account-user-count", "account-organizations",
+  "account-user-count", "account-organizations", "account-password-field", "account-entra-field", "account-enrollment-note",
   "photo-dialog", "photo-manager-count", "photo-manager-list", "photo-preview", "photo-preview-meta",
   "photo-details-form", "delete-photo-button",
   "trace-session", "trace-session-label", "close-trace", "dual-face-all-button",
@@ -1229,6 +1229,7 @@ function bindControls() {
   elements["manage-users-button"].addEventListener("click", () => openAccountDialog().catch(showError));
   document.getElementById("logout-button").addEventListener("click", () => logout().catch(showError));
   elements["account-form"].addEventListener("submit", (event) => createAccount(event).catch(showError));
+  elements["account-form"].querySelectorAll('input[name="authSource"]').forEach((input) => input.addEventListener("change", refreshAccountAuthSource));
   elements["account-user-list"].addEventListener("click", (event) => updateAccountState(event).catch(showError));
   document.getElementById("undo-button").addEventListener("click", () => undo());
   document.getElementById("redo-button").addEventListener("click", () => redo());
@@ -1311,6 +1312,7 @@ async function openAccountDialog() {
   const directory = await api.listUsers();
   renderAccountDirectory(directory);
   elements["account-form"].reset();
+  refreshAccountAuthSource();
   elements["account-dialog"].showModal();
   requestAnimationFrame(() => elements["account-form"].elements.username.focus());
 }
@@ -1323,7 +1325,11 @@ function renderAccountDirectory(directory) {
     const row = document.createElement("article");
     row.className = `account-user-row${user.disabled ? " is-disabled" : ""}`;
     row.dataset.userId = user.id;
-    row.innerHTML = `<i>${escapeHTML(user.username.slice(0, 1).toUpperCase())}</i><span><b>${escapeHTML(user.username)}</b><small>${escapeHTML((user.organizations || []).join(" · ") || "GLOBAL ADMINISTRATOR")}</small><em>${user.totpConfigured ? "TOTP READY" : "ENROLLMENT REQUIRED"}</em></span>${user.role === "admin" ? '<em>BOOTSTRAP ADMIN</em>' : `<button type="button" data-account-toggle="${user.disabled ? "enable" : "disable"}">${user.disabled ? "ENABLE" : "DISABLE"}</button>`}`;
+    const providerStatus = user.authSource === "entra"
+      ? `MICROSOFT · ${user.externalLinked ? "LINKED" : "AWAITING LINK"}`
+      : user.totpConfigured ? "LOCAL · TOTP READY" : "LOCAL · ENROLLMENT REQUIRED";
+    const actions = user.role === "admin" ? '<em>BOOTSTRAP ADMIN</em>' : `<div class="account-user-actions"><button type="button" data-account-toggle="${user.disabled ? "enable" : "disable"}">${user.disabled ? "ENABLE" : "DISABLE"}</button>${user.authSource === "entra" && user.externalLinked ? '<button type="button" data-account-reset>RESET LINK</button>' : ""}</div>`;
+    row.innerHTML = `<i>${escapeHTML(user.username.slice(0, 1).toUpperCase())}</i><span><b>${escapeHTML(user.username)}</b><small>${escapeHTML(user.externalLogin || (user.organizations || []).join(" · ") || "GLOBAL ADMINISTRATOR")}</small><small>${escapeHTML((user.organizations || []).join(" · "))}</small><em>${providerStatus}</em></span>${actions}`;
     row.dataset.organizations = JSON.stringify(user.organizations || []);
     row.dataset.disabled = String(Boolean(user.disabled));
     return row;
@@ -1353,30 +1359,52 @@ async function createAccount(event) {
   const submit = form.querySelector('button[type="submit"]');
   submit.disabled = true;
   try {
+    const authSource = String(data.get("authSource") || "local");
     const user = await api.createUser({
       username: String(data.get("username")).trim(),
-      password: String(data.get("password")),
+      password: authSource === "local" ? String(data.get("password")) : "",
+      authSource,
+      externalLogin: authSource === "entra" ? String(data.get("externalLogin")).trim() : "",
       organizations,
     });
     form.reset();
+    refreshAccountAuthSource();
     renderAccountDirectory(await api.listUsers());
-    toast(`Account created · ${user.username} must enroll TOTP`);
+    toast(user.authSource === "entra"
+      ? `Microsoft account approved · ${user.externalLogin}`
+      : `Account created · ${user.username} must enroll TOTP`);
   } finally {
     submit.disabled = false;
   }
 }
 
 async function updateAccountState(event) {
-  const button = event.target.closest("[data-account-toggle]");
+  const button = event.target.closest("[data-account-toggle], [data-account-reset]");
   if (!(button instanceof HTMLButtonElement)) return;
   const row = button.closest("[data-user-id]");
   if (!row) return;
-  const disabled = button.dataset.accountToggle === "disable";
+  const isReset = button.hasAttribute("data-account-reset");
+  const disabled = isReset ? row.dataset.disabled === "true" : button.dataset.accountToggle === "disable";
+
+  if (isReset && !window.confirm("Reset this Microsoft identity binding? The approved account must link again on its next sign-in.")) return;
   await api.updateUser(row.dataset.userId, {
     organizations: JSON.parse(row.dataset.organizations || "[]"), disabled,
+    resetExternalIdentity: isReset,
   });
   renderAccountDirectory(await api.listUsers());
-  toast(`Account ${disabled ? "disabled" : "enabled"}`);
+  toast(isReset ? "Microsoft identity link reset" : `Account ${disabled ? "disabled" : "enabled"}`);
+}
+
+function refreshAccountAuthSource() {
+  const form = elements["account-form"];
+  const isEntra = form.elements.authSource.value === "entra";
+  elements["account-password-field"].hidden = isEntra;
+  elements["account-entra-field"].hidden = !isEntra;
+  form.elements.password.required = !isEntra;
+  form.elements.externalLogin.required = isEntra;
+  elements["account-enrollment-note"].innerHTML = isEntra
+    ? "<b>FIRST LOGIN</b>The verified Microsoft account is bound to this WireDraft user. MFA and sign-in policy remain controlled by Entra."
+    : "<b>FIRST LOGIN</b>The operator scans a QR code, verifies TOTP, and receives one-use recovery codes.";
 }
 
 function toggleNavigator() {

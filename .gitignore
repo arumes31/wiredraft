@@ -2,6 +2,7 @@
 /data/
 /media/
 /docs/
+/secrets/
 .env
 .env.*
 !.env.example
