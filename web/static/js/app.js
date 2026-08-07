@@ -126,11 +126,27 @@ const events = new TopologyCollaboration({
     }
   },
   onStatus: (status) => setConnectionStatus(status),
-  onRevisionGap: () => state.topology && loadTopology(state.topology.id).catch(showError),
+  onRevisionGap: () => resyncActiveTopology().catch(showError),
+  onOpen: () => resyncActiveTopology().catch(showError),
 });
 
 let analysisTimer = 0;
 let lastSizeSignature = "";
+let resyncPromise = null;
+
+async function resyncActiveTopology() {
+  const topologyID = state.topology?.id;
+  if (!topologyID) return;
+  if (resyncPromise) return resyncPromise;
+  resyncPromise = api.getTopology(topologyID).then((topology) => {
+    if (state.topology?.id !== topologyID) return;
+    state.setTopology(topology);
+    queueAnalysis();
+  }).finally(() => {
+    resyncPromise = null;
+  });
+  return resyncPromise;
+}
 
 state.addEventListener("change", ({ detail }) => {
   if (detail.kind === "topology") renderTopology();

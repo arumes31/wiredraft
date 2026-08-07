@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -198,5 +199,77 @@ func TestRevisionConflictReturnsResyncMetadata(t *testing.T) {
 	}
 	if conflict.ExpectedRevision != 999999 || conflict.CurrentRevision != topology.Revision {
 		t.Fatalf("conflict = %#v, want current revision %d", conflict, topology.Revision)
+	}
+}
+
+func TestConcurrentEditorsCommitExactlyOneRevision(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t)
+	topology := requestTopology(t, handler, http.MethodPost, "/api/v1/topologies", map[string]string{
+		"name": "Concurrent editors", "template": "blank",
+	}, http.StatusCreated)
+
+	const rounds = 32
+	for round := range rounds {
+		before := topology
+		start := make(chan struct{})
+		statuses := make(chan int, 2)
+		for writer := range 2 {
+			writer := writer
+			go func() {
+				body, err := json.Marshal(createCommentThreadRequest{
+					Anchor: model.CommentAnchor{Kind: model.CommentAnchorCanvas, X: float64(round), Y: float64(writer)},
+					Author: fmt.Sprintf("editor-%d", writer),
+					Body:   fmt.Sprintf("round-%d", round),
+				})
+				if err != nil {
+					statuses <- 0
+					return
+				}
+				<-start
+				request := httptest.NewRequestWithContext(
+					t.Context(),
+					http.MethodPost,
+					"/api/v1/topologies/"+before.ID+"/comments",
+					bytes.NewReader(body),
+				)
+				request.Header.Set("Content-Type", "application/json")
+				request.Header.Set("If-Match", topologyRevisionETag(before.Revision))
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				statuses <- response.Code
+			}()
+		}
+		close(start)
+		successes := 0
+		conflicts := 0
+		for range 2 {
+			switch status := <-statuses; status {
+			case http.StatusCreated:
+				successes++
+			case http.StatusConflict:
+				conflicts++
+			default:
+				t.Fatalf("round %d unexpected status = %d", round, status)
+			}
+		}
+		if successes != 1 || conflicts != 1 {
+			t.Fatalf("round %d outcomes = %d success / %d conflict, want 1 / 1", round, successes, conflicts)
+		}
+
+		topology = requestTopology(
+			t,
+			handler,
+			http.MethodGet,
+			"/api/v1/topologies/"+before.ID,
+			nil,
+			http.StatusOK,
+		)
+		if topology.Revision != before.Revision+1 {
+			t.Fatalf("round %d revision = %d, want %d", round, topology.Revision, before.Revision+1)
+		}
+		if len(topology.CommentThreads) != round+1 {
+			t.Fatalf("round %d comments = %d, want %d", round, len(topology.CommentThreads), round+1)
+		}
 	}
 }

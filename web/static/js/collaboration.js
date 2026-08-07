@@ -3,13 +3,14 @@ import { APIError } from "./api.js";
 export const COLLABORATION_EVENT_TYPES = Object.freeze([
   "topology_updated", "rack_created", "rack_updated", "rack_deleted",
   "device_created", "device_moved", "device_deleted", "port_updated",
-  "link_created", "links_created", "link_configured", "link_deleted",
+  "link_created", "links_created", "link_configured", "link_direction_updated", "link_deleted",
   "link_group_created", "link_group_updated", "link_group_deleted",
   "switch_system_created", "switch_system_updated", "switch_system_deleted",
   "firewall_cluster_created", "firewall_cluster_updated", "firewall_cluster_deleted",
   "vlan_changed", "comment_created", "comment_replied", "comment_updated",
   "comment_deleted", "documentation_link_created", "documentation_link_deleted",
   "share_created", "share_deleted",
+  "photos_uploaded", "photo_updated", "photo_deleted",
 ]);
 
 export function isRevisionConflict(error) {
@@ -34,14 +35,28 @@ export function absoluteShareURL(path, origin = globalThis.location?.origin) {
 }
 
 export class TopologyCollaboration {
-  constructor({ onTopology, onStatus = () => {}, onRevisionGap = () => {}, eventSourceFactory } = {}) {
+  constructor({
+    onTopology,
+    onStatus = () => {},
+    onRevisionGap = () => {},
+    onOpen = () => {},
+    eventSourceFactory,
+    setTimeoutFn = globalThis.setTimeout?.bind(globalThis),
+    clearTimeoutFn = globalThis.clearTimeout?.bind(globalThis),
+  } = {}) {
     this.onTopology = onTopology;
     this.onStatus = onStatus;
     this.onRevisionGap = onRevisionGap;
+    this.onOpen = onOpen;
     this.eventSourceFactory = eventSourceFactory || ((url) => new EventSource(url));
+    this.setTimeoutFn = setTimeoutFn;
+    this.clearTimeoutFn = clearTimeoutFn;
     this.source = null;
     this.topologyID = "";
     this.revision = 0;
+    this.retry = 1000;
+    this.timer = 0;
+    this.stopped = true;
   }
 
   connect(topology) {
@@ -49,13 +64,36 @@ export class TopologyCollaboration {
     if (!topology?.id) return;
     this.topologyID = topology.id;
     this.revision = Number.isSafeInteger(topology.revision) ? topology.revision : 0;
+    this.retry = 1000;
+    this.stopped = false;
+    this.open();
+  }
+
+  open() {
+    if (this.stopped || !this.topologyID) return;
     this.onStatus("connecting");
-    const source = this.eventSourceFactory(`/api/v1/topologies/${encodeURIComponent(topology.id)}/events`);
+    const source = this.eventSourceFactory(`/api/v1/topologies/${encodeURIComponent(this.topologyID)}/events`);
     this.source = source;
-    source.onopen = () => this.onStatus("online");
-    source.onerror = () => this.onStatus("offline");
+    source.onopen = () => {
+      if (this.stopped || this.source !== source) return;
+      this.retry = 1000;
+      this.onStatus("online");
+      this.onOpen({ topologyID: this.topologyID, revision: this.revision });
+    };
+    source.onerror = () => {
+      if (this.stopped || this.source !== source) return;
+      source.close();
+      this.source = null;
+      this.onStatus("offline");
+      this.clearTimeoutFn?.(this.timer);
+      const delay = this.retry;
+      this.timer = this.setTimeoutFn?.(() => this.open(), delay) || 0;
+      this.retry = Math.min(this.retry * 2, 30000);
+    };
     for (const eventType of COLLABORATION_EVENT_TYPES) {
-      source.addEventListener(eventType, (event) => this.receive(event, eventType));
+      source.addEventListener(eventType, (event) => {
+        if (this.source === source) this.receive(event, eventType);
+      });
     }
   }
 
@@ -77,6 +115,9 @@ export class TopologyCollaboration {
   }
 
   close() {
+    this.stopped = true;
+    this.clearTimeoutFn?.(this.timer);
+    this.timer = 0;
     this.source?.close();
     this.source = null;
     this.topologyID = "";
