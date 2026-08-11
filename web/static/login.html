@@ -44,7 +44,7 @@
           <label><span>ACCOUNT</span><input name="username" type="text" minlength="3" maxlength="80" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus></label>
           <label><span>PASSWORD</span><input name="password" type="password" minlength="12" maxlength="1024" autocomplete="current-password" required></label>
           <button class="primary" type="submit"><span>CONTINUE</span><small>PASSWORD CHECK</small></button>
-          <div class="or-divider"><span>OR</span></div>
+          <div id="alternative-login-divider" class="or-divider"><span>OR</span></div>
           <a id="entra-button" class="entra-button" href="/api/v1/auth/entra/start" hidden><span><i aria-hidden="true"><b></b><b></b><b></b><b></b></i>SIGN IN WITH MICROSOFT</span><small>ORGANIZATION IDENTITY</small></a>
           <button id="guest-button" class="guest-button" type="button"><span>ENTER GUEST WORKSPACE</span><small>EXISTING SHARED MAPS</small></button>
         </form>

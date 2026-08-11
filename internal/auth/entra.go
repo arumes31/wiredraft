@@ -54,10 +54,11 @@ type EntraProvider struct {
 	config    EntraConfig
 	issuerURL string
 
-	mu      sync.Mutex
-	runtime *oidcRuntime
-	flows   map[string]pendingEntraFlow
-	now     func() time.Time
+	mu          sync.Mutex
+	discoveryMu sync.Mutex
+	runtime     *oidcRuntime
+	flows       map[string]pendingEntraFlow
+	now         func() time.Time
 }
 
 // NewEntraProvider validates configuration without making a network request.
@@ -181,9 +182,19 @@ func (p *EntraProvider) Complete(
 
 func (p *EntraProvider) oidcRuntime(ctx context.Context) (*oidcRuntime, error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.runtime != nil {
-		return p.runtime, nil
+	runtime := p.runtime
+	p.mu.Unlock()
+	if runtime != nil {
+		return runtime, nil
+	}
+
+	p.discoveryMu.Lock()
+	defer p.discoveryMu.Unlock()
+	p.mu.Lock()
+	runtime = p.runtime
+	p.mu.Unlock()
+	if runtime != nil {
+		return runtime, nil
 	}
 	discoveryContext, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -191,7 +202,7 @@ func (p *EntraProvider) oidcRuntime(ctx context.Context) (*oidcRuntime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("discovering Entra identity provider: %w", ErrExternalUnavailable)
 	}
-	runtime := &oidcRuntime{
+	runtime = &oidcRuntime{
 		oauthConfig: oauth2.Config{
 			ClientID: p.config.ClientID, ClientSecret: p.config.ClientSecret,
 			Endpoint: provider.Endpoint(), RedirectURL: p.config.RedirectURL,
@@ -199,7 +210,9 @@ func (p *EntraProvider) oidcRuntime(ctx context.Context) (*oidcRuntime, error) {
 		},
 		verifier: provider.Verifier(&oidc.Config{ClientID: p.config.ClientID}),
 	}
+	p.mu.Lock()
 	p.runtime = runtime
+	p.mu.Unlock()
 	return runtime, nil
 }
 

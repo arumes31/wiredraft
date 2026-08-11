@@ -30,7 +30,10 @@ test("opens and closes the all-rack dual-face editing workspace", async ({ page 
     await rackDialog.locator('button[value="place"]').click();
     await expect(rackDialog).not.toBeVisible();
   }
-  await expect(rackCount).not.toHaveText("0");
+  await expect.poll(async () => {
+    const displayedValue = (await rackCount.textContent())?.trim() ?? "";
+    return /^\d+$/.test(displayedValue) ? Number.parseInt(displayedValue, 10) : Number.NaN;
+  }).toBeGreaterThan(0);
   await expect(toggle).toBeEnabled();
   await expect(toggle).toHaveText("EXPAND ALL");
   await expect(toggle).toHaveAttribute("aria-pressed", "false");

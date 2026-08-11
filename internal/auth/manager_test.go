@@ -367,7 +367,7 @@ func TestManagerValidationAndExpiryEdges(t *testing.T) {
 		{name: "duplicate id", state: persistentState{Users: []persistedUser{validUser, {ID: "user", Username: "Other", UsernameKey: "other", Role: RoleUser, PasswordHash: passwordHash}}}},
 		{name: "duplicate username", state: persistentState{Users: []persistedUser{validUser, {ID: "other", Username: "USER", UsernameKey: "user", Role: RoleUser, PasswordHash: passwordHash}}}},
 		{name: "invalid role", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleGuest, PasswordHash: passwordHash}}}},
-		{name: "invalid password hash", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, PasswordHash: "invalid"}}}},
+		{name: "invalid password hash", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, PasswordHash: "invalid", AuthSource: AuthSourceLocal}}}},
 		{name: "invalid auth source", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, AuthSource: "unknown"}}}},
 		{name: "local external identity", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, PasswordHash: passwordHash, AuthSource: AuthSourceLocal, ExternalLogin: "other@example.com"}}}},
 		{name: "Entra local secret", state: persistentState{Users: []persistedUser{{ID: "other", Username: "Other", UsernameKey: "other", Role: RoleUser, PasswordHash: passwordHash, AuthSource: AuthSourceEntra, ExternalLogin: "other@example.com"}}}},

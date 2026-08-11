@@ -61,6 +61,11 @@ services:
       - type: volume
         source: media-data
         target: ${WIREDRAFT_MEDIA_DIR:-/media}
+      # Uncomment when Entra is enabled and the example client-secret path is used.
+      # - type: bind
+      #   source: ./secrets/wiredraft_entra_client_secret
+      #   target: /run/secrets/wiredraft_entra_client_secret
+      #   read_only: true
     security_opt:
       - no-new-privileges:true
     cap_drop:

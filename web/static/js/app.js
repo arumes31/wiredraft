@@ -1329,7 +1329,8 @@ function renderAccountDirectory(directory) {
       ? `MICROSOFT · ${user.externalLinked ? "LINKED" : "AWAITING LINK"}`
       : user.totpConfigured ? "LOCAL · TOTP READY" : "LOCAL · ENROLLMENT REQUIRED";
     const actions = user.role === "admin" ? '<em>BOOTSTRAP ADMIN</em>' : `<div class="account-user-actions"><button type="button" data-account-toggle="${user.disabled ? "enable" : "disable"}">${user.disabled ? "ENABLE" : "DISABLE"}</button>${user.authSource === "entra" && user.externalLinked ? '<button type="button" data-account-reset>RESET LINK</button>' : ""}</div>`;
-    row.innerHTML = `<i>${escapeHTML(user.username.slice(0, 1).toUpperCase())}</i><span><b>${escapeHTML(user.username)}</b><small>${escapeHTML(user.externalLogin || (user.organizations || []).join(" · ") || "GLOBAL ADMINISTRATOR")}</small><small>${escapeHTML((user.organizations || []).join(" · "))}</small><em>${providerStatus}</em></span>${actions}`;
+    const identityLabel = user.externalLogin || ((user.organizations || []).length === 0 ? "GLOBAL ADMINISTRATOR" : "");
+    row.innerHTML = `<i>${escapeHTML(user.username.slice(0, 1).toUpperCase())}</i><span><b>${escapeHTML(user.username)}</b><small>${escapeHTML(identityLabel)}</small><small>${escapeHTML((user.organizations || []).join(" · "))}</small><em>${providerStatus}</em></span>${actions}`;
     row.dataset.organizations = JSON.stringify(user.organizations || []);
     row.dataset.disabled = String(Boolean(user.disabled));
     return row;
