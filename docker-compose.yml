@@ -8,7 +8,9 @@ services:
       POSTGRES_USER: wiredraft
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - type: bind
+        source: ./data/postgres
+        target: /var/lib/postgresql/data
       - ./db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wiredraft -d wiredraft"]
@@ -51,7 +53,9 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - media-data:/media
+      - type: bind
+        source: ./data/media
+        target: /media
     healthcheck:
       test: ["CMD", "/wiredraft", "-healthcheck"]
       interval: 15s
@@ -59,7 +63,3 @@ services:
       start_period: 5s
       retries: 3
     restart: unless-stopped
-
-volumes:
-  postgres-data:
-  media-data:

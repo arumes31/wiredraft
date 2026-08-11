@@ -11,7 +11,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-wiredraft}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - type: bind
+        source: ./data/postgres
+        target: /var/lib/postgresql/data
       - ./db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
@@ -58,8 +60,8 @@ services:
       retries: 3
     read_only: true
     volumes:
-      - type: volume
-        source: media-data
+      - type: bind
+        source: ./data/media
         target: ${WIREDRAFT_MEDIA_DIR:-/media}
       # Uncomment when Entra is enabled and the example client-secret path is used.
       # - type: bind
@@ -71,7 +73,3 @@ services:
     cap_drop:
       - ALL
     restart: unless-stopped
-
-volumes:
-  postgres-data:
-  media-data:

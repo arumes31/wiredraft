@@ -22,7 +22,7 @@ WireDraft is a self-hosted rack, cabling, and VLAN planning application. A singl
 
 ## Quick start
 
-The included Compose stack builds WireDraft locally, starts PostgreSQL, applies the initial schema to a new database, and retains data in a named volume.
+The included Compose stack builds WireDraft locally, starts PostgreSQL, applies the initial schema to a new database, and retains data in host directories under `data/`.
 
 ### Requirements
 
@@ -40,6 +40,9 @@ cp .env.example .env
 Open `.env` and replace both example passwords. The administrator password must contain at least 12 characters. Then start the services:
 
 ```sh
+mkdir -p data/postgres data/media
+# Linux only: the application container runs as UID/GID 10001.
+sudo chown -R 10001:10001 data/media
 docker compose up --build -d
 docker compose ps
 ```
@@ -51,7 +54,7 @@ docker compose logs -f wiredraft
 docker compose down
 ```
 
-`docker compose down` keeps the `postgres-data` and `media-data` volumes. Running `docker compose down -v` also deletes the database and uploaded photos and is irreversible unless you have a backup.
+`docker compose down`, including `docker compose down -v`, keeps the database and uploaded photos in the host directories `data/postgres` and `data/media`. Remove those directories only after making a backup.
 
 > On PowerShell, use `Copy-Item .env.example .env` instead of `cp`.
 
@@ -75,13 +78,16 @@ docker pull ghcr.io/arumes31/wiredraft:latest
 
 Available tags include `latest`, `main`, `sha-<commit>`, `v<version>`, `<version>`, and `<major>.<minor>` according to the triggering branch or release tag. Use a version or digest instead of `latest` for repeatable production deployments.
 
-The repository includes a standalone [GHCR Compose stack](docker-compose.ghcr.yml) with both the application and PostgreSQL. It mounts `db/migrations` into new PostgreSQL containers, keeps the database and protected media on separate named volumes, waits for database readiness, and runs the application with a read-only root filesystem and dropped Linux capabilities. The accompanying [.env.example](.env.example) lists every setting accepted by this stack with runnable defaults and placeholder credentials.
+The repository includes a standalone [GHCR Compose stack](docker-compose.ghcr.yml) with both the application and PostgreSQL. It mounts `db/migrations` into new PostgreSQL containers, keeps the database and protected media in separate host directories, waits for database readiness, and runs the application with a read-only root filesystem and dropped Linux capabilities. The accompanying [.env.example](.env.example) lists every setting accepted by this stack with runnable defaults and placeholder credentials.
 
 Start it from a WireDraft checkout:
 
 ```sh
 cp .env.example .env
 # Replace the credentials in .env before continuing.
+mkdir -p data/postgres data/media
+# Linux only: the application container runs as UID/GID 10001.
+sudo chown -R 10001:10001 data/media
 docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
 ```
@@ -97,13 +103,13 @@ Compose-specific settings are separate from the application configuration below:
 | `POSTGRES_IMAGE` | pinned PostgreSQL 17 Alpine digest | PostgreSQL image tag or digest |
 | `WIREDRAFT_BIND_ADDRESS` | `0.0.0.0` | Host address that publishes the web port; use `127.0.0.1` behind a local reverse proxy |
 | `WIREDRAFT_PUBLISHED_PORT` | `8080` | Host-side web port |
-| `POSTGRES_DB` | `wiredraft` | Database initialized in a new PostgreSQL volume |
-| `POSTGRES_USER` | `wiredraft` | Database owner initialized in a new PostgreSQL volume |
+| `POSTGRES_DB` | `wiredraft` | Database initialized in a new PostgreSQL data directory |
+| `POSTGRES_USER` | `wiredraft` | Database owner initialized in a new PostgreSQL data directory |
 | `POSTGRES_PASSWORD` | required | Password for the bundled PostgreSQL container; replace the placeholder before startup |
 
 The app connection defaults (`PGDATABASE`, `PGUSER`, and `PGPASSWORD`) must match the bundled PostgreSQL settings. `PGPASSWORD` may be left empty in `.env` to reuse `POSTGRES_PASSWORD`. For an external database, set `DATABASE_URL` or the five `PG*` connection variables; the included PostgreSQL service will still start unless you remove it from the copied deployment file.
 
-`PORT` is the container-side listen port while `WIREDRAFT_PUBLISHED_PORT` is the host-side port. If `PORT` changes, update `HEALTHCHECK_URL` to the same container port. `WIREDRAFT_MEDIA_DIR` must be an absolute in-container path in this Compose deployment; the protected `media-data` volume is mounted at that path automatically.
+`PORT` is the container-side listen port while `WIREDRAFT_PUBLISHED_PORT` is the host-side port. If `PORT` changes, update `HEALTHCHECK_URL` to the same container port. `WIREDRAFT_MEDIA_DIR` must be an absolute in-container path in this Compose deployment; the protected `data/media` host directory is mounted at that path automatically.
 
 The published runtime image is `FROM scratch`, contains only the statically linked server, runs as numeric user `10001`, and has no shell or package manager. Its built-in `-healthcheck` command probes `/api/v1/health` without adding a second binary.
 
@@ -184,14 +190,14 @@ sequenceDiagram
 
 ### Persistent data
 
-| PostgreSQL object | Contents |
+| Persistent item | Contents |
 | --- | --- |
 | `topologies` | Complete topology JSONB documents plus name, organization, location, revision, counts, and timestamps |
 | `auth_state` | Users, organization grants, password/TOTP/recovery state, guest workspace membership, and the 32-byte key used to encrypt authenticator secrets |
-| `postgres-data` volume | The complete database used by the included Compose deployment |
-| `media-data` volume | Randomly renamed JPEG/PNG attachments, isolated by topology and never exposed as a browsable static directory |
+| `data/postgres` host directory | The complete database used by the included Compose deployment |
+| `data/media` host directory | Randomly renamed JPEG/PNG attachments, isolated by topology and never exposed as a browsable static directory |
 
-Back up PostgreSQL and `media-data` together to preserve topology, authentication state, and uploaded photos. A JSON export contains attachment metadata but not the photo bytes, so it is not a replacement for these backups.
+Back up PostgreSQL and `data/media` together to preserve topology, authentication state, and uploaded photos. A JSON export contains attachment metadata but not the photo bytes, so it is not a replacement for these backups.
 
 ```sh
 docker compose exec -T postgres sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > wiredraft-backup.sql
@@ -212,7 +218,7 @@ WireDraft reads environment variables first and lets command-line flags override
 | `PGDATABASE` | — | pgx default | PostgreSQL database when `DATABASE_URL` is empty; the GHCR Compose stack uses `wiredraft` |
 | `PGUSER` | — | pgx default | PostgreSQL user when `DATABASE_URL` is empty; the GHCR Compose stack uses `wiredraft` |
 | `PGPASSWORD` | — | pgx default | PostgreSQL password when `DATABASE_URL` is empty; Compose reuses `POSTGRES_PASSWORD` when this is unset |
-| `WIREDRAFT_MEDIA_DIR` | `-media-dir` | `data/media` | Private photo root; Compose sets this to `/media` and mounts the `media-data` volume there |
+| `WIREDRAFT_MEDIA_DIR` | `-media-dir` | `data/media` | Private photo root; Compose sets this to `/media` and mounts the host `data/media` directory there |
 | `LOG_LEVEL` | `-log-level` | `info` | `debug`, `info`, `warn`, or `error` |
 | `LOG_FORMAT` | `-log-format` | `json` | `json` or `text` |
 | `WIREDRAFT_ADMIN_USER` | — | `admin` | Bootstrap administrator username |
@@ -352,8 +358,8 @@ To rotate the secret, create a second Entra client secret, replace the mounted f
 - Use long, unique values for the database and administrator passwords.
 - Disable guest access unless it is intentionally required.
 - Terminate TLS at a trusted reverse proxy and set `WIREDRAFT_COOKIE_SECURE=true`.
-- Keep PostgreSQL on a private network and back up its data volume.
-- Back up `media-data` with PostgreSQL; do not publish or serve the media volume directly from a reverse proxy.
+- Keep PostgreSQL on a private network and back up `data/postgres`.
+- Back up `data/media` with PostgreSQL; do not publish or serve the media directory directly from a reverse proxy.
 - Pin the WireDraft image to a release tag or digest and apply database migrations before upgrades.
 - Preserve the `auth_state` row with the rest of the database; its encryption key is required to read stored TOTP secrets.
 - Run one WireDraft application replica. Authentication state is currently maintained as one PostgreSQL aggregate and is not yet safe for concurrent writers across multiple replicas.
