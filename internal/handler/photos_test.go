@@ -179,7 +179,7 @@ func newPhotoTestHandler(t *testing.T) (http.Handler, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newHandler(topologyStore, sse.NewBroker(), slog.New(slog.DiscardHandler), static, nil, mediaStore), mediaDirectory
+	return newHandler(topologyStore, sse.NewBroker(), slog.New(slog.DiscardHandler), static, nil, mediaStore, nil), mediaDirectory
 }
 
 func uploadTestPhotos(t *testing.T, handler http.Handler, topology model.Topology, targetKind model.PhotoTargetKind, targetID string, names ...string) model.Topology {

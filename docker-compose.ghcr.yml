@@ -41,6 +41,11 @@ services:
       WIREDRAFT_ADMIN_TOTP_SECRET: ${WIREDRAFT_ADMIN_TOTP_SECRET:-}
       WIREDRAFT_GUEST_ENABLED: ${WIREDRAFT_GUEST_ENABLED:-true}
       WIREDRAFT_COOKIE_SECURE: ${WIREDRAFT_COOKIE_SECURE:-false}
+      WIREDRAFT_ENTRA_ENABLED: ${WIREDRAFT_ENTRA_ENABLED:-false}
+      WIREDRAFT_ENTRA_TENANT_ID: ${WIREDRAFT_ENTRA_TENANT_ID:-}
+      WIREDRAFT_ENTRA_CLIENT_ID: ${WIREDRAFT_ENTRA_CLIENT_ID:-}
+      WIREDRAFT_ENTRA_CLIENT_SECRET_FILE: ${WIREDRAFT_ENTRA_CLIENT_SECRET_FILE:-}
+      WIREDRAFT_ENTRA_REDIRECT_URL: ${WIREDRAFT_ENTRA_REDIRECT_URL:-}
       HEALTHCHECK_URL: ${HEALTHCHECK_URL:-http://127.0.0.1:8080/api/v1/health}
     depends_on:
       postgres:
@@ -56,6 +61,11 @@ services:
       - type: volume
         source: media-data
         target: ${WIREDRAFT_MEDIA_DIR:-/media}
+      # Uncomment when Entra is enabled and the example client-secret path is used.
+      # - type: bind
+      #   source: ./secrets/wiredraft_entra_client_secret
+      #   target: /run/secrets/wiredraft_entra_client_secret
+      #   read_only: true
     security_opt:
       - no-new-privileges:true
     cap_drop:

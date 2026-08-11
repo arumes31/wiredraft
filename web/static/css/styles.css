@@ -714,6 +714,12 @@ dialog { color: var(--ink); }
 .account-user-row small { margin-top: 3px; color: #82999b; font-size: 8px; }
 .account-user-row em { display: inline-block; margin-top: 5px; padding: 2px 5px; border: 1px solid #385356; color: var(--cyan); font-family: var(--display); font-size: 7px; font-style: normal; letter-spacing: .08em; }
 .account-user-row button { min-height: 28px; padding-inline: 8px; font-size: 8px; }
+.account-user-actions { display: grid; gap: 5px; }
+.account-user-actions button[data-account-reset] { border-color: #675d3e; color: var(--amber); }
+.account-auth-source { background: linear-gradient(110deg, rgb(73 153 166 / 8%), transparent); }
+.account-auth-source .radio-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.account-auth-source .radio-row label { min-height: 36px; display: flex; align-items: center; gap: 7px; padding: 7px; border: 1px solid #30494d; background: #0b1517; color: #a9bec0; font-family: var(--display); font-size: 8px; letter-spacing: .07em; }
+.account-auth-source input { accent-color: var(--cyan); }
 .account-organization-picker { display: grid; gap: 6px; max-height: 150px; overflow: auto; }
 .account-organization-picker label { min-width: 0; display: grid; grid-template-columns: 17px 1fr; align-items: center; gap: 8px; min-height: 33px; padding: 6px 8px; border: 1px solid #293d41; background: #0c1517; }
 .account-organization-picker input { width: 15px; margin: 0; accent-color: var(--cyan); }

@@ -22,7 +22,18 @@ test("loads a topology and opens primary editing tools", async ({ page }) => {
 test("opens and closes the all-rack dual-face editing workspace", async ({ page }) => {
   const toggle = page.locator("#dual-face-all-button");
   const canvas = page.locator("#diagram-canvas");
-  await expect(page.locator("#rack-count")).not.toHaveText("0");
+  const rackCount = page.locator("#rack-count");
+  if (await rackCount.textContent() === "0") {
+    await page.locator("#add-rack-button").click();
+    const rackDialog = page.locator("#rack-dialog");
+    await rackDialog.locator('[name="name"]').fill("E2E DUAL-FACE RACK");
+    await rackDialog.locator('button[value="place"]').click();
+    await expect(rackDialog).not.toBeVisible();
+  }
+  await expect.poll(async () => {
+    const displayedValue = (await rackCount.textContent())?.trim() ?? "";
+    return /^\d+$/.test(displayedValue) ? Number.parseInt(displayedValue, 10) : Number.NaN;
+  }).toBeGreaterThan(0);
   await expect(toggle).toBeEnabled();
   await expect(toggle).toHaveText("EXPAND ALL");
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
@@ -360,10 +371,12 @@ test("export menu opens below the toolbar and closes after export", async ({ pag
   await expect(page.locator("#map-inspector")).toContainText("SELECT AN OBJECT");
   await page.locator('[data-action="zoom-in"]').click();
   await expect(page.locator("#map-status")).toHaveText(/%/);
-  await page.locator('[data-entity="device"]').first().click({ force: true });
+  await page.locator("#map-search").fill("CORE SWITCH A");
+  const searchResult = page.locator("#map-search-results button").first();
+  await expect(searchResult).toContainText("CORE SWITCH A");
+  await searchResult.click();
   await expect(page.locator("#map-inspector .inspector-tag")).toBeVisible();
-  await page.locator("#map-search").fill("rack");
-  await expect(page.locator("#map-search-results button").first()).toBeVisible();
+  await expect(page.locator("#map-inspector h2")).toHaveText("CORE SWITCH A");
 });
 
 test("stores plan comments in the inspector and manages map resources", async ({ page, request }) => {

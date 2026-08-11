@@ -9,6 +9,11 @@ import (
 )
 
 const (
+	// AuthSourceLocal authenticates a password stored by WireDraft.
+	AuthSourceLocal = "local"
+	// AuthSourceEntra authenticates through a linked Microsoft Entra identity.
+	AuthSourceEntra = "entra"
+
 	// RoleAdmin grants access to every organization and administrator endpoint.
 	RoleAdmin = "admin"
 	// RoleUser grants access to explicitly assigned organizations.
@@ -32,6 +37,10 @@ var (
 	ErrNotFound = errors.New("auth: account not found")
 	// ErrForbidden indicates that the principal cannot perform an operation.
 	ErrForbidden = errors.New("auth: forbidden")
+	// ErrExternalUnavailable indicates that an external identity provider could not be reached.
+	ErrExternalUnavailable = errors.New("auth: external identity provider unavailable")
+	// ErrInvalidExternalIdentity indicates an invalid or unapproved external identity.
+	ErrInvalidExternalIdentity = errors.New("auth: invalid external identity")
 )
 
 // Config contains authentication values sourced from the process environment.
@@ -96,9 +105,20 @@ type UserView struct {
 	Role           string    `json:"role"`
 	Organizations  []string  `json:"organizations"`
 	TOTPConfigured bool      `json:"totpConfigured"`
+	AuthSource     string    `json:"authSource"`
+	ExternalLogin  string    `json:"externalLogin,omitempty"`
+	ExternalLinked bool      `json:"externalLinked"`
 	Disabled       bool      `json:"disabled"`
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// ExternalIdentity is a verified identity returned by an OIDC provider.
+type ExternalIdentity struct {
+	TenantID          string
+	ObjectID          string
+	PreferredUsername string
+	DisplayName       string
 }
 
 func clonePrincipal(principal Principal) Principal {

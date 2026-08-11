@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
@@ -340,6 +341,285 @@ func TestGuestLoginCanBeDisabled(t *testing.T) {
 	response := performJSONRequest(t, handler, http.MethodPost, "/api/v1/auth/guest", map[string]any{}, nil)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("guest login status = %d, want 403", response.Code)
+	}
+}
+
+type fakeEntraAuthenticator struct {
+	start       auth.EntraStart
+	identity    auth.ExternalIdentity
+	beginErr    error
+	completeErr error
+	state       string
+	flow        string
+	code        string
+}
+
+func (f *fakeEntraAuthenticator) Begin(context.Context) (auth.EntraStart, error) {
+	return f.start, f.beginErr
+}
+
+func (f *fakeEntraAuthenticator) Complete(_ context.Context, state, flow, code string) (auth.ExternalIdentity, error) {
+	f.state, f.flow, f.code = state, flow, code
+	return f.identity, f.completeErr
+}
+
+func TestEntraLoginCreatesNormalWireDraftSession(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	topologyStore, err := store.NewJSONStore(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authManager, err := auth.New(dataDir, auth.Config{
+		AdminUsername: "admin", AdminPassword: authTestPassword, CookieSecure: true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := authManager.CreateEntraUser(t.Context(), "Microsoft Operator", "operator@example.com", []string{"Vienna"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := fs.Sub(webassets.Static, "static")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entra := &fakeEntraAuthenticator{
+		start: auth.EntraStart{
+			AuthorizationURL: "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize",
+			FlowToken:        "browser-binding", ExpiresAt: time.Now().Add(5 * time.Minute),
+		},
+		identity: auth.ExternalIdentity{
+			TenantID: "tenant", ObjectID: "object", PreferredUsername: "operator@example.com",
+		},
+	}
+	handler := newHandler(topologyStore, sse.NewBroker(), slog.New(slog.DiscardHandler), static, authManager, nil, entra)
+
+	statusResponse := performJSONRequest(t, handler, http.MethodGet, "/api/v1/auth/status", nil, nil)
+	var status authStatusResponse
+	decodeResponse(t, statusResponse, &status)
+	if !status.EntraEnabled {
+		t.Fatal("auth status did not advertise Entra login")
+	}
+
+	startRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/entra/start", nil)
+	startRequest.Host = "example.com"
+	startResponse := httptest.NewRecorder()
+	handler.ServeHTTP(startResponse, startRequest)
+	if startResponse.Code != http.StatusSeeOther || startResponse.Header().Get("Location") != entra.start.AuthorizationURL {
+		t.Fatalf("Entra start = %d %q", startResponse.Code, startResponse.Header().Get("Location"))
+	}
+	var flowCookie *http.Cookie
+	for _, cookie := range startResponse.Result().Cookies() {
+		if cookie.Name == entraFlowCookieName {
+			flowCookie = cookie
+		}
+	}
+	if flowCookie == nil || !flowCookie.Secure || flowCookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("flow cookie = %#v", flowCookie)
+	}
+
+	callbackRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/entra/callback?state=state-value&code=code-value", nil)
+	callbackRequest.AddCookie(flowCookie)
+	callbackResponse := httptest.NewRecorder()
+	handler.ServeHTTP(callbackResponse, callbackRequest)
+	if callbackResponse.Code != http.StatusSeeOther || callbackResponse.Header().Get("Location") != "/" {
+		t.Fatalf("Entra callback = %d %q", callbackResponse.Code, callbackResponse.Header().Get("Location"))
+	}
+	if entra.state != "state-value" || entra.flow != "browser-binding" || entra.code != "code-value" {
+		t.Fatalf("completed flow = %q %q %q", entra.state, entra.flow, entra.code)
+	}
+	var sessionCookie *http.Cookie
+	for _, cookie := range callbackResponse.Result().Cookies() {
+		if cookie.Name == sessionCookieName {
+			sessionCookie = cookie
+		}
+	}
+	if sessionCookie == nil || !sessionCookie.Secure {
+		t.Fatalf("session cookie = %#v", sessionCookie)
+	}
+	session, exists := authManager.Session(sessionCookie.Value)
+	if !exists || session.Principal.UserID != user.ID {
+		t.Fatalf("session = %#v, exists = %v", session, exists)
+	}
+}
+
+func TestNilEntraProviderRemainsDisabled(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	topologyStore, err := store.NewJSONStore(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authManager, err := auth.New(dataDir, auth.Config{
+		AdminUsername: "admin", AdminPassword: authTestPassword,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := fs.Sub(webassets.Static, "static")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewWithAuthMediaAndEntra(
+		topologyStore, sse.NewBroker(), slog.New(slog.DiscardHandler), static, authManager, nil, nil,
+	)
+	statusResponse := performJSONRequest(t, handler, http.MethodGet, "/api/v1/auth/status", nil, nil)
+	var status authStatusResponse
+	decodeResponse(t, statusResponse, &status)
+	if status.EntraEnabled {
+		t.Fatal("nil Entra provider was advertised as enabled")
+	}
+	startRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/entra/start", nil)
+	startResponse := httptest.NewRecorder()
+	handler.ServeHTTP(startResponse, startRequest)
+	if startResponse.Code != http.StatusSeeOther || startResponse.Header().Get("Location") != "/login" {
+		t.Fatalf(
+			"disabled Entra start = %d %q, want login redirect",
+			startResponse.Code, startResponse.Header().Get("Location"),
+		)
+	}
+}
+
+func TestEntraFailuresUseGenericBrowserErrors(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	topologyStore, err := store.NewJSONStore(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authManager, err := auth.New(dataDir, auth.Config{
+		AdminUsername: "admin", AdminPassword: authTestPassword, CookieSecure: true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, err := fs.Sub(webassets.Static, "static")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entra := &fakeEntraAuthenticator{beginErr: auth.ErrExternalUnavailable}
+	handler := newHandler(
+		topologyStore, sse.NewBroker(), slog.New(slog.DiscardHandler), static, authManager, nil, entra,
+	)
+
+	startRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/entra/start", nil)
+	startRequest.Host = "example.com"
+	startResponse := httptest.NewRecorder()
+	handler.ServeHTTP(startResponse, startRequest)
+	if startResponse.Code != http.StatusSeeOther || startResponse.Header().Get("Location") != "/login?entra_error=unavailable" {
+		t.Fatalf("unavailable start = %d %q", startResponse.Code, startResponse.Header().Get("Location"))
+	}
+
+	missingCookie := httptest.NewRequestWithContext(
+		t.Context(), http.MethodGet, "/api/v1/auth/entra/callback?state=state&code=code", nil,
+	)
+	missingCookieResponse := httptest.NewRecorder()
+	handler.ServeHTTP(missingCookieResponse, missingCookie)
+	if missingCookieResponse.Header().Get("Location") != "/login?entra_error=rejected" {
+		t.Fatalf("missing-cookie callback location = %q", missingCookieResponse.Header().Get("Location"))
+	}
+
+	entra.beginErr = nil
+	entra.completeErr = auth.ErrExternalUnavailable
+	unavailable := httptest.NewRequestWithContext(
+		t.Context(), http.MethodGet, "/api/v1/auth/entra/callback?state=state&code=code", nil,
+	)
+	unavailable.AddCookie(&http.Cookie{
+		Name: entraFlowCookieName, Value: "flow", Path: "/api/v1/auth/entra/",
+		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+	})
+	unavailableResponse := httptest.NewRecorder()
+	handler.ServeHTTP(unavailableResponse, unavailable)
+	if unavailableResponse.Header().Get("Location") != "/login?entra_error=unavailable" {
+		t.Fatalf("unavailable callback location = %q", unavailableResponse.Header().Get("Location"))
+	}
+
+	entra.completeErr = nil
+	entra.identity = auth.ExternalIdentity{
+		TenantID: "tenant", ObjectID: "unknown-object", PreferredUsername: "unknown@example.com",
+	}
+	rejected := httptest.NewRequestWithContext(
+		t.Context(), http.MethodGet, "/api/v1/auth/entra/callback?state=state&code=code", nil,
+	)
+	rejected.AddCookie(&http.Cookie{
+		Name: entraFlowCookieName, Value: "flow", Path: "/api/v1/auth/entra/",
+		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+	})
+	rejectedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(rejectedResponse, rejected)
+	if rejectedResponse.Header().Get("Location") != "/login?entra_error=rejected" {
+		t.Fatalf("unknown-account callback location = %q", rejectedResponse.Header().Get("Location"))
+	}
+}
+
+func TestAdminCreatesAndResetsEntraAccount(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	topologyStore, err := store.NewJSONStore(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authManager, err := auth.New(dataDir, auth.Config{
+		AdminUsername: "admin", AdminPassword: authTestPassword, CookieSecure: true, GuestEnabled: true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{
+		store: topologyStore, auth: authManager, entra: &fakeEntraAuthenticator{},
+		logger: slog.New(slog.DiscardHandler),
+	}
+	admin := auth.Principal{UserID: "administrator", Role: auth.RoleAdmin}
+	create := newJSONRequest(t, http.MethodPost, "/api/v1/admin/users", createUserRequest{
+		Username: "Entra Operator", AuthSource: auth.AuthSourceEntra,
+		ExternalLogin: "operator@example.com", Organizations: []string{"Guest"},
+	}, nil)
+	create = create.WithContext(context.WithValue(create.Context(), principalContextKey{}, admin))
+	createdResponse := httptest.NewRecorder()
+	server.createUser(createdResponse, create)
+	if createdResponse.Code != http.StatusCreated {
+		t.Fatalf("create Entra account status = %d; body = %s", createdResponse.Code, createdResponse.Body.String())
+	}
+	var created auth.UserView
+	decodeResponse(t, createdResponse, &created)
+	if created.AuthSource != auth.AuthSourceEntra || created.ExternalLogin != "operator@example.com" {
+		t.Fatalf("created Entra account = %#v", created)
+	}
+	if _, err := authManager.CompleteEntraLogin(t.Context(), auth.ExternalIdentity{
+		TenantID: "tenant", ObjectID: "object", PreferredUsername: created.ExternalLogin,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	update := newJSONRequest(t, http.MethodPut, "/api/v1/admin/users/"+created.ID, updateUserRequest{
+		Organizations: []string{"Guest"}, ResetExternalIdentity: true,
+	}, nil)
+	update.SetPathValue("userId", created.ID)
+	update = update.WithContext(context.WithValue(update.Context(), principalContextKey{}, admin))
+	updatedResponse := httptest.NewRecorder()
+	server.updateUser(updatedResponse, update)
+	if updatedResponse.Code != http.StatusOK {
+		t.Fatalf("reset Entra account status = %d; body = %s", updatedResponse.Code, updatedResponse.Body.String())
+	}
+	var updated auth.UserView
+	decodeResponse(t, updatedResponse, &updated)
+	if updated.ExternalLinked {
+		t.Fatalf("reset Entra account remains linked: %#v", updated)
+	}
+
+	server.entra = nil
+	disabledProviderCreate := newJSONRequest(t, http.MethodPost, "/api/v1/admin/users", createUserRequest{
+		Username: "Second Entra Operator", AuthSource: auth.AuthSourceEntra,
+		ExternalLogin: "second@example.com", Organizations: []string{"Guest"},
+	}, nil)
+	disabledProviderCreate = disabledProviderCreate.WithContext(
+		context.WithValue(disabledProviderCreate.Context(), principalContextKey{}, admin),
+	)
+	createdResponse = httptest.NewRecorder()
+	server.createUser(createdResponse, disabledProviderCreate)
+	if createdResponse.Code != http.StatusBadRequest || !strings.Contains(createdResponse.Body.String(), "not enabled") {
+		t.Fatalf("disabled-provider create = %d %s", createdResponse.Code, createdResponse.Body.String())
 	}
 }
 

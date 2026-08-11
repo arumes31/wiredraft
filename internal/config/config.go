@@ -4,24 +4,31 @@ package config
 import (
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config contains all process-level runtime configuration.
 type Config struct {
-	Port            int
-	DatabaseURL     string
-	MediaDir        string
-	LogLevel        string
-	LogFormat       string
-	AdminUsername   string
-	AdminPassword   string
-	AdminTOTPSecret string
-	GuestEnabled    bool
-	CookieSecure    bool
-	Healthcheck     bool
-	HealthcheckURL  string
+	Port             int
+	DatabaseURL      string
+	MediaDir         string
+	LogLevel         string
+	LogFormat        string
+	AdminUsername    string
+	AdminPassword    string
+	AdminTOTPSecret  string
+	GuestEnabled     bool
+	CookieSecure     bool
+	EntraEnabled     bool
+	EntraTenantID    string
+	EntraClientID    string
+	EntraSecretFile  string
+	EntraRedirectURL string
+	Healthcheck      bool
+	HealthcheckURL   string
 }
 
 // Parse reads environment defaults and applies command-line overrides.
@@ -35,17 +42,25 @@ func Parse(args []string) (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{
-		Port:            envInt("PORT", 8080),
-		DatabaseURL:     envString("DATABASE_URL", ""),
-		MediaDir:        envString("WIREDRAFT_MEDIA_DIR", "data/media"),
-		LogLevel:        envString("LOG_LEVEL", "info"),
-		LogFormat:       envString("LOG_FORMAT", "json"),
-		AdminUsername:   envStringAlias("WIREDRAFT_ADMIN_USER", "NETDIAGRAM_ADMIN_USER", "admin"),
-		AdminPassword:   envStringAlias("WIREDRAFT_ADMIN_PASSWORD", "NETDIAGRAM_ADMIN_PASSWORD", ""),
-		AdminTOTPSecret: envStringAlias("WIREDRAFT_ADMIN_TOTP_SECRET", "NETDIAGRAM_ADMIN_TOTP_SECRET", ""),
-		GuestEnabled:    guestEnabled,
-		CookieSecure:    cookieSecure,
-		HealthcheckURL:  envString("HEALTHCHECK_URL", "http://127.0.0.1:8080/api/v1/health"),
+		Port:             envInt("PORT", 8080),
+		DatabaseURL:      envString("DATABASE_URL", ""),
+		MediaDir:         envString("WIREDRAFT_MEDIA_DIR", "data/media"),
+		LogLevel:         envString("LOG_LEVEL", "info"),
+		LogFormat:        envString("LOG_FORMAT", "json"),
+		AdminUsername:    envStringAlias("WIREDRAFT_ADMIN_USER", "NETDIAGRAM_ADMIN_USER", "admin"),
+		AdminPassword:    envStringAlias("WIREDRAFT_ADMIN_PASSWORD", "NETDIAGRAM_ADMIN_PASSWORD", ""),
+		AdminTOTPSecret:  envStringAlias("WIREDRAFT_ADMIN_TOTP_SECRET", "NETDIAGRAM_ADMIN_TOTP_SECRET", ""),
+		GuestEnabled:     guestEnabled,
+		CookieSecure:     cookieSecure,
+		EntraEnabled:     false,
+		EntraTenantID:    strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_TENANT_ID")),
+		EntraClientID:    strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_CLIENT_ID")),
+		EntraSecretFile:  strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_CLIENT_SECRET_FILE")),
+		EntraRedirectURL: strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_REDIRECT_URL")),
+		HealthcheckURL:   envString("HEALTHCHECK_URL", "http://127.0.0.1:8080/api/v1/health"),
+	}
+	if cfg.EntraEnabled, err = envBool("WIREDRAFT_ENTRA_ENABLED", false); err != nil {
+		return Config{}, err
 	}
 
 	set := flag.NewFlagSet("wiredraft", flag.ContinueOnError)
@@ -63,6 +78,18 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.MediaDir == "" {
 		return Config{}, fmt.Errorf("media directory must not be empty")
+	}
+	if cfg.EntraEnabled {
+		if cfg.EntraTenantID == "" || cfg.EntraClientID == "" || cfg.EntraSecretFile == "" || cfg.EntraRedirectURL == "" {
+			return Config{}, fmt.Errorf("enabled Entra login requires tenant id, client id, client secret file, and redirect url")
+		}
+		redirectURL, parseErr := url.Parse(cfg.EntraRedirectURL)
+		if parseErr != nil || redirectURL.Scheme != "https" || redirectURL.Host == "" || redirectURL.RawQuery != "" || redirectURL.Fragment != "" {
+			return Config{}, fmt.Errorf("WIREDRAFT_ENTRA_REDIRECT_URL must be an absolute HTTPS URL without query or fragment")
+		}
+		if !cfg.CookieSecure {
+			return Config{}, fmt.Errorf("WIREDRAFT_COOKIE_SECURE must be true when Entra login is enabled")
+		}
 	}
 	return cfg, nil
 }

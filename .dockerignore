@@ -18,6 +18,7 @@ node_modules
 playwright-report
 scripts/*
 !scripts/minify-js.mjs
+secrets
 test-results
 *.test
 *.out

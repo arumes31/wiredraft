@@ -12,13 +12,17 @@ import (
 	"netdiagram/internal/auth"
 )
 
-const sessionCookieName = "netdiagram_session"
+const (
+	sessionCookieName   = "netdiagram_session"
+	entraFlowCookieName = "wiredraft_entra_flow"
+)
 
 type principalContextKey struct{}
 
 type authStatusResponse struct {
 	auth.SessionView
 	AvailableOrganizations []string `json:"availableOrganizations,omitempty"`
+	EntraEnabled           bool     `json:"entraEnabled"`
 }
 
 type loginRequest struct {
@@ -34,12 +38,15 @@ type challengeCodeRequest struct {
 type createUserRequest struct {
 	Username      string   `json:"username"`
 	Password      string   `json:"password"`
+	AuthSource    string   `json:"authSource"`
+	ExternalLogin string   `json:"externalLogin"`
 	Organizations []string `json:"organizations"`
 }
 
 type updateUserRequest struct {
-	Organizations []string `json:"organizations"`
-	Disabled      bool     `json:"disabled"`
+	Organizations         []string `json:"organizations"`
+	Disabled              bool     `json:"disabled"`
+	ResetExternalIdentity bool     `json:"resetExternalIdentity"`
 }
 
 func (s *Server) authStatus(w http.ResponseWriter, request *http.Request) {
@@ -48,7 +55,7 @@ func (s *Server) authStatus(w http.ResponseWriter, request *http.Request) {
 	response := authStatusResponse{SessionView: auth.SessionView{
 		Authenticated: authenticated,
 		GuestEnabled:  s.auth.GuestEnabled(),
-	}}
+	}, EntraEnabled: s.entra != nil}
 	if authenticated {
 		response.CSRFToken = session.CSRFToken
 		response.ExpiresAt = session.ExpiresAt
@@ -138,6 +145,65 @@ func (s *Server) guestLogin(w http.ResponseWriter, _ *http.Request) {
 	s.writeSession(w, session, nil)
 }
 
+func (s *Server) entraStart(w http.ResponseWriter, request *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	start, err := s.entra.Begin(request.Context())
+	if err != nil {
+		s.logger.Error("starting Entra authentication", "error", err)
+		http.Redirect(w, request, "/login?entra_error=unavailable", http.StatusSeeOther)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: entraFlowCookieName, Value: start.FlowToken, Path: "/api/v1/auth/entra/",
+		Expires: start.ExpiresAt, MaxAge: int(time.Until(start.ExpiresAt).Seconds()),
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, request, start.AuthorizationURL, http.StatusSeeOther)
+}
+
+func (s *Server) entraCallback(w http.ResponseWriter, request *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	flowCookie, err := request.Cookie(entraFlowCookieName)
+	if err != nil || request.URL.Query().Get("error") != "" {
+		s.entraCallbackFailure(w, request, auth.ErrInvalidExternalIdentity)
+		return
+	}
+	identity, err := s.entra.Complete(
+		request.Context(), request.URL.Query().Get("state"), flowCookie.Value, request.URL.Query().Get("code"),
+	)
+	if err != nil {
+		s.entraCallbackFailure(w, request, err)
+		return
+	}
+	session, err := s.auth.CompleteEntraLogin(request.Context(), identity)
+	if err != nil {
+		s.entraCallbackFailure(w, request, err)
+		return
+	}
+	s.clearEntraFlowCookie(w)
+	s.setSessionCookie(w, session)
+	s.logger.Info("authentication succeeded", "user_id", session.Principal.UserID, "role", session.Principal.Role, "provider", "entra")
+	http.Redirect(w, request, "/", http.StatusSeeOther)
+}
+
+func (s *Server) entraCallbackFailure(w http.ResponseWriter, request *http.Request, err error) {
+	s.clearEntraFlowCookie(w)
+	if errors.Is(err, auth.ErrExternalUnavailable) {
+		s.logger.Error("Entra authentication unavailable", "error", err)
+		http.Redirect(w, request, "/login?entra_error=unavailable", http.StatusSeeOther)
+		return
+	}
+	s.logger.Warn("Entra authentication rejected")
+	http.Redirect(w, request, "/login?entra_error=rejected", http.StatusSeeOther)
+}
+
+func (s *Server) clearEntraFlowCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name: entraFlowCookieName, Value: "", Path: "/api/v1/auth/entra/",
+		MaxAge: -1, Expires: time.Unix(1, 0), HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+	})
+}
+
 func (s *Server) logout(w http.ResponseWriter, request *http.Request) {
 	if cookie, err := request.Cookie(sessionCookieName); err == nil {
 		s.auth.Logout(cookie.Value)
@@ -178,7 +244,20 @@ func (s *Server) createUser(w http.ResponseWriter, request *http.Request) {
 		writeError(w, http.StatusBadRequest, "select one or more existing organizations")
 		return
 	}
-	user, err := s.auth.CreateUser(request.Context(), input.Username, input.Password, organizations)
+	var user auth.UserView
+	switch input.AuthSource {
+	case "", auth.AuthSourceLocal:
+		user, err = s.auth.CreateUser(request.Context(), input.Username, input.Password, organizations)
+	case auth.AuthSourceEntra:
+		if s.entra == nil {
+			writeError(w, http.StatusBadRequest, "Microsoft Entra login is not enabled")
+			return
+		}
+		user, err = s.auth.CreateEntraUser(request.Context(), input.Username, input.ExternalLogin, organizations)
+	default:
+		writeError(w, http.StatusBadRequest, "authentication source is invalid")
+		return
+	}
 	if err != nil {
 		s.authFailure(w, err)
 		return
@@ -210,6 +289,13 @@ func (s *Server) updateUser(w http.ResponseWriter, request *http.Request) {
 	if err != nil {
 		s.authFailure(w, err)
 		return
+	}
+	if input.ResetExternalIdentity {
+		user, err = s.auth.ResetEntraBinding(request.Context(), request.PathValue("userId"))
+		if err != nil {
+			s.authFailure(w, err)
+			return
+		}
 	}
 	s.logger.Info("account updated",
 		"administrator_id", principalFromRequest(request).UserID,

@@ -3,7 +3,7 @@ import { startLoginBackground } from "./login-background.js";
 startLoginBackground(document.getElementById("topology-backdrop"));
 
 const elements = Object.fromEntries([
-  "login-form", "guest-button", "setup-step", "setup-form", "totp-step", "totp-form",
+  "login-form", "alternative-login-divider", "guest-button", "entra-button", "setup-step", "setup-form", "totp-step", "totp-form",
   "recovery-step", "recovery-form", "recovery-codes-step", "totp-qr", "totp-secret",
   "copy-secret-button", "show-recovery-button", "back-to-totp-button", "recovery-code-list",
   "copy-recovery-button", "download-recovery-button", "continue-button", "access-error",
@@ -22,7 +22,16 @@ async function initialize() {
     return;
   }
   elements["guest-button"].hidden = !status.guestEnabled;
+  elements["entra-button"].hidden = !status.entraEnabled;
+  elements["alternative-login-divider"].hidden = !status.guestEnabled && !status.entraEnabled;
   bindControls();
+  const entraError = new URLSearchParams(window.location.search).get("entra_error");
+  if (entraError) {
+    showError(new Error(entraError === "unavailable"
+      ? "Microsoft sign-in is temporarily unavailable. Local login remains available."
+      : "Microsoft sign-in was not accepted or this account has not been approved."));
+    history.replaceState({}, "", "/login");
+  }
 }
 
 function bindControls() {

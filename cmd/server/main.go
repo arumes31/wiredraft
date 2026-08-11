@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -77,6 +79,20 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("opening authentication service: %w", err)
 	}
+	var entraProvider *auth.EntraProvider
+	if cfg.EntraEnabled {
+		clientSecret, err := readSecretFile(cfg.EntraSecretFile)
+		if err != nil {
+			return fmt.Errorf("reading Entra client secret: %w", err)
+		}
+		entraProvider, err = auth.NewEntraProvider(auth.EntraConfig{
+			TenantID: cfg.EntraTenantID, ClientID: cfg.EntraClientID,
+			ClientSecret: clientSecret, RedirectURL: cfg.EntraRedirectURL,
+		})
+		if err != nil {
+			return fmt.Errorf("configuring Entra login: %w", err)
+		}
+	}
 	static, err := fs.Sub(webassets.Static, "static")
 	if err != nil {
 		return fmt.Errorf("opening embedded assets: %w", err)
@@ -84,8 +100,10 @@ func run(args []string) error {
 	broker := sse.NewBroker()
 	defer broker.Close()
 	server := &http.Server{
-		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           handler.NewWithAuthAndMedia(topologyStore, broker, appLogger, static, authManager, mediaStore),
+		Addr: fmt.Sprintf(":%d", cfg.Port),
+		Handler: handler.NewWithAuthMediaAndEntra(
+			topologyStore, broker, appLogger, static, authManager, mediaStore, entraProvider,
+		),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		IdleTimeout:       60 * time.Second,
@@ -117,6 +135,31 @@ func run(args []string) error {
 	}
 	appLogger.Info("server stopped")
 	return nil
+}
+
+func readSecretFile(path string) (returnValue string, returnErr error) {
+	// The path is process configuration supplied by the operator, never HTTP input.
+	file, err := os.Open(path) // #nosec G304 -- operator-controlled secret path.
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && returnErr == nil {
+			returnErr = fmt.Errorf("closing secret file: %w", closeErr)
+		}
+	}()
+	data, err := io.ReadAll(io.LimitReader(file, (16<<10)+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > 16<<10 {
+		return "", errors.New("secret file exceeds 16 KiB")
+	}
+	value := strings.TrimSpace(string(data))
+	if value == "" {
+		return "", errors.New("secret file is empty")
+	}
+	return value, nil
 }
 
 func probeHealth(url string) (returnErr error) {

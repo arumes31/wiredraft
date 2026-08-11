@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	authStateVersion = 1
+	authStateVersion = 2
 	maxAuthStateSize = 4 << 20
 )
 
@@ -27,6 +27,11 @@ type persistedUser struct {
 	UsernameKey              string    `json:"usernameKey"`
 	Role                     string    `json:"role"`
 	PasswordHash             string    `json:"passwordHash"`
+	AuthSource               string    `json:"authSource"`
+	ExternalLogin            string    `json:"externalLogin,omitempty"`
+	ExternalTenantID         string    `json:"externalTenantId,omitempty"`
+	ExternalObjectID         string    `json:"externalObjectId,omitempty"`
+	ExternalLinkedAt         time.Time `json:"externalLinkedAt,omitzero"`
 	Organizations            []string  `json:"organizations,omitempty"`
 	EncryptedTOTPSecret      string    `json:"encryptedTotpSecret,omitempty"`
 	RecoveryCodeHashes       []string  `json:"recoveryCodeHashes,omitempty"`
@@ -68,15 +73,15 @@ func loadOrCreateEncryptionKey(directory string) ([]byte, error) {
 	return key, nil
 }
 
-func loadPersistentState(path string) (state persistentState, exists bool, returnErr error) {
+func loadPersistentState(path string) (state persistentState, exists bool, migrated bool, returnErr error) {
 	// Manager.New constructs path from the operator-controlled data directory
 	// and the fixed accounts.json filename.
 	file, err := os.Open(path) // #nosec G304 -- fixed filename below the configured data directory.
 	if errors.Is(err, os.ErrNotExist) {
-		return persistentState{Version: authStateVersion, Users: []persistedUser{}}, false, nil
+		return persistentState{Version: authStateVersion, Users: []persistedUser{}}, false, false, nil
 	}
 	if err != nil {
-		return persistentState{}, false, fmt.Errorf("opening authentication state: %w", err)
+		return persistentState{}, false, false, fmt.Errorf("opening authentication state: %w", err)
 	}
 	defer func() {
 		if closeErr := file.Close(); closeErr != nil && returnErr == nil {
@@ -86,22 +91,38 @@ func loadPersistentState(path string) (state persistentState, exists bool, retur
 	decoder := json.NewDecoder(io.LimitReader(file, maxAuthStateSize))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&state); err != nil {
-		return persistentState{}, false, fmt.Errorf("decoding authentication state: %w", err)
+		return persistentState{}, false, false, fmt.Errorf("decoding authentication state: %w", err)
 	}
 	var extra json.RawMessage
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
-			return persistentState{}, false, errors.New("auth: state contains multiple json values")
+			return persistentState{}, false, false, errors.New("auth: state contains multiple json values")
 		}
-		return persistentState{}, false, fmt.Errorf("checking authentication state: %w", err)
+		return persistentState{}, false, false, fmt.Errorf("checking authentication state: %w", err)
 	}
-	if state.Version != authStateVersion {
-		return persistentState{}, false, fmt.Errorf("auth: unsupported state version %d", state.Version)
+	migrated, err = migratePersistentState(&state)
+	if err != nil {
+		return persistentState{}, false, false, err
 	}
 	if state.Users == nil {
 		state.Users = []persistedUser{}
 	}
-	return state, true, nil
+	return state, true, migrated, nil
+}
+
+func migratePersistentState(state *persistentState) (bool, error) {
+	switch state.Version {
+	case 1:
+		for index := range state.Users {
+			state.Users[index].AuthSource = AuthSourceLocal
+		}
+		state.Version = authStateVersion
+		return true, nil
+	case authStateVersion:
+		return false, nil
+	default:
+		return false, fmt.Errorf("auth: unsupported state version %d", state.Version)
+	}
 }
 
 func savePersistentState(path string, state persistentState) (returnErr error) {

@@ -62,12 +62,17 @@ label { display: grid; gap: 7px; }
 label > span, .manual-secret > span { color: #86b4b5; font-size: 9px; letter-spacing: .18em; }
 input { width: 100%; min-height: 49px; padding: 0 14px; color: var(--ink); border: 1px solid #345357; border-radius: 2px; outline: none; background: #071113; transition: border-color .16s, box-shadow .16s; }
 input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(66,217,200,.11); }
-.primary, .guest-button { min-height: 56px; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid var(--cyan); border-radius: 2px; cursor: pointer; letter-spacing: .08em; background: var(--cyan); color: #041011; transition: transform .12s, filter .12s; }
-.primary:hover, .guest-button:hover { filter: brightness(1.12); transform: translateY(-1px); }
+.primary, .guest-button, .entra-button { min-height: 56px; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid var(--cyan); border-radius: 2px; cursor: pointer; letter-spacing: .08em; background: var(--cyan); color: #041011; transition: transform .12s, filter .12s; }
+.primary:hover, .guest-button:hover, .entra-button:hover { filter: brightness(1.12); transform: translateY(-1px); }
 .primary:disabled, .guest-button:disabled { cursor: wait; filter: saturate(.4); }
 .primary span, .guest-button span { font-weight: 700; font-size: 13px; }
 .primary small, .guest-button small { font-size: 8px; letter-spacing: .16em; }
 .guest-button { border-color: #3a5d60; color: #b9d2d2; background: #0c1a1c; }
+.entra-button { border-color: #557981; color: #e3eeee; background: linear-gradient(105deg, #14272b, #0b1719); text-decoration: none; }
+.entra-button > span { display: inline-flex; align-items: center; gap: 11px; font-weight: 700; font-size: 12px; }
+.entra-button > small { color: #8ca7aa; font-size: 8px; letter-spacing: .15em; }
+.entra-button i { width: 17px; height: 17px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; transform: skewY(-4deg); }
+.entra-button i b:nth-child(1) { background: #f35325; }.entra-button i b:nth-child(2) { background: #81bc06; }.entra-button i b:nth-child(3) { background: #05a6f0; }.entra-button i b:nth-child(4) { background: #ffba08; }
 .or-divider { display: flex; align-items: center; gap: 12px; color: #58787b; font-size: 8px; letter-spacing: .2em; }
 .or-divider::before, .or-divider::after { content: ""; height: 1px; flex: 1; background: #253d40; }
 .step-heading { margin-bottom: 4px; }
