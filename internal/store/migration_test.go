@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"embed"
 	"io"
 	"io/fs"
@@ -20,7 +21,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := source.Close(); err != nil {
+		if err := closeMigrationSource(source); err != nil {
 			t.Errorf("closing migration source: %v", err)
 		}
 	})
@@ -53,6 +54,17 @@ func TestEmbeddedMigrations(t *testing.T) {
 		if !strings.Contains(string(document), "CREATE TABLE IF NOT EXISTS "+table) {
 			t.Errorf("migration does not create %s", table)
 		}
+	}
+}
+
+func TestCloseMigrationDatabaseHandle(t *testing.T) {
+	t.Parallel()
+	handle, err := sql.Open("pgx", "postgres://wiredraft@localhost/wiredraft")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closeMigrationDatabaseHandle(handle); err != nil {
+		t.Fatal(err)
 	}
 }
 
