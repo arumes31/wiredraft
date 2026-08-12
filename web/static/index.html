@@ -64,8 +64,15 @@
     <details id="account-menu" class="account-menu">
       <summary aria-label="Open account menu"><i id="account-avatar">U</i><span><b id="account-name">OPERATOR</b><small id="account-role">SESSION</small></span></summary>
       <div class="account-popover">
-        <p><span>IDENTITY CONTROL</span><b id="account-scope">SIGNED IN</b></p>
+        <p class="account-identity-heading"><span>IDENTITY CONTROL</span></p>
+        <section class="organization-scope-control" aria-labelledby="organization-scope-label">
+          <span id="organization-scope-label">WORKING SCOPE</span>
+          <b id="account-scope">SIGNED IN</b>
+          <button id="organization-scope-toggle" type="button" aria-expanded="false" aria-controls="organization-scope-list" hidden><small>SWITCH ORGANIZATION</small><i aria-hidden="true">⌄</i></button>
+          <div id="organization-scope-list" class="organization-scope-list" role="listbox" aria-label="Working organization" hidden></div>
+        </section>
         <button id="manage-users-button" type="button" hidden><b>USER ACCOUNTS</b><small>ORGANIZATION ASSIGNMENTS</small></button>
+        <button id="manage-organizations-button" type="button" hidden><b>ORGANIZATIONS</b><small>CREATE · RENAME · RETIRE</small></button>
         <button id="logout-button" type="button" class="danger"><b>END SESSION</b><small>CLEAR LOCAL ACCESS</small></button>
       </div>
     </details>
@@ -182,12 +189,33 @@
           <label><span>USERNAME</span><input name="username" minlength="3" maxlength="80" autocomplete="off" required></label>
           <label id="account-password-field"><span>INITIAL PASSWORD</span><input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
           <label id="account-entra-field" hidden><span>MICROSOFT USER PRINCIPAL NAME</span><input name="externalLogin" type="email" maxlength="254" autocomplete="off" placeholder="operator@example.com"></label>
-          <fieldset><legend>ORGANIZATION ACCESS · SELECT ONE OR MORE</legend><div id="account-organizations" class="account-organization-picker"></div></fieldset>
+          <fieldset class="account-role-field"><legend>APPLICATION ROLE</legend><div class="radio-row"><label><input type="radio" name="role" value="user" checked><span>OPERATOR</span></label><label><input type="radio" name="role" value="admin"><span>ADMINISTRATOR</span></label></div></fieldset>
+          <label class="account-global-access"><input id="account-all-organizations" name="allOrganizations" type="checkbox"><span><b>ALL ORGANIZATIONS</b><small>Global map access without management rights</small></span></label>
+          <fieldset id="account-organization-field"><legend>ORGANIZATION ACCESS · SELECT ONE OR MORE</legend><div id="account-organizations" class="account-organization-picker"></div></fieldset>
           <p id="account-enrollment-note" class="account-enrollment-note"><b>FIRST LOGIN</b>The operator scans a QR code, verifies TOTP, and receives one-use recovery codes.</p>
-          <button class="primary" type="submit">CREATE SECURE ACCOUNT</button>
+          <div class="account-form-actions"><button id="cancel-account-edit" type="button" class="secondary" hidden>CANCEL EDIT</button><button id="account-submit-button" class="primary" type="submit">CREATE SECURE ACCOUNT</button></div>
         </form>
       </div>
       <footer><button type="button" class="secondary" data-close="account-dialog">DONE</button></footer>
+    </div>
+  </dialog>
+
+  <dialog id="organization-dialog" class="panel-dialog wide-dialog organization-dialog" aria-labelledby="organization-dialog-title">
+    <div class="dialog-shell">
+      <header><div><p class="eyebrow">IDENTITY CONTROL</p><h2 id="organization-dialog-title">ORGANIZATIONS</h2></div><button type="button" class="dialog-close" data-close="organization-dialog" aria-label="Close organization management dialog">×</button></header>
+      <p class="dialog-note">Organizations are stable map boundaries. Default is protected; an organization with maps cannot be deleted.</p>
+      <div class="organization-manager">
+        <section>
+          <div class="section-heading"><h3>ORGANIZATION REGISTRY</h3><span id="organization-count">0 ORGANIZATIONS</span></div>
+          <div id="organization-list" class="organization-list" aria-live="polite"></div>
+        </section>
+        <form id="organization-form" class="organization-create-form">
+          <p class="eyebrow">CREATE ORGANIZATION</p>
+          <label><span>DISPLAY NAME</span><input name="name" minlength="1" maxlength="120" autocomplete="organization" required placeholder="e.g. EWORX OPERATIONS"></label>
+          <button class="primary" type="submit">ADD ORGANIZATION</button>
+        </form>
+      </div>
+      <footer><button type="button" class="secondary" data-close="organization-dialog">DONE</button></footer>
     </div>
   </dialog>
 
@@ -197,10 +225,9 @@
       <p id="topology-dialog-note" class="dialog-note">Create an independent topology inside one organization and location.</p>
       <label><span>MAP NAME</span><input name="name" maxlength="120" required autocomplete="off"></label>
       <div class="map-scope-grid">
-        <label><span>ORGANIZATION</span><input name="organization" maxlength="120" list="organization-options" required autocomplete="organization" placeholder="e.g. ACME NETWORKS"></label>
+        <label><span>ORGANIZATION</span><select name="organizationId" required aria-label="Map organization"></select><input name="organization" type="hidden" readonly></label>
         <label><span>LOCATION</span><input name="location" maxlength="120" list="location-options" required autocomplete="off" placeholder="e.g. VIENNA DC1"></label>
       </div>
-      <datalist id="organization-options"></datalist>
       <datalist id="location-options"></datalist>
       <fieldset id="map-template-field" class="map-template-field">
         <legend>STARTING POINT</legend>

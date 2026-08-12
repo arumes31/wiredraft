@@ -33,5 +33,7 @@ test("organization choices retain all of their distinct locations", () => {
 test("map labels expose organization and location without hiding the map name", () => {
   assert.equal(topologyOptionLabel({ name: "Core", organization: "Example Corp", location: "Vienna" }),
     "Example Corp · Vienna / Core");
+  assert.equal(topologyOptionLabel({ name: "Default plan", organization: "Default" }),
+    "Default / Default plan");
   assert.equal(topologyOptionLabel({ name: "Legacy" }), "UNASSIGNED / Legacy");
 });

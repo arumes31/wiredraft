@@ -54,6 +54,19 @@ func run(args []string) error {
 		return fmt.Errorf("migrating database: %w", err)
 	}
 	topologyStore := store.NewPostgresStore(databasePool)
+	authPreflight, err := auth.ReadPostgresPreflight(context.Background(), databasePool)
+	if err != nil {
+		return fmt.Errorf("reading authentication preflight: %w", err)
+	}
+	organizationNames, err := startupOrganizationNames(
+		context.Background(), topologyStore, authPreflight, cfg.GuestEnabled,
+	)
+	if err != nil {
+		return err
+	}
+	if err := topologyStore.EnsureOrganizations(context.Background(), organizationNames); err != nil {
+		return fmt.Errorf("initializing organization registry: %w", err)
+	}
 	if err := topologyStore.EnsureDemo(context.Background()); err != nil {
 		return fmt.Errorf("initializing topology store: %w", err)
 	}
@@ -66,19 +79,19 @@ func run(args []string) error {
 			appLogger.Error("closing photo storage", "error", err)
 		}
 	}()
-	topologySummaries, err := topologyStore.List(context.Background())
+	organizations, err := topologyStore.ListOrganizations(context.Background())
 	if err != nil {
-		return fmt.Errorf("listing topologies: %w", err)
+		return fmt.Errorf("listing organizations: %w", err)
 	}
-	existingTopologyIDs := make([]string, len(topologySummaries))
-	for index, summary := range topologySummaries {
-		existingTopologyIDs[index] = summary.ID
+	authOrganizations := make([]auth.OrganizationRef, len(organizations))
+	for index, organization := range organizations {
+		authOrganizations[index] = auth.OrganizationRef{ID: organization.ID, Name: organization.Name}
 	}
 	authManager, err := auth.NewPostgres(context.Background(), databasePool, auth.Config{
 		AdminUsername: cfg.AdminUsername, AdminPassword: cfg.AdminPassword,
 		AdminTOTPSecret: cfg.AdminTOTPSecret, GuestEnabled: cfg.GuestEnabled,
 		CookieSecure: cfg.CookieSecure,
-	}, existingTopologyIDs)
+	}, authOrganizations)
 	if err != nil {
 		return fmt.Errorf("opening authentication service: %w", err)
 	}
@@ -138,6 +151,35 @@ func run(args []string) error {
 	}
 	appLogger.Info("server stopped")
 	return nil
+}
+
+type organizationGetter interface {
+	GetOrganization(context.Context, string) (store.Organization, error)
+}
+
+func startupOrganizationNames(
+	ctx context.Context,
+	organizations organizationGetter,
+	preflight auth.Preflight,
+	guestEnabled bool,
+) ([]string, error) {
+	names := append([]string(nil), preflight.LegacyOrganizationNames...)
+	guestRequired := guestEnabled || len(preflight.LegacyGuestTopologyIDs) != 0
+	if !guestRequired {
+		return names, nil
+	}
+	guestOrganizationID := strings.TrimSpace(preflight.GuestOrganizationID)
+	if guestOrganizationID == "" {
+		return append(names, auth.GuestOrganizationName), nil
+	}
+	_, err := organizations.GetOrganization(ctx, guestOrganizationID)
+	if err == nil {
+		return names, nil
+	}
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrInvalid) {
+		return append(names, auth.GuestOrganizationName), nil
+	}
+	return nil, fmt.Errorf("looking up bound Guest organization: %w", err)
 }
 
 func readSecretFile(path string) (returnValue string, returnErr error) {

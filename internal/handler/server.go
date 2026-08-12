@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"wiredraft/internal/auth"
@@ -30,13 +31,14 @@ import (
 
 // Server coordinates HTTP handlers with persistence and event delivery.
 type Server struct {
-	store  store.Store
-	broker *sse.Broker
-	logger *slog.Logger
-	static fs.FS
-	auth   *auth.Manager
-	entra  entraAuthenticator
-	media  *media.Store
+	store       store.Store
+	broker      *sse.Broker
+	logger      *slog.Logger
+	static      fs.FS
+	auth        *auth.Manager
+	entra       entraAuthenticator
+	media       *media.Store
+	directoryMu sync.Mutex
 }
 
 type entraAuthenticator interface {
@@ -127,6 +129,10 @@ func newHandler(
 		mux.HandleFunc("GET /api/v1/admin/users", server.adminOnly(server.listUsers))
 		mux.HandleFunc("POST /api/v1/admin/users", server.adminOnly(server.createUser))
 		mux.HandleFunc("PUT /api/v1/admin/users/{userId}", server.adminOnly(server.updateUser))
+		mux.HandleFunc("GET /api/v1/admin/organizations", server.adminOnly(server.listOrganizations))
+		mux.HandleFunc("POST /api/v1/admin/organizations", server.adminOnly(server.createOrganization))
+		mux.HandleFunc("PUT /api/v1/admin/organizations/{organizationId}", server.adminOnly(server.updateOrganization))
+		mux.HandleFunc("DELETE /api/v1/admin/organizations/{organizationId}", server.adminOnly(server.deleteOrganization))
 	}
 	protected := func(pattern string, handler http.HandlerFunc) {
 		if authManager != nil {
@@ -209,17 +215,18 @@ func (s *Server) listTopologies(w http.ResponseWriter, request *http.Request) {
 	if s.auth != nil {
 		principal := principalFromRequest(request)
 		summaries = slices.DeleteFunc(summaries, func(summary model.Summary) bool {
-			return !s.auth.CanAccessTopology(principal, summary.ID, summary.Organization)
+			return !s.auth.CanAccessTopology(principal, summary.ID, summary.OrganizationID)
 		})
 	}
 	writeJSON(w, http.StatusOK, summaries)
 }
 
 type createTopologyRequest struct {
-	Name         string `json:"name"`
-	Organization string `json:"organization"`
-	Location     string `json:"location"`
-	Template     string `json:"template"`
+	Name           string `json:"name"`
+	OrganizationID string `json:"organizationId"`
+	Organization   string `json:"organization"`
+	Location       string `json:"location"`
+	Template       string `json:"template"`
 }
 
 func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
@@ -242,24 +249,45 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 	if strings.TrimSpace(input.Name) != "" {
 		topology.Name = strings.TrimSpace(input.Name)
 	}
-	topology.Organization = strings.TrimSpace(input.Organization)
 	topology.Location = strings.TrimSpace(input.Location)
+	principal := principalFromRequest(request)
 	if s.auth != nil {
-		principal := principalFromRequest(request)
-		if principal.IsGuest() {
-			topology.Organization = "Guest"
-			if topology.Location == "" {
-				topology.Location = "Guest Workspace"
-			}
-		} else if !s.auth.CanCreateInOrganization(principal, topology.Organization) {
-			writeError(w, http.StatusForbidden, "organization access denied")
+		s.directoryMu.Lock()
+		defer s.directoryMu.Unlock()
+		session, authenticated := s.sessionFromRequest(request)
+		if !authenticated {
+			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
-		if principal.IsGuest() {
-			if err := s.auth.AddGuestTopology(request.Context(), topology.ID); err != nil {
-				s.fail(w, err)
-				return
-			}
+		principal = session.Principal
+	}
+	organizationID := input.OrganizationID
+	organizationName := input.Organization
+	if s.auth != nil && principal.IsGuest() {
+		organizationID = s.auth.GuestOrganizationID()
+		organizationName = ""
+		if topology.Location == "" {
+			topology.Location = "Guest Workspace"
+		}
+	}
+	organization, err := s.resolveOrganization(
+		request.Context(), organizationID, organizationName, s.auth == nil || !principal.IsGuest(),
+	)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	topology.OrganizationID = organization.ID
+	topology.Organization = organization.Name
+	if s.auth != nil {
+		session, authenticated := s.sessionFromRequest(request)
+		if !authenticated {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		if !s.auth.CanCreateInOrganization(session.Principal, topology.OrganizationID) {
+			writeError(w, http.StatusForbidden, "organization access denied")
+			return
 		}
 	}
 	created, err := s.store.Create(request.Context(), topology)
@@ -271,13 +299,24 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) getTopology(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
+	topology, err := s.getAuthorizedTopology(request, request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	w.Header().Set("ETag", topologyRevisionETag(topology.Revision))
 	writeJSON(w, http.StatusOK, topology)
+}
+
+func (s *Server) getAuthorizedTopology(request *http.Request, id string) (model.Topology, error) {
+	topology, err := s.store.Get(request.Context(), id)
+	if err != nil {
+		return model.Topology{}, err
+	}
+	if !s.authorizedTopologySnapshot(request, topology) {
+		return model.Topology{}, store.ErrNotFound
+	}
+	return topology, nil
 }
 
 func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
@@ -287,29 +326,53 @@ func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	id := request.PathValue("id")
-	if s.auth != nil {
-		principal := principalFromRequest(request)
-		if !principal.IsGuest() && !s.auth.CanCreateInOrganization(principal, input.Organization) {
+	principal := principalFromRequest(request)
+	var requestedOrganization *store.Organization
+	if !principal.IsGuest() && (strings.TrimSpace(input.OrganizationID) != "" || strings.TrimSpace(input.Organization) != "") {
+		organization, err := s.resolveOrganization(
+			request.Context(), input.OrganizationID, input.Organization, false,
+		)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		if s.auth != nil && !s.auth.CanCreateInOrganization(principal, organization.ID) {
 			writeError(w, http.StatusForbidden, "organization access denied")
 			return
 		}
+		requestedOrganization = &organization
 	}
 	updated, err := s.mutate(request, id, func(current *model.Topology) error {
+		if requestedOrganization != nil && s.auth != nil {
+			session, authenticated := s.sessionFromRequest(request)
+			if !authenticated || !s.auth.CanCreateInOrganization(session.Principal, requestedOrganization.ID) {
+				return auth.ErrForbidden
+			}
+		}
 		if input.ID != id {
 			return fmt.Errorf("%w: topology id does not match request path", store.ErrInvalid)
 		}
 		createdAt := current.CreatedAt
+		organizationID := current.OrganizationID
 		organization := current.Organization
 		photos := current.Photos
 		*current = input
 		current.CreatedAt = createdAt
 		current.Photos = photos
-		if s.auth != nil && principalFromRequest(request).IsGuest() {
+		if requestedOrganization == nil {
+			current.OrganizationID = organizationID
 			current.Organization = organization
+		} else {
+			current.OrganizationID = requestedOrganization.ID
+			current.Organization = requestedOrganization.Name
 		}
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, auth.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "organization access denied")
+			return
+		}
 		s.fail(w, err)
 		return
 	}
@@ -319,28 +382,21 @@ func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
 
 func (s *Server) deleteTopology(w http.ResponseWriter, request *http.Request) {
 	id := request.PathValue("id")
-	topology, err := s.store.Get(request.Context(), id)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
 	expectedRevision, err := parseExpectedRevision(request.Header.Get("If-Match"))
 	if err != nil {
 		s.fail(w, fmt.Errorf("%w: %w", store.ErrInvalid, err))
 		return
 	}
-	if expectedRevision != 0 && topology.Revision != expectedRevision {
-		s.fail(w, &store.RevisionConflictError{Expected: expectedRevision, Actual: topology.Revision})
-		return
-	}
-	if err := s.store.Delete(request.Context(), id); err != nil {
+	s.directoryMu.Lock()
+	defer s.directoryMu.Unlock()
+	if err := s.store.DeleteAtRevision(request.Context(), id, expectedRevision, func(topology model.Topology) error {
+		if !s.authorizedTopologySnapshot(request, topology) {
+			return store.ErrNotFound
+		}
+		return nil
+	}); err != nil {
 		s.fail(w, err)
 		return
-	}
-	if s.auth != nil {
-		if err := s.auth.RemoveGuestTopology(request.Context(), id); err != nil {
-			s.logger.Error("removing deleted map from guest workspace", "topology_id", id, "error", err)
-		}
 	}
 	if s.media != nil {
 		if err := s.media.RemoveTopology(id); err != nil {
@@ -1060,7 +1116,7 @@ func (s *Server) deleteFirewallCluster(w http.ResponseWriter, request *http.Requ
 }
 
 func (s *Server) listVLANs(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
+	topology, err := s.getAuthorizedTopology(request, request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -1155,7 +1211,7 @@ func (s *Server) deleteVLAN(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) analysis(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
+	topology, err := s.getAuthorizedTopology(request, request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -1164,7 +1220,7 @@ func (s *Server) analysis(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) trace(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
+	topology, err := s.getAuthorizedTopology(request, request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -1203,7 +1259,7 @@ type updateCommentThreadRequest struct {
 }
 
 func (s *Server) listCommentThreads(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
+	topology, err := s.getAuthorizedTopology(request, request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -1327,7 +1383,7 @@ func (s *Server) deleteCommentThread(w http.ResponseWriter, request *http.Reques
 }
 
 func (s *Server) listDocumentationLinks(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
+	topology, err := s.getAuthorizedTopology(request, request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -1401,7 +1457,7 @@ type shareGrantResponse struct {
 }
 
 func (s *Server) listShareGrants(w http.ResponseWriter, request *http.Request) {
-	topology, err := s.store.Get(request.Context(), request.PathValue("id"))
+	topology, err := s.getAuthorizedTopology(request, request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -1509,7 +1565,8 @@ func (s *Server) getSharedTopology(w http.ResponseWriter, request *http.Request)
 }
 
 func (s *Server) events(w http.ResponseWriter, request *http.Request) {
-	if _, err := s.store.Get(request.Context(), request.PathValue("id")); err != nil {
+	topologyID := request.PathValue("id")
+	if _, err := s.getAuthorizedTopology(request, topologyID); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -1523,7 +1580,7 @@ func (s *Server) events(w http.ResponseWriter, request *http.Request) {
 	if err := controller.Flush(); err != nil {
 		return
 	}
-	events, cancel := s.broker.Subscribe(request.PathValue("id"))
+	events, cancel := s.broker.Subscribe(topologyID)
 	defer cancel()
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
@@ -1535,10 +1592,16 @@ func (s *Server) events(w http.ResponseWriter, request *http.Request) {
 			if !open {
 				return
 			}
+			if !s.eventStreamAuthorized(request, topologyID) {
+				return
+			}
 			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, event.Data); err != nil {
 				return
 			}
 		case <-heartbeat.C:
+			if !s.eventStreamAuthorized(request, topologyID) {
+				return
+			}
 			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
 				return
 			}
@@ -1547,6 +1610,11 @@ func (s *Server) events(w http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
+}
+
+func (s *Server) eventStreamAuthorized(request *http.Request, topologyID string) bool {
+	_, err := s.getAuthorizedTopology(request, topologyID)
+	return err == nil
 }
 
 func (s *Server) staticFile(w http.ResponseWriter, request *http.Request) {
@@ -1607,8 +1675,13 @@ func (s *Server) mutate(request *http.Request, id string, mutation func(*model.T
 	if err != nil {
 		return model.Topology{}, fmt.Errorf("%w: %w", store.ErrInvalid, err)
 	}
+	s.directoryMu.Lock()
+	defer s.directoryMu.Unlock()
 	var previousPhotos []model.Photo
 	updated, err := s.store.MutateAtRevision(request.Context(), id, expectedRevision, func(topology *model.Topology) error {
+		if !s.authorizedTopologySnapshot(request, *topology) {
+			return store.ErrNotFound
+		}
 		previousPhotos = slices.Clone(topology.Photos)
 		if err := mutation(topology); err != nil {
 			return err
@@ -1627,6 +1700,16 @@ func (s *Server) mutate(request *http.Request, id string, mutation func(*model.T
 		}
 	}
 	return updated, nil
+}
+
+func (s *Server) authorizedTopologySnapshot(request *http.Request, topology model.Topology) bool {
+	if s.auth == nil {
+		return true
+	}
+	session, authenticated := s.sessionFromRequest(request)
+	return authenticated && s.auth.CanAccessTopology(
+		session.Principal, topology.ID, topology.OrganizationID,
+	)
 }
 
 func removedPhotos(before, after []model.Photo) []model.Photo {
@@ -1700,6 +1783,8 @@ func newBlankTopology(name string) (model.Topology, error) {
 	return model.Topology{
 		ID:               id,
 		Name:             strings.TrimSpace(name),
+		OrganizationID:   model.DefaultOrganizationID,
+		Organization:     model.DefaultOrganizationName,
 		Racks:            []model.Rack{},
 		Devices:          []model.Device{},
 		Links:            []model.Link{},

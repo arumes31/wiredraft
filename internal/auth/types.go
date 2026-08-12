@@ -52,12 +52,43 @@ type Config struct {
 	CookieSecure    bool
 }
 
+// OrganizationRef is the authentication package's stable view of an
+// organization. The organization store remains authoritative for the catalog.
+type OrganizationRef struct {
+	ID   string
+	Name string
+}
+
+// Preflight contains authentication state needed before the organization
+// catalog can be initialized. It never contains credentials or other secrets.
+type Preflight struct {
+	LegacyOrganizationNames []string
+	GuestOrganizationID     string
+	LegacyGuestTopologyIDs  []string
+}
+
+// Access describes an account's application role and organization grants.
+// Administrators always receive effective all-organization access.
+type Access struct {
+	Role             string   `json:"role"`
+	AllOrganizations bool     `json:"allOrganizations"`
+	OrganizationIDs  []string `json:"organizationIds"`
+}
+
+// UserUpdate contains administrator-controlled account properties.
+type UserUpdate struct {
+	Access
+	Disabled              bool `json:"disabled"`
+	ResetExternalIdentity bool `json:"-"`
+}
+
 // Principal is the immutable authorization identity attached to a request.
 type Principal struct {
-	UserID        string   `json:"userId"`
-	Username      string   `json:"username"`
-	Role          string   `json:"role"`
-	Organizations []string `json:"organizations"`
+	UserID           string   `json:"userId"`
+	Username         string   `json:"username"`
+	Role             string   `json:"role"`
+	AllOrganizations bool     `json:"allOrganizations"`
+	OrganizationIDs  []string `json:"organizationIds"`
 }
 
 // IsAdmin reports whether the principal has the administrator role.
@@ -100,17 +131,19 @@ type LoginChallenge struct {
 
 // UserView is the secret-free account representation used by administrators.
 type UserView struct {
-	ID             string    `json:"id"`
-	Username       string    `json:"username"`
-	Role           string    `json:"role"`
-	Organizations  []string  `json:"organizations"`
-	TOTPConfigured bool      `json:"totpConfigured"`
-	AuthSource     string    `json:"authSource"`
-	ExternalLogin  string    `json:"externalLogin,omitempty"`
-	ExternalLinked bool      `json:"externalLinked"`
-	Disabled       bool      `json:"disabled"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID               string    `json:"id"`
+	Username         string    `json:"username"`
+	Role             string    `json:"role"`
+	AllOrganizations bool      `json:"allOrganizations"`
+	OrganizationIDs  []string  `json:"organizationIds"`
+	TOTPConfigured   bool      `json:"totpConfigured"`
+	AuthSource       string    `json:"authSource"`
+	ExternalLogin    string    `json:"externalLogin,omitempty"`
+	ExternalLinked   bool      `json:"externalLinked"`
+	Disabled         bool      `json:"disabled"`
+	Protected        bool      `json:"protected"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 // ExternalIdentity is a verified identity returned by an OIDC provider.
@@ -122,6 +155,6 @@ type ExternalIdentity struct {
 }
 
 func clonePrincipal(principal Principal) Principal {
-	principal.Organizations = slices.Clone(principal.Organizations)
+	principal.OrganizationIDs = slices.Clone(principal.OrganizationIDs)
 	return principal
 }

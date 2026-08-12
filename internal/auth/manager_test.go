@@ -1,10 +1,13 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -15,11 +18,33 @@ import (
 
 const testPassword = "this is a long test password"
 
+const (
+	testDefaultOrganizationID = "org-default"
+	testGuestOrganizationID   = "org-guest"
+	testViennaOrganizationID  = "org-vienna"
+	testBerlinOrganizationID  = "org-berlin"
+	testGrazOrganizationID    = "org-graz"
+	testLondonOrganizationID  = "org-london"
+)
+
+var testOrganizationRefs = []OrganizationRef{
+	{ID: testDefaultOrganizationID, Name: "Default"},
+	{ID: testGuestOrganizationID, Name: GuestOrganizationName},
+	{ID: testViennaOrganizationID, Name: "Vienna"},
+	{ID: testBerlinOrganizationID, Name: "Berlin"},
+	{ID: testGrazOrganizationID, Name: "Graz"},
+	{ID: testLondonOrganizationID, Name: "London"},
+}
+
+func scopedAccess(ids ...string) Access {
+	return Access{Role: RoleUser, OrganizationIDs: ids}
+}
+
 func TestManagerFirstLoginEnrollmentAndRecovery(t *testing.T) {
 	t.Parallel()
 	manager, err := New(t.TempDir(), Config{
 		AdminUsername: "admin", AdminPassword: testPassword, GuestEnabled: true,
-	}, []string{"topology-b", "topology-a"})
+	}, testOrganizationRefs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,45 +100,46 @@ func TestManagerOrganizationAndGuestAuthorization(t *testing.T) {
 	t.Parallel()
 	manager, err := New(t.TempDir(), Config{
 		AdminUsername: "admin", AdminPassword: testPassword, GuestEnabled: true,
-	}, []string{"legacy-map"})
+	}, testOrganizationRefs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := manager.CreateUser(t.Context(), "vienna.operator", "another long test password", []string{"Vienna", "Berlin", "vienna"})
+	user, err := manager.CreateUser(
+		t.Context(),
+		"vienna.operator",
+		"another long test password",
+		scopedAccess(testViennaOrganizationID, testBerlinOrganizationID, testViennaOrganizationID),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(user.Organizations) != 2 {
-		t.Fatalf("organizations = %#v, want two unique values", user.Organizations)
+	if !slices.Equal(user.OrganizationIDs, []string{testBerlinOrganizationID, testViennaOrganizationID}) {
+		t.Fatalf("organization ids = %#v, want two unique values", user.OrganizationIDs)
 	}
-	principal := Principal{UserID: user.ID, Username: user.Username, Role: RoleUser, Organizations: user.Organizations}
-	if !manager.CanAccessTopology(principal, "map-a", "Vienna") {
+	principal := Principal{
+		UserID: user.ID, Username: user.Username, Role: RoleUser,
+		OrganizationIDs: user.OrganizationIDs,
+	}
+	if !manager.CanAccessTopology(principal, "map-a", testViennaOrganizationID) {
 		t.Fatal("assigned organization was denied")
 	}
-	if manager.CanAccessTopology(principal, "map-b", "London") {
+	if manager.CanAccessTopology(principal, "map-b", testLondonOrganizationID) {
 		t.Fatal("unassigned organization was allowed")
 	}
-	guest := Principal{UserID: RoleGuest, Username: "Guest", Role: RoleGuest}
-	if !manager.CanAccessTopology(guest, "legacy-map", "Private Org") {
-		t.Fatal("legacy map was not captured by the guest workspace")
-	}
-	if manager.CanAccessTopology(guest, "new-map", "Guest") {
-		t.Fatal("unregistered map was exposed to guest")
-	}
-	if err := manager.AddGuestTopology(t.Context(), "new-map"); err != nil {
+	guestSession, err := manager.NewGuestSession()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !manager.CanAccessTopology(guest, "new-map", "Guest") {
-		t.Fatal("new guest map was not persisted in the guest workspace")
+	guest := guestSession.Principal
+	if !manager.CanAccessTopology(guest, "existing-map", testGuestOrganizationID) {
+		t.Fatal("Guest-owned map was denied")
 	}
-	if err := manager.RemoveGuestTopology(t.Context(), "new-map"); err != nil {
-		t.Fatal(err)
+	if !manager.CanAccessTopology(guest, "new-map", testGuestOrganizationID) {
+		t.Fatal("new Guest-owned map was denied")
 	}
-	if manager.CanAccessTopology(guest, "new-map", "Guest") {
-		t.Fatal("removed guest map remains accessible")
-	}
-	if err := manager.RemoveGuestTopology(t.Context(), "missing-map"); err != nil {
-		t.Fatalf("removing an absent guest map: %v", err)
+	if manager.CanAccessTopology(guest, "existing-map", testViennaOrganizationID) ||
+		manager.CanAccessTopology(guest, "existing-map", "") {
+		t.Fatal("Guest access widened outside the stable Guest organization")
 	}
 }
 
@@ -123,7 +149,7 @@ func TestManagerBootstrapTOTPFromEnvironment(t *testing.T) {
 	manager, err := New(t.TempDir(), Config{
 		AdminUsername: "root-admin", AdminPassword: testPassword,
 		AdminTOTPSecret: secret, GuestEnabled: false,
-	}, nil)
+	}, testOrganizationRefs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,13 +170,66 @@ func TestManagerBootstrapTOTPFromEnvironment(t *testing.T) {
 	if _, err := manager.NewGuestSession(); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("guest session error = %v, want ErrForbidden", err)
 	}
+	disabledGuest := Principal{UserID: RoleGuest, Username: "Guest", Role: RoleGuest}
+	if manager.CanAccessTopology(disabledGuest, "map", testGuestOrganizationID) ||
+		manager.CanCreateInOrganization(disabledGuest, testGuestOrganizationID) {
+		t.Fatal("disabled Guest access was authorized by a synthetic principal")
+	}
+}
+
+func TestManagerRetiresLegacyGuestIDsOnlyAfterCatalogBindingSucceeds(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	authDir := filepath.Join(dataDir, "auth")
+	if err := os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(authDir, "accounts.json")
+	legacy := []byte(`{
+  "version": 3,
+  "guestWorkspaceInitialized": true,
+  "guestTopologyIds": ["default-demo", "actual-guest-map"],
+  "users": []
+}`)
+	if err := os.WriteFile(statePath, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := Config{AdminUsername: "admin", AdminPassword: testPassword, GuestEnabled: true}
+	withoutGuest := slices.DeleteFunc(slices.Clone(testOrganizationRefs), func(ref OrganizationRef) bool {
+		return ref.ID == testGuestOrganizationID
+	})
+	if _, err := New(dataDir, config, withoutGuest); err == nil {
+		t.Fatal("startup without the required Guest organization succeeded")
+	}
+	failedData, err := os.ReadFile(statePath) // #nosec G304 -- statePath is a test-owned temporary fixture.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(failedData, []byte("guestTopologyIds")) {
+		t.Fatal("failed startup retired Guest migration hints")
+	}
+	manager, err := New(dataDir, config, testOrganizationRefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manager.GuestOrganizationID() != testGuestOrganizationID {
+		t.Fatalf("Guest organization = %q", manager.GuestOrganizationID())
+	}
+	migratedData, err := os.ReadFile(statePath) // #nosec G304 -- statePath is a test-owned temporary fixture.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(migratedData, []byte("guestTopologyIds")) ||
+		bytes.Contains(migratedData, []byte("guestWorkspaceInitialized")) {
+		t.Fatalf("successful startup retained Guest migration hints: %s", migratedData)
+	}
 }
 
 func TestLoginRateLimitCannotBeBypassedWithSourcePorts(t *testing.T) {
 	t.Parallel()
 	manager, err := New(t.TempDir(), Config{
 		AdminUsername: "admin", AdminPassword: testPassword,
-	}, nil)
+	}, testOrganizationRefs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +276,7 @@ func TestManagerAccountAndSessionLifecycle(t *testing.T) {
 	t.Parallel()
 	manager, err := New(t.TempDir(), Config{
 		AdminUsername: "admin", AdminPassword: testPassword, GuestEnabled: true, CookieSecure: true,
-	}, []string{"legacy", "legacy", " "})
+	}, testOrganizationRefs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,20 +286,35 @@ func TestManagerAccountAndSessionLifecycle(t *testing.T) {
 	if users := manager.Users(); len(users) != 1 || users[0].Username != "admin" {
 		t.Fatalf("bootstrap users = %#v", users)
 	}
-	user, err := manager.CreateUser(t.Context(), "  Vienna.User  ", "another sufficiently long password", []string{"Vienna", "vienna", " Berlin "})
+	user, err := manager.CreateUser(
+		t.Context(),
+		"  Vienna.User  ",
+		"another sufficiently long password",
+		scopedAccess(testViennaOrganizationID, testViennaOrganizationID, testBerlinOrganizationID),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if user.Username != "Vienna.User" || !slices.Equal(user.Organizations, []string{"Berlin", "Vienna"}) {
+	if user.Username != "Vienna.User" ||
+		!slices.Equal(user.OrganizationIDs, []string{testBerlinOrganizationID, testViennaOrganizationID}) {
 		t.Fatalf("created user = %#v", user)
 	}
-	if _, err := manager.CreateUser(t.Context(), "vienna.user", "another sufficiently long password", []string{"Vienna"}); !errors.Is(err, ErrConflict) {
+	if _, err := manager.CreateUser(
+		t.Context(),
+		"vienna.user",
+		"another sufficiently long password",
+		scopedAccess(testViennaOrganizationID),
+	); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate username error = %v, want ErrConflict", err)
 	}
-	if !manager.CanCreateInOrganization(Principal{Role: RoleAdmin}, "Anywhere") ||
-		!manager.CanCreateInOrganization(Principal{Role: RoleGuest}, "Guest") ||
-		!manager.CanCreateInOrganization(Principal{Role: RoleUser, Organizations: []string{"Vienna"}}, " vienna ") ||
-		manager.CanCreateInOrganization(Principal{Role: RoleUser, Organizations: []string{"Vienna"}}, "Berlin") {
+	if !manager.CanCreateInOrganization(Principal{Role: RoleAdmin}, testViennaOrganizationID) ||
+		!manager.CanCreateInOrganization(Principal{Role: RoleGuest}, testGuestOrganizationID) ||
+		!manager.CanCreateInOrganization(Principal{
+			Role: RoleUser, OrganizationIDs: []string{testViennaOrganizationID},
+		}, testViennaOrganizationID) ||
+		manager.CanCreateInOrganization(Principal{
+			Role: RoleUser, OrganizationIDs: []string{testViennaOrganizationID},
+		}, testBerlinOrganizationID) {
 		t.Fatal("organization creation authorization is inconsistent")
 	}
 
@@ -238,51 +332,73 @@ func TestManagerAccountAndSessionLifecycle(t *testing.T) {
 
 	manager.mu.Lock()
 	userSession, err := manager.newPrincipalSessionLocked(Principal{
-		UserID: user.ID, Username: user.Username, Role: RoleUser, Organizations: user.Organizations,
+		UserID: user.ID, Username: user.Username, Role: RoleUser,
+		OrganizationIDs: user.OrganizationIDs,
 	}, manager.now())
 	manager.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := manager.UpdateUser(t.Context(), user.ID, []string{"Graz"}, false)
+	updated, err := manager.UpdateUser(t.Context(), user.ID, UserUpdate{
+		Access: scopedAccess(testGrazOrganizationID),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(updated.Organizations, []string{"Graz"}) {
-		t.Fatalf("updated organizations = %#v", updated.Organizations)
+	if !slices.Equal(updated.OrganizationIDs, []string{testGrazOrganizationID}) {
+		t.Fatalf("updated organization ids = %#v", updated.OrganizationIDs)
 	}
-	if session, ok := manager.Session(userSession.Token); !ok || !slices.Equal(session.Principal.Organizations, []string{"Graz"}) {
-		t.Fatalf("live session organizations = %#v, exists = %v", session.Principal.Organizations, ok)
+	if _, ok := manager.Session(userSession.Token); ok {
+		t.Fatal("grant change did not revoke the active session")
 	}
-	if _, err := manager.UpdateUser(t.Context(), bootstrapAdminID, []string{"Admin"}, true); !errors.Is(err, ErrForbidden) {
+	if _, err := manager.UpdateUser(t.Context(), bootstrapAdminID, UserUpdate{
+		Access:   Access{Role: RoleAdmin, AllOrganizations: true},
+		Disabled: true,
+	}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("bootstrap update error = %v, want ErrForbidden", err)
 	}
-	if _, err := manager.UpdateUser(t.Context(), "missing", []string{"Admin"}, true); !errors.Is(err, ErrNotFound) {
+	if _, err := manager.UpdateUser(t.Context(), "missing", UserUpdate{
+		Access: scopedAccess(testGrazOrganizationID),
+	}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing update error = %v, want ErrNotFound", err)
 	}
-	if _, err := manager.UpdateUser(t.Context(), user.ID, nil, false); err == nil {
+	if _, err := manager.UpdateUser(t.Context(), user.ID, UserUpdate{Access: Access{Role: RoleUser}}); err == nil {
 		t.Fatal("empty organization update was accepted")
 	}
-	if _, err := manager.UpdateUser(t.Context(), user.ID, []string{"Graz"}, true); err != nil {
+	manager.mu.Lock()
+	userSession, err = manager.newSessionLocked(manager.state.Users[slices.IndexFunc(
+		manager.state.Users,
+		func(candidate persistedUser) bool { return candidate.ID == user.ID },
+	)], manager.now())
+	manager.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.UpdateUser(t.Context(), user.ID, UserUpdate{
+		Access: scopedAccess(testGrazOrganizationID), Disabled: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := manager.Session(userSession.Token); ok {
 		t.Fatal("disabling an account did not revoke its sessions")
 	}
-	if err := manager.AddGuestTopology(t.Context(), " "); err == nil {
-		t.Fatal("empty guest topology id was accepted")
-	}
-	if err := manager.AddGuestTopology(t.Context(), "legacy"); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestManagerEntraAccountLinkingAndReset(t *testing.T) {
-	manager, err := New(t.TempDir(), Config{AdminUsername: "admin", AdminPassword: testPassword}, nil)
+	manager, err := New(
+		t.TempDir(),
+		Config{AdminUsername: "admin", AdminPassword: testPassword},
+		testOrganizationRefs,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := manager.CreateEntraUser(t.Context(), "Vienna Microsoft", "operator@example.com", []string{"Vienna"})
+	user, err := manager.CreateEntraUser(
+		t.Context(),
+		"Vienna Microsoft",
+		"operator@example.com",
+		scopedAccess(testViennaOrganizationID),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +414,8 @@ func TestManagerEntraAccountLinkingAndReset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.Principal.UserID != user.ID || !slices.Equal(session.Principal.Organizations, []string{"Vienna"}) {
+	if session.Principal.UserID != user.ID ||
+		!slices.Equal(session.Principal.OrganizationIDs, []string{testViennaOrganizationID}) {
 		t.Fatalf("Entra session = %#v", session)
 	}
 	linked := manager.Users()[slices.IndexFunc(manager.Users(), func(candidate UserView) bool { return candidate.ID == user.ID })]
@@ -319,6 +436,194 @@ func TestManagerEntraAccountLinkingAndReset(t *testing.T) {
 	}
 }
 
+func TestManagerRejectsExternalResetForLocalAccountAtomically(t *testing.T) {
+	t.Parallel()
+	manager, err := New(
+		t.TempDir(),
+		Config{AdminUsername: "bootstrap", AdminPassword: testPassword},
+		testOrganizationRefs,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := manager.CreateUser(
+		t.Context(), "local.operator", "another sufficiently long password",
+		scopedAccess(testViennaOrganizationID),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = manager.UpdateUser(t.Context(), user.ID, UserUpdate{
+		Access:                Access{Role: RoleAdmin, AllOrganizations: true},
+		Disabled:              true,
+		ResetExternalIdentity: true,
+	})
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("resetting local identity error = %v, want ErrForbidden", err)
+	}
+	current := manager.Users()[slices.IndexFunc(manager.Users(), func(candidate UserView) bool {
+		return candidate.ID == user.ID
+	})]
+	if current.Role != RoleUser || current.AllOrganizations || current.Disabled ||
+		!slices.Equal(current.OrganizationIDs, []string{testViennaOrganizationID}) {
+		t.Fatalf("rejected reset changed local account: %#v", current)
+	}
+}
+
+func TestManagerApplicationRolesAndGlobalAccess(t *testing.T) {
+	t.Parallel()
+	manager, err := New(
+		t.TempDir(),
+		Config{AdminUsername: "bootstrap", AdminPassword: testPassword},
+		testOrganizationRefs,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localAdmin, err := manager.CreateUser(
+		t.Context(),
+		"local.admin",
+		"another sufficiently long password",
+		Access{Role: RoleAdmin},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !localAdmin.AllOrganizations || len(localAdmin.OrganizationIDs) != 0 || localAdmin.Protected {
+		t.Fatalf("local administrator = %#v", localAdmin)
+	}
+	globalUser, err := manager.CreateUser(
+		t.Context(),
+		"global.user",
+		"another sufficiently long password",
+		Access{Role: RoleUser, AllOrganizations: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalPrincipal := Principal{
+		UserID: globalUser.ID, Username: globalUser.Username, Role: RoleUser,
+		AllOrganizations: true,
+	}
+	if !manager.CanAccessTopology(globalPrincipal, "map", testLondonOrganizationID) ||
+		!manager.CanCreateInOrganization(globalPrincipal, testBerlinOrganizationID) {
+		t.Fatal("global user was denied a registered organization")
+	}
+	if manager.CanAccessTopology(globalPrincipal, "map", "unknown") {
+		t.Fatal("global user was allowed an unregistered organization")
+	}
+
+	entraAdmin, err := manager.CreateEntraUser(
+		t.Context(),
+		"entra.admin",
+		"entra.admin@example.com",
+		Access{Role: RoleAdmin, AllOrganizations: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entraAdmin.Role != RoleAdmin || !entraAdmin.AllOrganizations || entraAdmin.TOTPConfigured {
+		t.Fatalf("Entra administrator = %#v", entraAdmin)
+	}
+	manager.mu.Lock()
+	persisted := manager.state.Users[slices.IndexFunc(manager.state.Users, func(user persistedUser) bool {
+		return user.ID == entraAdmin.ID
+	})]
+	manager.mu.Unlock()
+	if persisted.PasswordHash != "" || persisted.EncryptedTOTPSecret != "" ||
+		len(persisted.RecoveryCodeHashes) != 0 {
+		t.Fatalf("Entra administrator contains local secrets: %#v", persisted)
+	}
+	session, err := manager.CompleteEntraLogin(t.Context(), ExternalIdentity{
+		TenantID: "tenant-admin", ObjectID: "object-admin",
+		PreferredUsername: "entra.admin@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !session.Principal.IsAdmin() || !session.Principal.AllOrganizations ||
+		!manager.CanAccessTopology(session.Principal, "map", testGrazOrganizationID) {
+		t.Fatalf("Entra administrator session = %#v", session)
+	}
+	updated, err := manager.UpdateUser(t.Context(), entraAdmin.ID, UserUpdate{
+		Access: scopedAccess(testViennaOrganizationID),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Role != RoleUser || updated.AllOrganizations {
+		t.Fatalf("demoted account = %#v", updated)
+	}
+	if _, exists := manager.Session(session.Token); exists {
+		t.Fatal("role change did not revoke the Entra session")
+	}
+
+	users := manager.Users()
+	bootstrapIndex := slices.IndexFunc(users, func(user UserView) bool { return user.ID == bootstrapAdminID })
+	if bootstrapIndex < 0 || !users[bootstrapIndex].Protected || !users[bootstrapIndex].AllOrganizations {
+		t.Fatalf("bootstrap account = %#v", users)
+	}
+}
+
+func TestManagerOrganizationCatalogLifecycle(t *testing.T) {
+	t.Parallel()
+	manager, err := New(
+		t.TempDir(),
+		Config{AdminUsername: "admin", AdminPassword: testPassword},
+		testOrganizationRefs,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const newOrganizationID = "org-new"
+	if err := manager.RegisterOrganization(OrganizationRef{ID: newOrganizationID, Name: "New Organization"}); err != nil {
+		t.Fatal(err)
+	}
+	user, err := manager.CreateUser(
+		t.Context(),
+		"new.organization.user",
+		"another sufficiently long password",
+		scopedAccess(newOrganizationID),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	session, err := manager.newSessionLocked(manager.state.Users[slices.IndexFunc(
+		manager.state.Users,
+		func(candidate persistedUser) bool { return candidate.ID == user.ID },
+	)], manager.now())
+	manager.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.RegisterOrganization(OrganizationRef{ID: newOrganizationID, Name: "Renamed Organization"}); err != nil {
+		t.Fatal(err)
+	}
+	if !manager.CanAccessTopology(session.Principal, "map", newOrganizationID) {
+		t.Fatal("rename invalidated a stable organization grant")
+	}
+	if err := manager.RemoveOrganizationAssignments(t.Context(), newOrganizationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := manager.Session(session.Token); exists {
+		t.Fatal("organization cleanup did not revoke an affected session")
+	}
+	users := manager.Users()
+	index := slices.IndexFunc(users, func(candidate UserView) bool { return candidate.ID == user.ID })
+	if index < 0 || len(users[index].OrganizationIDs) != 0 || users[index].AllOrganizations {
+		t.Fatalf("cleaned account = %#v", users)
+	}
+	if manager.CanCreateInOrganization(Principal{Role: RoleAdmin}, newOrganizationID) {
+		t.Fatal("deleted organization remains registered")
+	}
+	if _, err := manager.UpdateUser(t.Context(), user.ID, UserUpdate{
+		Access: Access{Role: RoleUser},
+	}); err == nil {
+		t.Fatal("public update accepted an empty scoped grant")
+	}
+}
+
 func TestManagerValidationAndExpiryEdges(t *testing.T) {
 	t.Parallel()
 	if remoteHost("EXAMPLE.COM:443") != "example.com" || remoteHost(" HostOnly ") != "hostonly" {
@@ -332,31 +637,52 @@ func TestManagerValidationAndExpiryEdges(t *testing.T) {
 	if err := validateUsername("valid.user"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := normalizeOrganizations(nil); err == nil {
-		t.Fatal("empty organizations were accepted")
-	}
-	if _, err := normalizeOrganizations([]string{strings.Repeat("x", 121)}); err == nil {
-		t.Fatal("oversized organization was accepted")
-	}
-	many := make([]string, 65)
-	for index := range many {
-		many[index] = fmt.Sprintf("org-%02d", index)
-	}
-	if _, err := normalizeOrganizations(many); err == nil {
-		t.Fatal("too many organizations were accepted")
-	}
 	if got := normalizeIDs([]string{" b ", "a", "b", ""}); !slices.Equal(got, []string{"a", "b"}) {
 		t.Fatalf("normalizeIDs() = %#v", got)
+	}
+	catalog, err := newOrganizationCatalog(testOrganizationRefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accessManager := &Manager{organizations: catalog}
+	if _, err := accessManager.normalizeAccessLocked(Access{Role: RoleUser}, false); err == nil {
+		t.Fatal("empty scoped access was accepted")
+	}
+	if _, err := accessManager.normalizeAccessLocked(Access{
+		Role: RoleUser, AllOrganizations: true, OrganizationIDs: []string{testViennaOrganizationID},
+	}, false); err == nil {
+		t.Fatal("contradictory global and scoped access was accepted")
+	}
+	if _, err := accessManager.normalizeAccessLocked(scopedAccess("unknown"), false); err == nil {
+		t.Fatal("unknown organization id was accepted")
+	}
+	manyRefs := make([]OrganizationRef, 65)
+	manyIDs := make([]string, 65)
+	for index := range manyRefs {
+		manyIDs[index] = fmt.Sprintf("organization-%02d", index)
+		manyRefs[index] = OrganizationRef{ID: manyIDs[index], Name: fmt.Sprintf("Organization %02d", index)}
+	}
+	manyCatalog, err := newOrganizationCatalog(manyRefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&Manager{organizations: manyCatalog}).normalizeAccessLocked(scopedAccess(manyIDs...), false); err == nil {
+		t.Fatal("too many organization assignments were accepted")
 	}
 
 	passwordHash, err := hashPassword(testPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
-	validUser := persistedUser{ID: "user", Username: "User", UsernameKey: "user", Role: RoleUser, PasswordHash: passwordHash, AuthSource: AuthSourceLocal}
+	validUser := persistedUser{
+		ID: "user", Username: "User", UsernameKey: "user", Role: RoleUser,
+		PasswordHash: passwordHash, AuthSource: AuthSourceLocal,
+		OrganizationIDs: []string{testViennaOrganizationID},
+	}
 	validEntraUser := persistedUser{
 		ID: "entra-user", Username: "Entra User", UsernameKey: "entra user", Role: RoleUser,
 		AuthSource: AuthSourceEntra, ExternalLogin: "entra@example.com",
+		OrganizationIDs: []string{testViennaOrganizationID},
 	}
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -385,13 +711,20 @@ func TestManagerValidationAndExpiryEdges(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if err := validatePersistentState(test.state, make([]byte, 32)); err == nil {
+			test.state.Version = authStateVersion
+			if err := validatePersistentState(test.state, make([]byte, 32), catalog); err == nil {
 				t.Fatal("validatePersistentState() succeeded")
 			}
 		})
 	}
 
-	manager := newManager(persistentState{Users: []persistedUser{validUser}}, make([]byte, 32), Config{}, func(context.Context, persistentState) error { return nil })
+	manager := newManager(
+		persistentState{Version: authStateVersion, Users: []persistedUser{validUser}},
+		make([]byte, 32),
+		Config{},
+		catalog,
+		func(context.Context, persistentState) error { return nil },
+	)
 	manager.now = func() time.Time { return now }
 	manager.sessions["expired"] = Session{Token: "expired", ExpiresAt: now}
 	manager.challenges["expired"] = pendingChallenge{Token: "expired", UserID: validUser.ID, ExpiresAt: now}

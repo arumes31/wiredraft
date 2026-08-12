@@ -63,8 +63,10 @@ docker compose down
 1. Sign in with `WIREDRAFT_ADMIN_USER` and `WIREDRAFT_ADMIN_PASSWORD` from `.env`.
 2. On the first administrator login, scan the QR code with a TOTP authenticator and enter its current six-digit code. If `WIREDRAFT_ADMIN_TOTP_SECRET` is already set, enrollment is skipped.
 3. Download or copy the one-use recovery codes. They are displayed only when TOTP enrollment completes.
-4. Open the generated demonstration map, or create a topology for an organization and location.
+4. Open the demonstration map in the protected `Default` organization. Use **Identity Control > Organizations** to add organizations before assigning users or creating maps for them.
 5. Add racks and devices, connect two ports to create a cable, then configure VLANs, bundles, switch systems, firewall clusters, documentation links, and protected field photos from the inspectors.
+
+Accounts are global: a user may be granted one, several, or all organizations. The organization selector in Identity Control changes the current map view; administrators always retain access to every organization. Every map belongs to one registered organization, and `Default` cannot be renamed or deleted.
 
 Guest access is enabled by default for existing guest-workspace maps. Set `WIREDRAFT_GUEST_ENABLED=false` before startup when anonymous workspace access is not wanted.
 
@@ -148,7 +150,7 @@ The published runtime image is `FROM scratch`, contains only the statically link
 
 ### Runtime and security
 
-- Local password and TOTP authentication, optional single-tenant Microsoft Entra ID login, one-use recovery codes, opaque host-bound sessions, organization-scoped users, and administrator user management.
+- Local password and TOTP authentication, optional single-tenant Microsoft Entra ID login, one-use recovery codes, opaque host-bound sessions, global user identities with multi-organization grants, and administrator management for users and organizations.
 - Strict JSON decoding, request size limits, same-origin and CSRF enforcement, security headers, structured logs, database transactions, and graceful shutdown.
 - Embedded native ES-module frontend with no runtime Node.js dependency; release builds minify modules before `go:embed` compilation.
 - Responsive controls, keyboard-visible focus, reduced-motion support, adaptive graphics quality, bounded frame rates, and suspended rendering for hidden canvases.
@@ -192,8 +194,9 @@ sequenceDiagram
 
 | Persistent item | Contents |
 | --- | --- |
-| `topologies` | Complete topology JSONB documents plus name, organization, location, revision, counts, and timestamps |
-| `auth_state` | Users, organization grants, password/TOTP/recovery state, guest workspace membership, and the 32-byte key used to encrypt authenticator secrets |
+| `organizations` | Stable organization IDs and display names, including the protected `Default` organization |
+| `topologies` | Complete topology JSONB documents plus organization ownership, name, location, revision, counts, and timestamps |
+| `auth_state` | Global users, organization grants, password/TOTP/recovery state, guest workspace membership, and the 32-byte key used to encrypt authenticator secrets |
 | `data/postgres` host directory | The complete database used by the included Compose deployment |
 | `data/media` host directory | Randomly renamed JPEG/PNG attachments, isolated by topology and never exposed as a browsable static directory |
 
@@ -237,7 +240,7 @@ During the rename migration window, `NETDIAGRAM_GUEST_ENABLED` and `NETDIAGRAM_C
 
 ## Microsoft Entra ID login
 
-WireDraft can use a private Microsoft 365 work account as an alternative login. This is an optional, single-tenant OpenID Connect integration: the local administrator remains available for recovery and explicitly pre-provisions every Entra user and their organization grants.
+WireDraft can use a private Microsoft 365 work account as an alternative login. This is an optional, single-tenant OpenID Connect integration: the local administrator remains available for recovery and explicitly pre-provisions every Entra user, their WireDraft application role, and their organization grants.
 
 No inbound Internet port is required. The user's browser visits Microsoft and is redirected back to WireDraft's private HTTPS name; Microsoft does not initiate a connection to WireDraft. The WireDraft container needs outbound DNS and HTTPS access to `login.microsoftonline.com` and to the endpoints in Microsoft's OIDC discovery document.
 
@@ -332,11 +335,11 @@ Entra configuration errors fail startup instead of silently weakening login. OID
 ### 5. Pre-provision and link users
 
 1. Sign in as the local WireDraft administrator.
-2. Open **Identity Control**, select **Microsoft Entra** as the account source, enter the WireDraft display username and the user's exact current Entra sign-in name (UPN), then grant the required organizations.
+2. Open **Identity Control > User accounts**, select **Microsoft Entra** as the account source, enter the WireDraft display username and the user's exact current Entra sign-in name (UPN), then choose the WireDraft application role and grant one, several, or all organizations. Entra accounts have no local password.
 3. Ask the user to select **Sign in with Microsoft**. On the first successful login, WireDraft matches the verified UPN once and binds the account to the immutable Entra tenant/object pair (`tid` + `oid`).
 4. After linking, UPN or display-name changes do not change authorization. If Microsoft deletes and recreates the identity, verify the replacement account and use **Reset Entra link** before the next login.
 
-Assignment in Entra and pre-provisioning in WireDraft are both required. An authenticated tenant user who has no matching enabled WireDraft account is rejected. Entra accounts cannot be administrators; keep at least one strong local administrator account for recovery.
+Assignment in Entra and pre-provisioning in WireDraft are both required. An authenticated tenant user who has no matching enabled WireDraft account is rejected. A WireDraft administrator may promote either a local or Entra account to application administrator; this is independent of Entra directory roles. Keep the protected local bootstrap administrator available for recovery.
 
 WireDraft validates the token issuer, signature, audience, expiry, nonce, tenant, and authorization flow state. It stores only the stable `tid`/`oid` binding and display metadata—never ID tokens, access tokens, refresh tokens, or Microsoft passwords. The local logout ends the WireDraft session but does not globally sign the browser out of Microsoft 365.
 

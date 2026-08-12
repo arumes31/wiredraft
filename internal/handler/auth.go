@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"wiredraft/internal/auth"
+	"wiredraft/internal/store"
 )
 
 const (
@@ -21,8 +22,8 @@ type principalContextKey struct{}
 
 type authStatusResponse struct {
 	auth.SessionView
-	AvailableOrganizations []string `json:"availableOrganizations,omitempty"`
-	EntraEnabled           bool     `json:"entraEnabled"`
+	AvailableOrganizations []store.Organization `json:"availableOrganizations,omitempty"`
+	EntraEnabled           bool                 `json:"entraEnabled"`
 }
 
 type loginRequest struct {
@@ -36,17 +37,16 @@ type challengeCodeRequest struct {
 }
 
 type createUserRequest struct {
-	Username      string   `json:"username"`
-	Password      string   `json:"password"`
-	AuthSource    string   `json:"authSource"`
-	ExternalLogin string   `json:"externalLogin"`
-	Organizations []string `json:"organizations"`
+	auth.Access
+	Username      string `json:"username"`
+	Password      string `json:"password"`
+	AuthSource    string `json:"authSource"`
+	ExternalLogin string `json:"externalLogin"`
 }
 
 type updateUserRequest struct {
-	Organizations         []string `json:"organizations"`
-	Disabled              bool     `json:"disabled"`
-	ResetExternalIdentity bool     `json:"resetExternalIdentity"`
+	auth.UserUpdate
+	ResetExternalIdentity bool `json:"resetExternalIdentity"`
 }
 
 func (s *Server) authStatus(w http.ResponseWriter, request *http.Request) {
@@ -60,14 +60,12 @@ func (s *Server) authStatus(w http.ResponseWriter, request *http.Request) {
 		response.CSRFToken = session.CSRFToken
 		response.ExpiresAt = session.ExpiresAt
 		response.Principal = session.Principal
-		if session.Principal.IsAdmin() {
-			organizations, err := s.availableOrganizations(request.Context())
-			if err != nil {
-				s.fail(w, err)
-				return
-			}
-			response.AvailableOrganizations = organizations
+		organizations, err := s.availableOrganizations(request.Context(), session.Principal)
+		if err != nil {
+			s.fail(w, err)
+			return
 		}
+		response.AvailableOrganizations = organizations
 	}
 	writeJSON(w, http.StatusOK, response)
 }
@@ -219,7 +217,7 @@ func (s *Server) logout(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) listUsers(w http.ResponseWriter, request *http.Request) {
-	organizations, err := s.availableOrganizations(request.Context())
+	organizations, err := s.store.ListOrganizations(request.Context())
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -230,30 +228,37 @@ func (s *Server) listUsers(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) createUser(w http.ResponseWriter, request *http.Request) {
+	s.directoryMu.Lock()
+	defer s.directoryMu.Unlock()
+	administrator, authorized := s.currentAdministrator(w, request)
+	if !authorized {
+		return
+	}
+
 	var input createUserRequest
 	if err := decodeJSON(w, request, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid account request")
 		return
 	}
-	organizations, valid, err := s.canonicalOrganizations(request.Context(), input.Organizations)
+	access, err := s.canonicalAccess(request.Context(), input.Access)
 	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if !valid {
-		writeError(w, http.StatusBadRequest, "select one or more existing organizations")
+		s.authFailure(w, err)
 		return
 	}
 	var user auth.UserView
 	switch input.AuthSource {
 	case "", auth.AuthSourceLocal:
-		user, err = s.auth.CreateUser(request.Context(), input.Username, input.Password, organizations)
+		user, err = s.auth.CreateUser(request.Context(), input.Username, input.Password, access)
 	case auth.AuthSourceEntra:
 		if s.entra == nil {
 			writeError(w, http.StatusBadRequest, "Microsoft Entra login is not enabled")
 			return
 		}
-		user, err = s.auth.CreateEntraUser(request.Context(), input.Username, input.ExternalLogin, organizations)
+		if strings.TrimSpace(input.Password) != "" {
+			writeError(w, http.StatusBadRequest, "Microsoft Entra accounts cannot have a local password")
+			return
+		}
+		user, err = s.auth.CreateEntraUser(request.Context(), input.Username, input.ExternalLogin, access)
 	default:
 		writeError(w, http.StatusBadRequest, "authentication source is invalid")
 		return
@@ -263,44 +268,69 @@ func (s *Server) createUser(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	s.logger.Info("account created",
-		"administrator_id", principalFromRequest(request).UserID,
+		"administrator_id", administrator.UserID,
 		"user_id", user.ID,
-		"organization_count", len(user.Organizations),
+		"organization_count", len(user.OrganizationIDs),
 	)
 	writeJSON(w, http.StatusCreated, user)
 }
 
 func (s *Server) updateUser(w http.ResponseWriter, request *http.Request) {
+	s.directoryMu.Lock()
+	defer s.directoryMu.Unlock()
+	administrator, authorized := s.currentAdministrator(w, request)
+	if !authorized {
+		return
+	}
+
 	var input updateUserRequest
 	if err := decodeJSON(w, request, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid account update")
 		return
 	}
-	organizations, valid, err := s.canonicalOrganizations(request.Context(), input.Organizations)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if !valid {
-		writeError(w, http.StatusBadRequest, "select one or more existing organizations")
-		return
-	}
-	user, err := s.auth.UpdateUser(request.Context(), request.PathValue("userId"), organizations, input.Disabled)
+	access, err := s.canonicalUpdatedAccess(
+		request.Context(), request.PathValue("userId"), input.Access,
+		input.Disabled, input.ResetExternalIdentity,
+	)
 	if err != nil {
 		s.authFailure(w, err)
 		return
 	}
-	if input.ResetExternalIdentity {
-		user, err = s.auth.ResetEntraBinding(request.Context(), request.PathValue("userId"))
-		if err != nil {
-			s.authFailure(w, err)
-			return
-		}
+	user, err := s.auth.UpdateUser(request.Context(), request.PathValue("userId"), auth.UserUpdate{
+		Access: access, Disabled: input.Disabled, ResetExternalIdentity: input.ResetExternalIdentity,
+	})
+	if err != nil {
+		s.authFailure(w, err)
+		return
 	}
 	s.logger.Info("account updated",
-		"administrator_id", principalFromRequest(request).UserID,
+		"administrator_id", administrator.UserID,
 	)
 	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) canonicalUpdatedAccess(
+	ctx context.Context,
+	userID string,
+	requested auth.Access,
+	disabled bool,
+	resetExternalIdentity bool,
+) (auth.Access, error) {
+	requestedRole := strings.TrimSpace(requested.Role)
+	if (requestedRole == "" || requestedRole == auth.RoleUser) &&
+		!requested.AllOrganizations && len(requested.OrganizationIDs) == 0 {
+		users := s.auth.Users()
+		index := slices.IndexFunc(users, func(user auth.UserView) bool { return user.ID == userID })
+		if index < 0 {
+			return auth.Access{}, auth.ErrNotFound
+		}
+		current := users[index]
+		if current.Role == auth.RoleUser && !current.AllOrganizations && len(current.OrganizationIDs) == 0 &&
+			(current.Disabled != disabled || resetExternalIdentity) {
+			return auth.Access{Role: auth.RoleUser, OrganizationIDs: []string{}}, nil
+		}
+	}
+	return s.canonicalAccess(ctx, requested)
 }
 
 func (s *Server) protected(next http.HandlerFunc) http.HandlerFunc {
@@ -316,13 +346,9 @@ func (s *Server) protected(next http.HandlerFunc) http.HandlerFunc {
 		}
 		request = request.WithContext(context.WithValue(request.Context(), principalContextKey{}, session.Principal))
 		if topologyID := request.PathValue("id"); topologyID != "" {
-			topology, err := s.store.Get(request.Context(), topologyID)
+			_, err := s.getAuthorizedTopology(request, topologyID)
 			if err != nil {
 				s.fail(w, err)
-				return
-			}
-			if !s.auth.CanAccessTopology(session.Principal, topology.ID, topology.Organization) {
-				writeError(w, http.StatusNotFound, "resource not found")
 				return
 			}
 		}
@@ -338,6 +364,19 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, request)
 	})
+}
+
+func (s *Server) currentAdministrator(w http.ResponseWriter, request *http.Request) (auth.Principal, bool) {
+	session, authenticated := s.sessionFromRequest(request)
+	if !authenticated {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return auth.Principal{}, false
+	}
+	if !session.Principal.IsAdmin() {
+		writeError(w, http.StatusForbidden, "administrator access required")
+		return auth.Principal{}, false
+	}
+	return session.Principal, true
 }
 
 func (s *Server) sameOrigin(next http.HandlerFunc) http.HandlerFunc {
@@ -408,56 +447,66 @@ func (s *Server) authFailure(w http.ResponseWriter, err error) {
 	}
 }
 
-func (s *Server) availableOrganizations(ctx context.Context) ([]string, error) {
-	organizations := []string{}
-	seen := map[string]struct{}{}
-	summaries, err := s.store.List(ctx)
+func (s *Server) availableOrganizations(ctx context.Context, principal auth.Principal) ([]store.Organization, error) {
+	organizations, err := s.store.ListOrganizations(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, summary := range summaries {
-		organization := strings.TrimSpace(summary.Organization)
-		if organization == "" {
-			continue
-		}
-		key := strings.ToLower(organization)
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		organizations = append(organizations, organization)
+	if principal.IsAdmin() || principal.AllOrganizations {
+		return organizations, nil
 	}
-	if s.auth.GuestEnabled() {
-		if _, exists := seen["guest"]; !exists {
-			organizations = append(organizations, "Guest")
-		}
+	allowed := principal.OrganizationIDs
+	if principal.IsGuest() {
+		allowed = []string{s.auth.GuestOrganizationID()}
 	}
-	slices.SortFunc(organizations, func(left, right string) int {
-		return strings.Compare(strings.ToLower(left), strings.ToLower(right))
+	organizations = slices.DeleteFunc(organizations, func(organization store.Organization) bool {
+		return !slices.Contains(allowed, organization.ID)
 	})
 	return organizations, nil
 }
 
-func (s *Server) canonicalOrganizations(ctx context.Context, requested []string) ([]string, bool, error) {
-	available, err := s.availableOrganizations(ctx)
-	if err != nil {
-		return nil, false, err
+func (s *Server) canonicalAccess(ctx context.Context, requested auth.Access) (auth.Access, error) {
+	if requested.Role == "" {
+		requested.Role = auth.RoleUser
 	}
-	canonical := make([]string, 0, len(requested))
-	seen := map[string]struct{}{}
-	for _, organization := range requested {
-		index := slices.IndexFunc(available, func(candidate string) bool { return strings.EqualFold(strings.TrimSpace(organization), candidate) })
-		if index < 0 {
-			return nil, false, nil
+	if requested.Role != auth.RoleAdmin && requested.Role != auth.RoleUser {
+		return auth.Access{}, errors.New("auth: application role is invalid")
+	}
+	if requested.Role == auth.RoleAdmin {
+		if !requested.AllOrganizations || len(requested.OrganizationIDs) != 0 {
+			return auth.Access{}, errors.New("auth: administrators must use all-organization access without explicit grants")
 		}
-		key := strings.ToLower(available[index])
-		if _, exists := seen[key]; exists {
+		return auth.Access{Role: auth.RoleAdmin, AllOrganizations: true, OrganizationIDs: []string{}}, nil
+	}
+	if requested.AllOrganizations {
+		if len(requested.OrganizationIDs) != 0 {
+			return auth.Access{}, errors.New("auth: all-organization access cannot include explicit grants")
+		}
+		return auth.Access{Role: auth.RoleUser, AllOrganizations: true, OrganizationIDs: []string{}}, nil
+	}
+	if len(requested.OrganizationIDs) == 0 {
+		return auth.Access{}, errors.New("auth: select one or more existing organizations")
+	}
+	available, err := s.store.ListOrganizations(ctx)
+	if err != nil {
+		return auth.Access{}, err
+	}
+	canonical := make([]string, 0, len(requested.OrganizationIDs))
+	seen := map[string]struct{}{}
+	for _, organizationID := range requested.OrganizationIDs {
+		organizationID = strings.TrimSpace(organizationID)
+		index := slices.IndexFunc(available, func(candidate store.Organization) bool { return candidate.ID == organizationID })
+		if index < 0 {
+			return auth.Access{}, errors.New("auth: select one or more existing organizations")
+		}
+		if _, exists := seen[organizationID]; exists {
 			continue
 		}
-		seen[key] = struct{}{}
-		canonical = append(canonical, available[index])
+		seen[organizationID] = struct{}{}
+		canonical = append(canonical, organizationID)
 	}
-	return canonical, len(canonical) > 0, nil
+	slices.Sort(canonical)
+	return auth.Access{Role: auth.RoleUser, OrganizationIDs: canonical}, nil
 }
 
 func (s *Server) loginPage(w http.ResponseWriter, request *http.Request) {

@@ -177,7 +177,7 @@ func (s *Server) getPhoto(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	topologyID := request.PathValue("id")
-	topology, err := s.store.Get(request.Context(), topologyID)
+	topology, err := s.getAuthorizedTopology(request, topologyID)
 	if err != nil {
 		s.fail(w, err)
 		return

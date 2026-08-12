@@ -40,23 +40,25 @@ func TestTopologyCloneIsIndependent(t *testing.T) {
 	}
 }
 
-func TestTopologyValidateOrganizationLocationAssignment(t *testing.T) {
+func TestTopologyValidateOrganizationAssignment(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name         string
-		organization string
-		location     string
-		wantError    bool
+		name           string
+		organizationID string
+		organization   string
+		location       string
+		wantError      bool
 	}{
-		{name: "legacy map remains unassigned"},
-		{name: "organization owns location", organization: "Example Corp", location: "Vienna DC1"},
-		{name: "organization without location", organization: "Example Corp", wantError: true},
-		{name: "location without organization", location: "Vienna DC1", wantError: true},
+		{name: "organization with optional location", organizationID: DefaultOrganizationID, organization: "Default"},
+		{name: "organization with location", organizationID: DefaultOrganizationID, organization: "Default", location: "Vienna DC1"},
+		{name: "missing organization id", organization: "Default", wantError: true},
+		{name: "missing organization name", organizationID: DefaultOrganizationID, wantError: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			topology := mustDemo(t)
+			topology.OrganizationID = test.organizationID
 			topology.Organization = test.organization
 			topology.Location = test.location
 			err := topology.Validate()

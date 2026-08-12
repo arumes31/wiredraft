@@ -26,7 +26,7 @@ const authTestPassword = "a sufficiently long test password"
 
 func TestAuthenticatedGuestWorkspace(t *testing.T) {
 	t.Parallel()
-	handler, _, topologyStore := newAuthenticatedTestHandler(t, auth.Config{
+	handler, authManager, topologyStore := newAuthenticatedTestHandler(t, auth.Config{
 		AdminUsername: "admin", AdminPassword: authTestPassword, GuestEnabled: true,
 	})
 	unauthenticated := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/topologies", nil)
@@ -56,8 +56,8 @@ func TestAuthenticatedGuestWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(initial) != len(storedSummaries) || len(initial) == 0 {
-		t.Fatalf("guest summaries = %d, store summaries = %d", len(initial), len(storedSummaries))
+	if len(initial) != 0 || len(storedSummaries) == 0 {
+		t.Fatalf("initial guest summaries = %#v, store summaries = %d", initial, len(storedSummaries))
 	}
 
 	create := newJSONRequest(t, http.MethodPost, "/api/v1/topologies", map[string]string{
@@ -72,8 +72,8 @@ func TestAuthenticatedGuestWorkspace(t *testing.T) {
 	}
 	var created model.Topology
 	decodeResponse(t, createResponse, &created)
-	if created.Organization != "Guest" {
-		t.Fatalf("created organization = %q, want Guest", created.Organization)
+	if created.Organization != "Guest" || created.OrganizationID != authManager.GuestOrganizationID() {
+		t.Fatalf("created organization = %q (%q), want stable Guest organization", created.Organization, created.OrganizationID)
 	}
 
 	createWithoutLocation := newJSONRequest(t, http.MethodPost, "/api/v1/topologies", map[string]string{
@@ -90,6 +90,17 @@ func TestAuthenticatedGuestWorkspace(t *testing.T) {
 	if created.Organization != "Guest" || created.Location != "Guest Workspace" {
 		t.Fatalf("guest default scope = %q / %q", created.Organization, created.Location)
 	}
+	listResponse = performJSONRequest(t, handler, http.MethodGet, "/api/v1/topologies", nil, cookie)
+	var guestMaps []model.Summary
+	decodeResponse(t, listResponse, &guestMaps)
+	if len(guestMaps) != 2 {
+		t.Fatalf("guest summaries after create = %#v, want two Guest-owned maps", guestMaps)
+	}
+	for _, summary := range guestMaps {
+		if summary.OrganizationID != authManager.GuestOrganizationID() {
+			t.Fatalf("guest response exposed organization %q", summary.OrganizationID)
+		}
+	}
 }
 
 func TestAdminCSRFAndAccountCreation(t *testing.T) {
@@ -98,7 +109,7 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	const adminUsername = "audit-operator"
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	handler, _, _ := newAuthenticatedTestHandlerWithLogger(t, auth.Config{
+	handler, _, topologyStore := newAuthenticatedTestHandlerWithLogger(t, auth.Config{
 		AdminUsername: adminUsername, AdminPassword: authTestPassword,
 		AdminTOTPSecret: secret, GuestEnabled: true,
 	}, logger)
@@ -123,9 +134,10 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	}
 	decodeResponse(t, verifyResponse, &verified)
 
+	guest := testOrganization(t, topologyStore, auth.GuestOrganizationName)
 	account := map[string]any{ // #nosec G101 -- test-only request credential.
 		"username": "vienna-user", "password": "another sufficiently long password",
-		"organizations": []string{"Guest"},
+		"role": auth.RoleUser, "allOrganizations": false, "organizationIds": []string{guest.ID},
 	}
 	missingCSRF := newJSONRequest(t, http.MethodPost, "/api/v1/admin/users", account, cookie)
 	missingCSRF.Header.Set("Origin", "http://example.com")
@@ -145,7 +157,7 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	}
 	var user auth.UserView
 	decodeResponse(t, createdResponse, &user)
-	if user.TOTPConfigured || len(user.Organizations) != 1 {
+	if user.TOTPConfigured || len(user.OrganizationIDs) != 1 {
 		t.Fatalf("created user = %#v", user)
 	}
 
@@ -161,8 +173,8 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 		t.Fatalf("list users status = %d; body = %s", usersResponse.Code, usersResponse.Body.String())
 	}
 	var usersPayload struct {
-		Users         []auth.UserView `json:"users"`
-		Organizations []string        `json:"organizations"`
+		Users         []auth.UserView      `json:"users"`
+		Organizations []store.Organization `json:"organizations"`
 	}
 	decodeResponse(t, usersResponse, &usersPayload)
 	if len(usersPayload.Users) != 2 || len(usersPayload.Organizations) == 0 {
@@ -170,7 +182,9 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	}
 
 	update := newJSONRequest(t, http.MethodPut, "/api/v1/admin/users/"+user.ID, updateUserRequest{
-		Organizations: []string{"Guest"}, Disabled: true,
+		UserUpdate: auth.UserUpdate{Access: auth.Access{
+			Role: auth.RoleUser, OrganizationIDs: []string{guest.ID},
+		}, Disabled: true},
 	}, cookie)
 	update.Header.Set("Origin", "http://example.com")
 	update.Header.Set("X-CSRF-Token", verified.Session.CSRFToken)
@@ -181,7 +195,7 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	}
 	var updated auth.UserView
 	decodeResponse(t, updatedResponse, &updated)
-	if !updated.Disabled || len(updated.Organizations) != 1 || updated.Organizations[0] != "Guest" {
+	if !updated.Disabled || len(updated.OrganizationIDs) != 1 || updated.OrganizationIDs[0] != guest.ID {
 		t.Fatalf("updated user = %#v", updated)
 	}
 	logOutput := logs.String()
@@ -241,11 +255,15 @@ func TestOrganizationUserOnlySeesAssignedMaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	viennaOrganization := createTestOrganization(t, topologyStore, "Vienna Org")
+	berlinOrganization := createTestOrganization(t, topologyStore, "Berlin Org")
+	createTestOrganization(t, topologyStore, auth.GuestOrganizationName)
 	vienna, err := newBlankTopology("Vienna")
 	if err != nil {
 		t.Fatal(err)
 	}
-	vienna.Organization = "Vienna Org"
+	vienna.OrganizationID = viennaOrganization.ID
+	vienna.Organization = viennaOrganization.Name
 	vienna.Location = "Vienna"
 	vienna, err = topologyStore.Create(t.Context(), vienna)
 	if err != nil {
@@ -255,7 +273,8 @@ func TestOrganizationUserOnlySeesAssignedMaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	berlin.Organization = "Berlin Org"
+	berlin.OrganizationID = berlinOrganization.ID
+	berlin.Organization = berlinOrganization.Name
 	berlin.Location = "Berlin"
 	berlin, err = topologyStore.Create(t.Context(), berlin)
 	if err != nil {
@@ -275,21 +294,15 @@ func TestOrganizationUserOnlySeesAssignedMaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedSummaries, err := topologyStore.List(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	ids := make([]string, 0, len(storedSummaries))
-	for _, summary := range storedSummaries {
-		ids = append(ids, summary.ID)
-	}
 	authManager, err := auth.New(dataDir, auth.Config{
 		AdminUsername: "admin", AdminPassword: authTestPassword, GuestEnabled: true,
-	}, ids)
+	}, testOrganizationRefs(t, topologyStore))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := authManager.CreateUser(t.Context(), "vienna-user", "another sufficiently long password", []string{"Vienna Org"}); err != nil {
+	if _, err := authManager.CreateUser(t.Context(), "vienna-user", "another sufficiently long password", auth.Access{
+		Role: auth.RoleUser, OrganizationIDs: []string{viennaOrganization.ID},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	challenge, err := authManager.StartLogin("vienna-user", "another sufficiently long password", "127.0.0.1")
@@ -372,11 +385,14 @@ func TestEntraLoginCreatesNormalWireDraftSession(t *testing.T) {
 	}
 	authManager, err := auth.New(dataDir, auth.Config{
 		AdminUsername: "admin", AdminPassword: authTestPassword, CookieSecure: true,
-	}, nil)
+	}, testOrganizationRefs(t, topologyStore))
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := authManager.CreateEntraUser(t.Context(), "Microsoft Operator", "operator@example.com", []string{"Vienna"})
+	defaultOrganization := testOrganization(t, topologyStore, model.DefaultOrganizationName)
+	user, err := authManager.CreateEntraUser(t.Context(), "Microsoft Operator", "operator@example.com", auth.Access{
+		Role: auth.RoleUser, OrganizationIDs: []string{defaultOrganization.ID},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +469,7 @@ func TestNilEntraProviderRemainsDisabled(t *testing.T) {
 	}
 	authManager, err := auth.New(dataDir, auth.Config{
 		AdminUsername: "admin", AdminPassword: authTestPassword,
-	}, nil)
+	}, testOrganizationRefs(t, topologyStore))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +506,7 @@ func TestEntraFailuresUseGenericBrowserErrors(t *testing.T) {
 	}
 	authManager, err := auth.New(dataDir, auth.Config{
 		AdminUsername: "admin", AdminPassword: authTestPassword, CookieSecure: true,
-	}, nil)
+	}, testOrganizationRefs(t, topologyStore))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,9 +576,10 @@ func TestAdminCreatesAndResetsEntraAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	guest := createTestOrganization(t, topologyStore, auth.GuestOrganizationName)
 	authManager, err := auth.New(dataDir, auth.Config{
 		AdminUsername: "admin", AdminPassword: authTestPassword, CookieSecure: true, GuestEnabled: true,
-	}, nil)
+	}, testOrganizationRefs(t, topologyStore))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,12 +587,14 @@ func TestAdminCreatesAndResetsEntraAccount(t *testing.T) {
 		store: topologyStore, auth: authManager, entra: &fakeEntraAuthenticator{},
 		logger: slog.New(slog.DiscardHandler),
 	}
-	admin := auth.Principal{UserID: "administrator", Role: auth.RoleAdmin}
+	adminSession := authenticateTestUser(t, authManager, "admin", authTestPassword)
+	adminCookie := &http.Cookie{Name: sessionCookieName, Value: adminSession.Token} // #nosec G124 -- request fixture.
 	create := newJSONRequest(t, http.MethodPost, "/api/v1/admin/users", createUserRequest{
+		Access:   auth.Access{Role: auth.RoleUser, OrganizationIDs: []string{guest.ID}},
 		Username: "Entra Operator", AuthSource: auth.AuthSourceEntra,
-		ExternalLogin: "operator@example.com", Organizations: []string{"Guest"},
+		ExternalLogin: "operator@example.com",
 	}, nil)
-	create = create.WithContext(context.WithValue(create.Context(), principalContextKey{}, admin))
+	create.AddCookie(adminCookie)
 	createdResponse := httptest.NewRecorder()
 	server.createUser(createdResponse, create)
 	if createdResponse.Code != http.StatusCreated {
@@ -593,10 +612,12 @@ func TestAdminCreatesAndResetsEntraAccount(t *testing.T) {
 	}
 
 	update := newJSONRequest(t, http.MethodPut, "/api/v1/admin/users/"+created.ID, updateUserRequest{
-		Organizations: []string{"Guest"}, ResetExternalIdentity: true,
+		UserUpdate: auth.UserUpdate{Access: auth.Access{
+			Role: auth.RoleUser, OrganizationIDs: []string{guest.ID},
+		}}, ResetExternalIdentity: true,
 	}, nil)
 	update.SetPathValue("userId", created.ID)
-	update = update.WithContext(context.WithValue(update.Context(), principalContextKey{}, admin))
+	update.AddCookie(adminCookie)
 	updatedResponse := httptest.NewRecorder()
 	server.updateUser(updatedResponse, update)
 	if updatedResponse.Code != http.StatusOK {
@@ -610,12 +631,11 @@ func TestAdminCreatesAndResetsEntraAccount(t *testing.T) {
 
 	server.entra = nil
 	disabledProviderCreate := newJSONRequest(t, http.MethodPost, "/api/v1/admin/users", createUserRequest{
+		Access:   auth.Access{Role: auth.RoleUser, OrganizationIDs: []string{guest.ID}},
 		Username: "Second Entra Operator", AuthSource: auth.AuthSourceEntra,
-		ExternalLogin: "second@example.com", Organizations: []string{"Guest"},
+		ExternalLogin: "second@example.com",
 	}, nil)
-	disabledProviderCreate = disabledProviderCreate.WithContext(
-		context.WithValue(disabledProviderCreate.Context(), principalContextKey{}, admin),
-	)
+	disabledProviderCreate.AddCookie(adminCookie)
 	createdResponse = httptest.NewRecorder()
 	server.createUser(createdResponse, disabledProviderCreate)
 	if createdResponse.Code != http.StatusBadRequest || !strings.Contains(createdResponse.Body.String(), "not enabled") {
@@ -635,15 +655,10 @@ func newAuthenticatedTestHandlerWithLogger(t *testing.T, config auth.Config, log
 	if err != nil {
 		t.Fatal(err)
 	}
-	storedSummaries, err := topologyStore.List(t.Context())
-	if err != nil {
-		t.Fatal(err)
+	if config.GuestEnabled {
+		createTestOrganization(t, topologyStore, auth.GuestOrganizationName)
 	}
-	ids := make([]string, 0, len(storedSummaries))
-	for _, summary := range storedSummaries {
-		ids = append(ids, summary.ID)
-	}
-	authManager, err := auth.New(dataDir, config, ids)
+	authManager, err := auth.New(dataDir, config, testOrganizationRefs(t, topologyStore))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -652,6 +667,37 @@ func newAuthenticatedTestHandlerWithLogger(t *testing.T, config auth.Config, log
 		t.Fatal(err)
 	}
 	return NewWithAuth(topologyStore, sse.NewBroker(), logger, static, authManager), authManager, topologyStore
+}
+
+func createTestOrganization(t *testing.T, topologyStore *store.JSONStore, name string) store.Organization {
+	t.Helper()
+	organization, err := topologyStore.CreateOrganization(t.Context(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return organization
+}
+
+func testOrganization(t *testing.T, topologyStore *store.JSONStore, name string) store.Organization {
+	t.Helper()
+	organization, err := topologyStore.FindOrganizationByName(t.Context(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return organization
+}
+
+func testOrganizationRefs(t *testing.T, topologyStore *store.JSONStore) []auth.OrganizationRef {
+	t.Helper()
+	organizations, err := topologyStore.ListOrganizations(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := make([]auth.OrganizationRef, len(organizations))
+	for index, organization := range organizations {
+		refs[index] = auth.OrganizationRef{ID: organization.ID, Name: organization.Name}
+	}
+	return refs
 }
 
 func performJSONRequest(t *testing.T, handler http.Handler, method, path string, body any, cookie *http.Cookie) *httptest.ResponseRecorder {

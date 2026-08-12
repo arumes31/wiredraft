@@ -34,6 +34,6 @@ export function organizationLocationOptions(topologies = []) {
 export function topologyOptionLabel(topology) {
   const organization = String(topology?.organization || "").trim();
   const location = String(topology?.location || "").trim();
-  const scope = organization && location ? `${organization} · ${location}` : "UNASSIGNED";
+  const scope = organization ? [organization, location].filter(Boolean).join(" · ") : "UNASSIGNED";
   return `${scope} / ${topology?.name || "Untitled topology"}`;
 }

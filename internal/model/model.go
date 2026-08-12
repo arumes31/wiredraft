@@ -12,6 +12,13 @@ import (
 	"time"
 )
 
+// The protected Default organization has a fixed identifier so filesystem and
+// PostgreSQL stores converge on the same ownership for migrated topologies.
+const (
+	DefaultOrganizationID   = "00000000-0000-4000-8000-000000000000"
+	DefaultOrganizationName = "Default"
+)
+
 // CommentAnchorKind identifies what a persistent plan comment is attached to.
 type CommentAnchorKind string
 
@@ -408,7 +415,8 @@ type ShareGrant struct {
 type Topology struct {
 	ID                 string              `json:"id"`
 	Name               string              `json:"name"`
-	Organization       string              `json:"organization,omitempty"`
+	OrganizationID     string              `json:"organizationId"`
+	Organization       string              `json:"organization"`
 	Location           string              `json:"location,omitempty"`
 	Revision           uint64              `json:"revision"`
 	Racks              []Rack              `json:"racks"`
@@ -429,14 +437,15 @@ type Topology struct {
 
 // Summary is the compact representation returned by topology listings.
 type Summary struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Organization string    `json:"organization,omitempty"`
-	Location     string    `json:"location,omitempty"`
-	RackCount    int       `json:"rackCount"`
-	DeviceCount  int       `json:"deviceCount"`
-	LinkCount    int       `json:"linkCount"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	OrganizationID string    `json:"organizationId"`
+	Organization   string    `json:"organization"`
+	Location       string    `json:"location,omitempty"`
+	RackCount      int       `json:"rackCount"`
+	DeviceCount    int       `json:"deviceCount"`
+	LinkCount      int       `json:"linkCount"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 // NewID returns a random RFC 4122 version 4 UUID without an external dependency.
@@ -463,6 +472,7 @@ func NewID() (string, error) {
 // Normalize initializes slices and canonicalizes derived port fields.
 func (t *Topology) Normalize() {
 	t.Name = strings.TrimSpace(t.Name)
+	t.OrganizationID = strings.TrimSpace(t.OrganizationID)
 	t.Organization = strings.TrimSpace(t.Organization)
 	t.Location = strings.TrimSpace(t.Location)
 	if t.Revision == 0 {

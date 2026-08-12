@@ -34,6 +34,210 @@ func (s *PostgresStore) Ping(ctx context.Context) error {
 	return nil
 }
 
+// EnsureOrganizations idempotently creates Default and registers legacy
+// organization names which may exist only in authentication state.
+func (s *PostgresStore) EnsureOrganizations(ctx context.Context, legacyOrganizationNames []string) error {
+	names := make([]string, 0, len(legacyOrganizationNames))
+	for _, candidate := range legacyOrganizationNames {
+		name, err := normalizeOrganizationName(candidate)
+		if err != nil {
+			return err
+		}
+		names = append(names, name)
+	}
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO organizations (id, name, is_default)
+			VALUES ($1, $2, true)
+			ON CONFLICT (normalized_name) DO NOTHING`,
+			model.DefaultOrganizationID, model.DefaultOrganizationName,
+		); err != nil {
+			return fmt.Errorf("ensuring default organization: %w", err)
+		}
+		var defaultID string
+		var isDefault bool
+		if err := tx.QueryRow(ctx, `
+			SELECT id::text, is_default
+			FROM organizations
+			WHERE normalized_name = lower($1)`, model.DefaultOrganizationName,
+		).Scan(&defaultID, &isDefault); err != nil {
+			return fmt.Errorf("reading default organization: %w", err)
+		}
+		if defaultID != model.DefaultOrganizationID || !isDefault {
+			return fmt.Errorf("%w: default organization identity does not match", ErrConflict)
+		}
+		for _, name := range names {
+			id, err := model.NewID()
+			if err != nil {
+				return fmt.Errorf("generating organization id: %w", err)
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO organizations (id, name)
+				VALUES ($1, $2)
+				ON CONFLICT (normalized_name) DO NOTHING`, id, name,
+			); err != nil {
+				return fmt.Errorf("registering legacy organization: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// ListOrganizations returns Default first, followed by names case-insensitively.
+func (s *PostgresStore) ListOrganizations(ctx context.Context) ([]Organization, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id::text, name, is_default, created_at, updated_at
+		FROM organizations
+		ORDER BY is_default DESC, normalized_name, id`)
+	if err != nil {
+		return nil, fmt.Errorf("listing organizations: %w", err)
+	}
+	defer rows.Close()
+	organizations := []Organization{}
+	for rows.Next() {
+		organization, err := scanOrganization(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning organization: %w", err)
+		}
+		organizations = append(organizations, organization)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating organizations: %w", err)
+	}
+	return organizations, nil
+}
+
+// GetOrganization resolves one organization by stable ID.
+func (s *PostgresStore) GetOrganization(ctx context.Context, id string) (Organization, error) {
+	id, err := validateOrganizationID(id)
+	if err != nil {
+		return Organization{}, err
+	}
+	return scanPostgresOrganization(s.pool.QueryRow(ctx, `
+		SELECT id::text, name, is_default, created_at, updated_at
+		FROM organizations
+		WHERE id = $1`, id))
+}
+
+// FindOrganizationByName performs a case-insensitive registry lookup.
+func (s *PostgresStore) FindOrganizationByName(ctx context.Context, name string) (Organization, error) {
+	name, err := normalizeOrganizationName(name)
+	if err != nil {
+		return Organization{}, err
+	}
+	return scanPostgresOrganization(s.pool.QueryRow(ctx, `
+		SELECT id::text, name, is_default, created_at, updated_at
+		FROM organizations
+		WHERE normalized_name = lower($1)`, name))
+}
+
+// CreateOrganization inserts a new organization with a stable random ID.
+func (s *PostgresStore) CreateOrganization(ctx context.Context, name string) (Organization, error) {
+	name, err := normalizeOrganizationName(name)
+	if err != nil {
+		return Organization{}, err
+	}
+	id, err := model.NewID()
+	if err != nil {
+		return Organization{}, fmt.Errorf("generating organization id: %w", err)
+	}
+	organization, err := scanPostgresOrganization(s.pool.QueryRow(ctx, `
+		INSERT INTO organizations (id, name)
+		VALUES ($1, $2)
+		RETURNING id::text, name, is_default, created_at, updated_at`, id, name))
+	if isUniqueViolation(err) {
+		return Organization{}, ErrConflict
+	}
+	if err != nil {
+		return Organization{}, fmt.Errorf("creating organization: %w", err)
+	}
+	return organization, nil
+}
+
+// RenameOrganization changes only the display name; its stable ID is retained.
+func (s *PostgresStore) RenameOrganization(ctx context.Context, id string, name string) (Organization, error) {
+	id, err := validateOrganizationID(id)
+	if err != nil {
+		return Organization{}, err
+	}
+	name, err = normalizeOrganizationName(name)
+	if err != nil {
+		return Organization{}, err
+	}
+	var renamed Organization
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var isDefault bool
+		if err := tx.QueryRow(ctx, "SELECT is_default FROM organizations WHERE id = $1 FOR UPDATE", id).
+			Scan(&isDefault); errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("locking organization: %w", err)
+		}
+		if isDefault {
+			return ErrProtectedOrganization
+		}
+		renamed, err = scanPostgresOrganization(tx.QueryRow(ctx, `
+			UPDATE organizations
+			SET name = $2, updated_at = now()
+			WHERE id = $1
+			RETURNING id::text, name, is_default, created_at, updated_at`, id, name))
+		if isUniqueViolation(err) {
+			return ErrConflict
+		}
+		if err != nil {
+			return fmt.Errorf("renaming organization: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE topologies
+			SET organization = $2,
+				document = jsonb_set(document, '{organization}', to_jsonb($2::text), true)
+			WHERE organization_id = $1`, id, renamed.Name,
+		); err != nil {
+			return fmt.Errorf("updating topology organization names: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return Organization{}, err
+	}
+	return renamed, nil
+}
+
+// DeleteOrganization removes an unused organization. Default is protected.
+func (s *PostgresStore) DeleteOrganization(ctx context.Context, id string) error {
+	id, err := validateOrganizationID(id)
+	if err != nil {
+		return err
+	}
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var isDefault bool
+		if err := tx.QueryRow(ctx, "SELECT is_default FROM organizations WHERE id = $1 FOR UPDATE", id).
+			Scan(&isDefault); errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("locking organization: %w", err)
+		}
+		if isDefault {
+			return ErrProtectedOrganization
+		}
+		var hasTopologies bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM topologies WHERE organization_id = $1)", id).
+			Scan(&hasTopologies); err != nil {
+			return fmt.Errorf("checking organization references: %w", err)
+		}
+		if hasTopologies {
+			return ErrOrganizationInUse
+		}
+		if _, err := tx.Exec(ctx, "DELETE FROM organizations WHERE id = $1", id); err != nil {
+			if isForeignKeyViolation(err) {
+				return ErrOrganizationInUse
+			}
+			return fmt.Errorf("deleting organization: %w", err)
+		}
+		return nil
+	})
+}
+
 // EnsureDemo creates the initial demonstration topology when the database is empty.
 func (s *PostgresStore) EnsureDemo(ctx context.Context) error {
 	var count int
@@ -56,9 +260,12 @@ func (s *PostgresStore) EnsureDemo(ctx context.Context) error {
 // List returns summaries ordered by most recent update.
 func (s *PostgresStore) List(ctx context.Context) ([]model.Summary, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id::text, name, organization, location, rack_count, device_count, link_count, updated_at
-		FROM topologies
-		ORDER BY updated_at DESC`)
+		SELECT topology.id::text, topology.name, organization.id::text, organization.name,
+			topology.location, topology.rack_count, topology.device_count,
+			topology.link_count, topology.updated_at
+		FROM topologies AS topology
+		JOIN organizations AS organization ON organization.id = topology.organization_id
+		ORDER BY topology.updated_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("listing topologies: %w", err)
 	}
@@ -68,7 +275,7 @@ func (s *PostgresStore) List(ctx context.Context) ([]model.Summary, error) {
 	for rows.Next() {
 		var summary model.Summary
 		if err := rows.Scan(
-			&summary.ID, &summary.Name, &summary.Organization, &summary.Location,
+			&summary.ID, &summary.Name, &summary.OrganizationID, &summary.Organization, &summary.Location,
 			&summary.RackCount, &summary.DeviceCount, &summary.LinkCount, &summary.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning topology summary: %w", err)
@@ -84,18 +291,39 @@ func (s *PostgresStore) List(ctx context.Context) ([]model.Summary, error) {
 // Get returns one validated topology snapshot.
 func (s *PostgresStore) Get(ctx context.Context, id string) (model.Topology, error) {
 	var document []byte
-	err := s.pool.QueryRow(ctx, "SELECT document FROM topologies WHERE id = $1", id).Scan(&document)
+	var organizationID string
+	var organizationName string
+	err := s.pool.QueryRow(ctx, `
+		SELECT topology.document, organization.id::text, organization.name
+		FROM topologies AS topology
+		JOIN organizations AS organization ON organization.id = topology.organization_id
+		WHERE topology.id = $1`, id).Scan(&document, &organizationID, &organizationName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Topology{}, ErrNotFound
 	}
 	if err != nil {
 		return model.Topology{}, fmt.Errorf("getting topology: %w", err)
 	}
-	return decodePostgresTopology(document)
+	topology, err := decodePostgresTopology(document)
+	if err != nil {
+		return model.Topology{}, err
+	}
+	topology.OrganizationID = organizationID
+	topology.Organization = organizationName
+	return topology, nil
 }
 
 // Create validates and inserts a topology.
 func (s *PostgresStore) Create(ctx context.Context, topology model.Topology) (model.Topology, error) {
+	organization, err := s.GetOrganization(ctx, topology.OrganizationID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
+			return model.Topology{}, fmt.Errorf("%w: unknown organization", ErrInvalid)
+		}
+		return model.Topology{}, fmt.Errorf("resolving topology organization: %w", err)
+	}
+	topology.OrganizationID = organization.ID
+	topology.Organization = organization.Name
 	topology.Normalize()
 	if err := topology.Validate(); err != nil {
 		return model.Topology{}, fmt.Errorf("%w: %w", ErrInvalid, err)
@@ -106,10 +334,10 @@ func (s *PostgresStore) Create(ctx context.Context, topology model.Topology) (mo
 	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO topologies (
-			id, name, organization, location, revision, rack_count, device_count,
-			link_count, created_at, updated_at, document
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)`,
-		topology.ID, topology.Name, topology.Organization, topology.Location, topology.Revision,
+			id, name, organization_id, organization, location, revision, rack_count,
+			device_count, link_count, created_at, updated_at, document
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
+		topology.ID, topology.Name, topology.OrganizationID, topology.Organization, topology.Location, topology.Revision,
 		len(topology.Racks), topology.LogicalDeviceCount(), len(topology.Links),
 		topology.CreatedAt, topology.UpdatedAt, document,
 	)
@@ -124,14 +352,58 @@ func (s *PostgresStore) Create(ctx context.Context, topology model.Topology) (mo
 
 // Delete removes one topology aggregate.
 func (s *PostgresStore) Delete(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM topologies WHERE id = $1", id)
-	if err != nil {
-		return fmt.Errorf("deleting topology: %w", err)
-	}
-	if tag.RowsAffected() != 1 {
-		return ErrNotFound
-	}
-	return nil
+	return s.DeleteAtRevision(ctx, id, 0, nil)
+}
+
+// DeleteAtRevision locks, authorizes, and removes one topology transactionally.
+// An expected revision of zero disables the optimistic concurrency precondition.
+func (s *PostgresStore) DeleteAtRevision(
+	ctx context.Context,
+	id string,
+	expectedRevision uint64,
+	authorize func(model.Topology) error,
+) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var document []byte
+		var actualRevision uint64
+		var organizationID string
+		var organizationName string
+		err := tx.QueryRow(ctx, `
+			SELECT topology.document, topology.revision, organization.id::text, organization.name
+			FROM topologies AS topology
+			JOIN organizations AS organization ON organization.id = topology.organization_id
+			WHERE topology.id = $1
+			FOR UPDATE OF topology`, id).
+			Scan(&document, &actualRevision, &organizationID, &organizationName)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("locking topology for deletion: %w", err)
+		}
+		if expectedRevision != 0 && actualRevision != expectedRevision {
+			return &RevisionConflictError{Expected: expectedRevision, Actual: actualRevision}
+		}
+		current, err := decodePostgresTopology(document)
+		if err != nil {
+			return err
+		}
+		current.OrganizationID = organizationID
+		current.Organization = organizationName
+		if authorize != nil {
+			if err := authorize(current); err != nil {
+				return err
+			}
+		}
+		tag, err := tx.Exec(ctx, "DELETE FROM topologies WHERE id = $1 AND revision = $2", id, actualRevision)
+		if err != nil {
+			return fmt.Errorf("deleting topology: %w", err)
+		}
+		if tag.RowsAffected() != 1 {
+			return &RevisionConflictError{Expected: actualRevision, Actual: actualRevision + 1}
+		}
+		return nil
+	})
 }
 
 // Mutate applies a mutation without an optimistic revision precondition.
@@ -154,8 +426,15 @@ func (s *PostgresStore) MutateAtRevision(
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		var document []byte
 		var actualRevision uint64
-		err := tx.QueryRow(ctx, "SELECT document, revision FROM topologies WHERE id = $1 FOR UPDATE", id).
-			Scan(&document, &actualRevision)
+		var organizationID string
+		var organizationName string
+		err := tx.QueryRow(ctx, `
+			SELECT topology.document, topology.revision, organization.id::text, organization.name
+			FROM topologies AS topology
+			JOIN organizations AS organization ON organization.id = topology.organization_id
+			WHERE topology.id = $1
+			FOR UPDATE OF topology`, id).
+			Scan(&document, &actualRevision, &organizationID, &organizationName)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -169,6 +448,8 @@ func (s *PostgresStore) MutateAtRevision(
 		if err != nil {
 			return err
 		}
+		current.OrganizationID = organizationID
+		current.Organization = organizationName
 		next, err := current.Clone()
 		if err != nil {
 			return fmt.Errorf("copying topology for mutation: %w", err)
@@ -176,6 +457,15 @@ func (s *PostgresStore) MutateAtRevision(
 		if err := mutation(&next); err != nil {
 			return err
 		}
+		nextOrganization, err := findPostgresOrganizationByID(ctx, tx, next.OrganizationID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
+				return fmt.Errorf("%w: unknown organization", ErrInvalid)
+			}
+			return fmt.Errorf("resolving topology organization: %w", err)
+		}
+		next.OrganizationID = nextOrganization.ID
+		next.Organization = nextOrganization.Name
 		next.Revision = actualRevision + 1
 		next.UpdatedAt = time.Now().UTC()
 		next.Normalize()
@@ -188,11 +478,11 @@ func (s *PostgresStore) MutateAtRevision(
 		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE topologies SET
-				name = $2, organization = $3, location = $4, revision = $5,
-				rack_count = $6, device_count = $7, link_count = $8,
-				updated_at = $9, document = $10::jsonb
-			WHERE id = $1 AND revision = $11`,
-			next.ID, next.Name, next.Organization, next.Location, next.Revision,
+				name = $2, organization_id = $3, organization = $4, location = $5, revision = $6,
+				rack_count = $7, device_count = $8, link_count = $9,
+				updated_at = $10, document = $11::jsonb
+			WHERE id = $1 AND revision = $12`,
+			next.ID, next.Name, next.OrganizationID, next.Organization, next.Location, next.Revision,
 			len(next.Racks), next.LogicalDeviceCount(), len(next.Links), next.UpdatedAt,
 			nextDocument, actualRevision,
 		)
@@ -222,7 +512,51 @@ func decodePostgresTopology(document []byte) (model.Topology, error) {
 	return topology, nil
 }
 
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanOrganization(row rowScanner) (Organization, error) {
+	var organization Organization
+	if err := row.Scan(
+		&organization.ID,
+		&organization.Name,
+		&organization.IsDefault,
+		&organization.CreatedAt,
+		&organization.UpdatedAt,
+	); err != nil {
+		return Organization{}, err
+	}
+	return organization, nil
+}
+
+func scanPostgresOrganization(row rowScanner) (Organization, error) {
+	organization, err := scanOrganization(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Organization{}, ErrNotFound
+	}
+	return organization, err
+}
+
+func findPostgresOrganizationByID(ctx context.Context, querier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, id string) (Organization, error) {
+	id, err := validateOrganizationID(id)
+	if err != nil {
+		return Organization{}, err
+	}
+	return scanPostgresOrganization(querier.QueryRow(ctx, `
+		SELECT id::text, name, is_default, created_at, updated_at
+		FROM organizations
+		WHERE id = $1`, id))
+}
+
 func isUniqueViolation(err error) bool {
 	var postgresErr *pgconn.PgError
 	return errors.As(err, &postgresErr) && postgresErr.Code == "23505"
+}
+
+func isForeignKeyViolation(err error) bool {
+	var postgresErr *pgconn.PgError
+	return errors.As(err, &postgresErr) && postgresErr.Code == "23503"
 }

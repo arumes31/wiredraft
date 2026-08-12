@@ -44,6 +44,16 @@ export const api = {
   updateUser: (id, input) => request(`/api/v1/admin/users/${encodeURIComponent(id)}`, {
     method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(input),
   }),
+  listOrganizations: () => request("/api/v1/admin/organizations"),
+  createOrganization: (input) => request("/api/v1/admin/organizations", {
+    method: "POST", headers: JSON_HEADERS, body: JSON.stringify(input),
+  }),
+  updateOrganization: (id, input) => request(`/api/v1/admin/organizations/${encodeURIComponent(id)}`, {
+    method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(input),
+  }),
+  deleteOrganization: (id) => request(`/api/v1/admin/organizations/${encodeURIComponent(id)}`, {
+    method: "DELETE", headers: {},
+  }),
   listTopologies: () => request("/api/v1/topologies"),
   getTopology: (id) => request(`/api/v1/topologies/${encodeURIComponent(id)}`),
   createTopology: (input) => request("/api/v1/topologies", {

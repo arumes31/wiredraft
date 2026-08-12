@@ -35,13 +35,15 @@ func GenerateTopology(options TopologyOptions) (model.Topology, error) {
 	const linkIDOffset = 900000
 	now := time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC)
 	topology := model.Topology{
-		ID:        fixtureID(topologyIDOffset),
-		Name:      fmt.Sprintf("Generated %d-device topology", options.DeviceCount),
-		CreatedAt: now,
-		UpdatedAt: now,
-		VLANs:     make([]model.VLAN, options.VLANCount),
-		Devices:   make([]model.Device, options.DeviceCount),
-		Links:     make([]model.Link, 0, options.DeviceCount-1),
+		ID:             fixtureID(topologyIDOffset),
+		Name:           fmt.Sprintf("Generated %d-device topology", options.DeviceCount),
+		OrganizationID: model.DefaultOrganizationID,
+		Organization:   model.DefaultOrganizationName,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		VLANs:          make([]model.VLAN, options.VLANCount),
+		Devices:        make([]model.Device, options.DeviceCount),
+		Links:          make([]model.Link, 0, options.DeviceCount-1),
 	}
 	for index := range topology.VLANs {
 		vlanID := index + 1

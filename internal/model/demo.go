@@ -13,8 +13,10 @@ func NewDemo() (Topology, error) {
 	}
 	now := time.Now().UTC()
 	topology := Topology{
-		ID:   topologyID,
-		Name: "Vienna Core Rack",
+		ID:             topologyID,
+		Name:           "Vienna Core Rack",
+		OrganizationID: DefaultOrganizationID,
+		Organization:   DefaultOrganizationName,
 		VLANs: []VLAN{
 			{ID: 1, Name: "Native", ColorHex: "#8a9ba8", Description: "Default untagged network"},
 			{ID: 10, Name: "Management", ColorHex: "#42d9c8", Description: "Infrastructure management"},

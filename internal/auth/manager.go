@@ -44,6 +44,8 @@ type Manager struct {
 	state             persistentState
 	saveState         func(context.Context, persistentState) error
 	encryptionKey     []byte
+	organizations     organizationCatalog
+	guestOrganization string
 	guestEnabled      bool
 	cookieSecure      bool
 	dummyPasswordHash string
@@ -53,15 +55,24 @@ type Manager struct {
 	now               func() time.Time
 }
 
-// New opens the auth database, captures legacy maps for the Guest workspace,
-// and synchronizes the environment-controlled bootstrap administrator.
-func New(dataDir string, config Config, existingTopologyIDs []string) (*Manager, error) {
+// New opens the auth database, migrates legacy organization-name grants to the
+// supplied stable catalog, and synchronizes the environment-controlled
+// bootstrap administrator.
+func New(
+	dataDir string,
+	config Config,
+	organizations []OrganizationRef,
+) (*Manager, error) {
 	config.AdminUsername = strings.TrimSpace(config.AdminUsername)
 	if config.AdminUsername == "" {
 		return nil, errors.New("auth: bootstrap administrator username is required")
 	}
 	if err := validatePassword(config.AdminPassword); err != nil {
 		return nil, fmt.Errorf("bootstrap administrator password: %w", err)
+	}
+	catalog, err := newOrganizationCatalog(organizations)
+	if err != nil {
+		return nil, err
 	}
 	authDirectory := filepath.Join(dataDir, "auth")
 	if err := os.MkdirAll(authDirectory, 0o700); err != nil {
@@ -81,42 +92,69 @@ func New(dataDir string, config Config, existingTopologyIDs []string) (*Manager,
 	if err != nil {
 		return nil, err
 	}
-	if err := validatePersistentState(state, encryptionKey); err != nil {
+	organizationMigrated, err := migrateOrganizationAssignments(&state, catalog)
+	if err != nil {
 		return nil, err
 	}
-	if migrated {
+	guestMigrated, err := migrateGuestOrganization(&state, catalog, config.GuestEnabled)
+	if err != nil {
+		return nil, err
+	}
+	guestAllowlistRetired := retireLegacyGuestTopologyIDs(&state)
+	if err := validatePersistentState(state, encryptionKey, catalog); err != nil {
+		return nil, err
+	}
+	if migrated || organizationMigrated || guestMigrated || guestAllowlistRetired {
 		if err := savePersistentState(statePath, state); err != nil {
 			return nil, fmt.Errorf("persisting migrated authentication state: %w", err)
 		}
 	}
-	manager := newManager(state, encryptionKey, config, func(_ context.Context, next persistentState) error {
+	manager := newManager(state, encryptionKey, config, catalog, func(_ context.Context, next persistentState) error {
 		return savePersistentState(statePath, next)
 	})
 	if err := manager.preparePasswordComparison(); err != nil {
 		return nil, err
 	}
-	if err := manager.bootstrap(context.Background(), config, existingTopologyIDs); err != nil {
+	if err := manager.bootstrap(context.Background(), config); err != nil {
 		return nil, err
 	}
 	return manager, nil
+}
+
+// ReadPreflight reads organization state required before New can migrate to a
+// stable catalog. Missing auth state is reported as empty and no files or keys
+// are created.
+func ReadPreflight(dataDir string) (Preflight, error) {
+	statePath := filepath.Join(dataDir, "auth", "accounts.json")
+	state, exists, _, err := loadPersistentState(statePath)
+	if err != nil {
+		return Preflight{}, err
+	}
+	if !exists {
+		return Preflight{LegacyOrganizationNames: []string{}}, nil
+	}
+	return preflight(state), nil
 }
 
 func newManager(
 	state persistentState,
 	encryptionKey []byte,
 	config Config,
+	organizations organizationCatalog,
 	saveState func(context.Context, persistentState) error,
 ) *Manager {
 	return &Manager{
-		state:         state,
-		saveState:     saveState,
-		encryptionKey: encryptionKey,
-		guestEnabled:  config.GuestEnabled,
-		cookieSecure:  config.CookieSecure,
-		sessions:      make(map[string]Session),
-		challenges:    make(map[string]pendingChallenge),
-		loginAttempts: make(map[string]loginAttempt),
-		now:           func() time.Time { return time.Now().UTC() },
+		state:             state,
+		saveState:         saveState,
+		encryptionKey:     encryptionKey,
+		organizations:     organizations,
+		guestOrganization: state.GuestOrganizationID,
+		guestEnabled:      config.GuestEnabled,
+		cookieSecure:      config.CookieSecure,
+		sessions:          make(map[string]Session),
+		challenges:        make(map[string]pendingChallenge),
+		loginAttempts:     make(map[string]loginAttempt),
+		now:               func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -133,7 +171,7 @@ func (m *Manager) preparePasswordComparison() error {
 	return nil
 }
 
-func (m *Manager) bootstrap(ctx context.Context, config Config, existingTopologyIDs []string) error {
+func (m *Manager) bootstrap(ctx context.Context, config Config) error {
 	if err := validateUsername(config.AdminUsername); err != nil {
 		return fmt.Errorf("bootstrap administrator username: %w", err)
 	}
@@ -141,11 +179,6 @@ func (m *Manager) bootstrap(ctx context.Context, config Config, existingTopology
 	defer m.mu.Unlock()
 	next := clonePersistentState(m.state)
 	changed := false
-	if !next.GuestWorkspaceInitialized {
-		next.GuestTopologyIDs = normalizeIDs(existingTopologyIDs)
-		next.GuestWorkspaceInitialized = true
-		changed = true
-	}
 	usernameKey := normalizeUsername(config.AdminUsername)
 	for _, user := range next.Users {
 		if user.UsernameKey == usernameKey && user.ID != bootstrapAdminID {
@@ -163,7 +196,8 @@ func (m *Manager) bootstrap(ctx context.Context, config Config, existingTopology
 		}
 		admin := persistedUser{
 			ID: bootstrapAdminID, Username: config.AdminUsername, UsernameKey: usernameKey,
-			Role: RoleAdmin, PasswordHash: passwordHash, AuthSource: AuthSourceLocal, IsBootstrapAdministrator: true,
+			Role: RoleAdmin, AllOrganizations: true, PasswordHash: passwordHash,
+			AuthSource: AuthSourceLocal, IsBootstrapAdministrator: true,
 			CreatedAt: now, UpdatedAt: now,
 		}
 		next.Users = append(next.Users, admin)
@@ -182,15 +216,21 @@ func (m *Manager) bootstrap(ctx context.Context, config Config, existingTopology
 			}
 			changed = true
 		}
-		if admin.Username != config.AdminUsername || admin.UsernameKey != usernameKey || admin.Role != RoleAdmin || admin.Disabled {
+		if admin.Username != config.AdminUsername || admin.UsernameKey != usernameKey || admin.Role != RoleAdmin ||
+			!admin.AllOrganizations || len(admin.OrganizationIDs) != 0 || admin.Disabled {
 			admin.Username = config.AdminUsername
 			admin.UsernameKey = usernameKey
 			admin.Role = RoleAdmin
+			admin.AllOrganizations = true
+			admin.OrganizationIDs = nil
 			admin.Disabled = false
 			changed = true
 		}
-		admin.IsBootstrapAdministrator = true
-		admin.AuthSource = AuthSourceLocal
+		if !admin.IsBootstrapAdministrator || admin.AuthSource != AuthSourceLocal {
+			admin.IsBootstrapAdministrator = true
+			admin.AuthSource = AuthSourceLocal
+			changed = true
+		}
 		if changed {
 			admin.UpdatedAt = now
 		}
@@ -230,6 +270,17 @@ func (m *Manager) GuestEnabled() bool { return m.guestEnabled }
 
 // CookieSecure reports whether the session cookie must be HTTPS-only.
 func (m *Manager) CookieSecure() bool { return m.cookieSecure }
+
+// GuestOrganizationID returns the stable organization used for newly created
+// Guest workspace topologies. It is empty when Guest access is disabled.
+func (m *Manager) GuestOrganizationID() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.guestEnabled {
+		return ""
+	}
+	return m.guestOrganization
+}
 
 // StartLogin validates the primary credential and issues a bounded second-factor challenge.
 func (m *Manager) StartLogin(username, password, remote string) (LoginChallenge, error) {
@@ -417,7 +468,13 @@ func (m *Manager) NewGuestSession() (Session, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.newPrincipalSessionLocked(Principal{UserID: RoleGuest, Username: "Guest", Role: RoleGuest}, m.now())
+	if m.guestOrganization == "" {
+		return Session{}, ErrForbidden
+	}
+	return m.newPrincipalSessionLocked(Principal{
+		UserID: RoleGuest, Username: "Guest", Role: RoleGuest,
+		OrganizationIDs: []string{m.guestOrganization},
+	}, m.now())
 }
 
 // Session resolves an opaque cookie token and refreshes no state.
@@ -441,6 +498,14 @@ func (m *Manager) Logout(token string) {
 	m.mu.Unlock()
 }
 
+func (m *Manager) revokeUserSessionsLocked(userID string) {
+	for token, session := range m.sessions {
+		if session.Principal.UserID == userID {
+			delete(m.sessions, token)
+		}
+	}
+}
+
 // Users returns secret-free account records.
 func (m *Manager) Users() []UserView {
 	m.mu.Lock()
@@ -453,14 +518,15 @@ func (m *Manager) Users() []UserView {
 	return views
 }
 
-// CreateUser creates an organization-scoped local account that must enroll TOTP.
-func (m *Manager) CreateUser(ctx context.Context, username, password string, organizations []string) (UserView, error) {
+// CreateUser creates a local account that must enroll TOTP.
+func (m *Manager) CreateUser(
+	ctx context.Context,
+	username string,
+	password string,
+	access Access,
+) (UserView, error) {
 	username = strings.TrimSpace(username)
 	if err := validateUsername(username); err != nil {
-		return UserView{}, err
-	}
-	organizations, err := normalizeOrganizations(organizations)
-	if err != nil {
 		return UserView{}, err
 	}
 	passwordHash, err := hashPassword(password)
@@ -474,14 +540,19 @@ func (m *Manager) CreateUser(ctx context.Context, username, password string, org
 	now := m.now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	access, err = m.normalizeAccessLocked(access, false)
+	if err != nil {
+		return UserView{}, err
+	}
 	usernameKey := normalizeUsername(username)
 	if _, exists := m.userByUsernameKeyLocked(usernameKey); exists {
 		return UserView{}, ErrConflict
 	}
 	user := persistedUser{
-		ID: id, Username: username, UsernameKey: usernameKey, Role: RoleUser,
+		ID: id, Username: username, UsernameKey: usernameKey, Role: access.Role,
+		AllOrganizations: access.AllOrganizations, OrganizationIDs: access.OrganizationIDs,
 		PasswordHash: passwordHash, AuthSource: AuthSourceLocal,
-		Organizations: organizations, CreatedAt: now, UpdatedAt: now,
+		CreatedAt: now, UpdatedAt: now,
 	}
 	next := clonePersistentState(m.state)
 	next.Users = append(next.Users, user)
@@ -491,13 +562,13 @@ func (m *Manager) CreateUser(ctx context.Context, username, password string, org
 	return userView(user), nil
 }
 
-// CreateEntraUser creates an organization-scoped account that must link a
-// pre-approved Microsoft Entra login before it can open a session.
+// CreateEntraUser creates a passwordless account that must link a pre-approved
+// Microsoft Entra login before it can open a session.
 func (m *Manager) CreateEntraUser(
 	ctx context.Context,
 	username string,
 	externalLogin string,
-	organizations []string,
+	access Access,
 ) (UserView, error) {
 	username = strings.TrimSpace(username)
 	if err := validateUsername(username); err != nil {
@@ -507,10 +578,6 @@ func (m *Manager) CreateEntraUser(
 	if err := validateExternalLogin(externalLogin); err != nil {
 		return UserView{}, err
 	}
-	organizations, err := normalizeOrganizations(organizations)
-	if err != nil {
-		return UserView{}, err
-	}
 	id, err := randomToken(16)
 	if err != nil {
 		return UserView{}, err
@@ -518,14 +585,19 @@ func (m *Manager) CreateEntraUser(
 	now := m.now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	access, err = m.normalizeAccessLocked(access, false)
+	if err != nil {
+		return UserView{}, err
+	}
 	usernameKey := normalizeUsername(username)
 	if _, exists := m.userByUsernameKeyLocked(usernameKey); exists || m.externalLoginExistsLocked(externalLogin, "") {
 		return UserView{}, ErrConflict
 	}
 	user := persistedUser{
-		ID: id, Username: username, UsernameKey: usernameKey, Role: RoleUser,
+		ID: id, Username: username, UsernameKey: usernameKey, Role: access.Role,
+		AllOrganizations: access.AllOrganizations, OrganizationIDs: access.OrganizationIDs,
 		AuthSource: AuthSourceEntra, ExternalLogin: externalLogin,
-		Organizations: organizations, CreatedAt: now, UpdatedAt: now,
+		CreatedAt: now, UpdatedAt: now,
 	}
 	next := clonePersistentState(m.state)
 	next.Users = append(next.Users, user)
@@ -607,12 +679,9 @@ func (m *Manager) ResetEntraBinding(ctx context.Context, id string) (UserView, e
 	return userView(next.Users[index]), nil
 }
 
-// UpdateUser changes organization membership and disabled state.
-func (m *Manager) UpdateUser(ctx context.Context, id string, organizations []string, disabled bool) (UserView, error) {
-	organizations, err := normalizeOrganizations(organizations)
-	if err != nil {
-		return UserView{}, err
-	}
+// UpdateUser changes role, organization access, and disabled state. Any
+// effective authorization change revokes the account's active sessions.
+func (m *Manager) UpdateUser(ctx context.Context, id string, update UserUpdate) (UserView, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	next := clonePersistentState(m.state)
@@ -623,89 +692,138 @@ func (m *Manager) UpdateUser(ctx context.Context, id string, organizations []str
 	if next.Users[index].IsBootstrapAdministrator {
 		return UserView{}, ErrForbidden
 	}
-	next.Users[index].Organizations = organizations
-	next.Users[index].Disabled = disabled
+	if update.ResetExternalIdentity && next.Users[index].AuthSource != AuthSourceEntra {
+		return UserView{}, ErrForbidden
+	}
+	current := next.Users[index]
+	requestedRole := strings.TrimSpace(update.Role)
+	allowEmpty := current.Role == RoleUser && !current.AllOrganizations && len(current.OrganizationIDs) == 0 &&
+		(requestedRole == "" || requestedRole == RoleUser) && !update.AllOrganizations &&
+		len(update.OrganizationIDs) == 0 && (current.Disabled != update.Disabled || update.ResetExternalIdentity)
+	access, err := m.normalizeAccessLocked(update.Access, allowEmpty)
+	if err != nil {
+		return UserView{}, err
+	}
+	user := &next.Users[index]
+	changed := user.Role != access.Role || user.AllOrganizations != access.AllOrganizations ||
+		!slices.Equal(user.OrganizationIDs, access.OrganizationIDs) || user.Disabled != update.Disabled
+	resetIdentity := update.ResetExternalIdentity && user.ExternalObjectID != ""
+	changed = changed || resetIdentity
+	if !changed {
+		return userView(*user), nil
+	}
+	user.Role = access.Role
+	user.AllOrganizations = access.AllOrganizations
+	user.OrganizationIDs = access.OrganizationIDs
+	user.Disabled = update.Disabled
+	if update.ResetExternalIdentity {
+		user.ExternalTenantID = ""
+		user.ExternalObjectID = ""
+		user.ExternalLinkedAt = time.Time{}
+	}
 	next.Users[index].UpdatedAt = m.now()
 	if err := m.commitLocked(ctx, next); err != nil {
 		return UserView{}, err
 	}
-	if disabled {
-		for token, session := range m.sessions {
-			if session.Principal.UserID == id {
-				delete(m.sessions, token)
-			}
-		}
-	} else {
-		for token, session := range m.sessions {
-			if session.Principal.UserID != id {
-				continue
-			}
-			session.Principal.Organizations = slices.Clone(organizations)
-			m.sessions[token] = session
-		}
-	}
+	m.revokeUserSessionsLocked(id)
 	return userView(next.Users[index]), nil
 }
 
-// CanAccessTopology checks administrator, Guest workspace, or organization membership.
-func (m *Manager) CanAccessTopology(principal Principal, topologyID, organization string) bool {
-	if principal.IsAdmin() {
-		return true
+// RegisterOrganization updates the in-memory catalog after organization
+// creation or rename.
+func (m *Manager) RegisterOrganization(ref OrganizationRef) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	nextCatalog := m.organizations.clone()
+	if err := nextCatalog.register(ref); err != nil {
+		return err
 	}
+	m.organizations = nextCatalog
+	return nil
+}
+
+// RemoveOrganizationAssignments removes a deleted organization from every
+// account without widening access and revokes affected sessions. A scoped user
+// may intentionally retain zero grants until an administrator reassigns it.
+func (m *Manager) RemoveOrganizationAssignments(ctx context.Context, organizationID string) error {
+	organizationID = strings.TrimSpace(organizationID)
+	if organizationID == "" {
+		return errors.New("auth: organization id is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	next := clonePersistentState(m.state)
+	affected := make(map[string]struct{})
+	changed := false
+	for index := range next.Users {
+		user := &next.Users[index]
+		grantIndex := slices.Index(user.OrganizationIDs, organizationID)
+		if grantIndex < 0 {
+			continue
+		}
+		user.OrganizationIDs = slices.Delete(user.OrganizationIDs, grantIndex, grantIndex+1)
+		user.UpdatedAt = m.now()
+		affected[user.ID] = struct{}{}
+		changed = true
+	}
+	if next.GuestOrganizationID == organizationID {
+		next.GuestOrganizationID = ""
+		changed = true
+	}
+	if changed {
+		if err := m.commitLocked(ctx, next); err != nil {
+			return err
+		}
+	}
+	m.organizations.remove(organizationID)
+	if m.guestOrganization == organizationID {
+		m.guestOrganization = ""
+	}
+	for id := range affected {
+		m.revokeUserSessionsLocked(id)
+	}
+	return nil
+}
+
+// CanAccessTopology checks administrator, global, Guest workspace, or stable
+// organization-ID membership.
+func (m *Manager) CanAccessTopology(principal Principal, _ string, organizationID string) bool {
 	if principal.IsGuest() {
+		organizationID = strings.TrimSpace(organizationID)
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		return slices.Contains(m.state.GuestTopologyIDs, topologyID)
+		return m.guestEnabled && organizationID != "" && organizationID == m.guestOrganization
 	}
-	for _, allowed := range principal.Organizations {
-		if strings.EqualFold(strings.TrimSpace(allowed), strings.TrimSpace(organization)) {
-			return true
-		}
-	}
-	return false
-}
-
-// CanCreateInOrganization checks the organization requested for a new topology.
-func (m *Manager) CanCreateInOrganization(principal Principal, organization string) bool {
-	if principal.IsAdmin() || principal.IsGuest() {
-		return true
-	}
-	for _, allowed := range principal.Organizations {
-		if strings.EqualFold(strings.TrimSpace(allowed), strings.TrimSpace(organization)) {
-			return true
-		}
-	}
-	return false
-}
-
-// AddGuestTopology persists a topology in the Guest workspace.
-func (m *Manager) AddGuestTopology(ctx context.Context, id string) error {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return errors.New("auth: guest topology id is required")
+	organizationID = strings.TrimSpace(organizationID)
+	if organizationID == "" {
+		return false
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if slices.Contains(m.state.GuestTopologyIDs, id) {
-		return nil
+	registered := m.organizations.contains(organizationID)
+	m.mu.Unlock()
+	if !registered {
+		return false
 	}
-	next := clonePersistentState(m.state)
-	next.GuestTopologyIDs = append(next.GuestTopologyIDs, id)
-	slices.Sort(next.GuestTopologyIDs)
-	return m.commitLocked(ctx, next)
+	return principal.IsAdmin() || principal.AllOrganizations || slices.Contains(principal.OrganizationIDs, organizationID)
 }
 
-// RemoveGuestTopology removes a deleted topology from the Guest workspace index.
-func (m *Manager) RemoveGuestTopology(ctx context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	index := slices.Index(m.state.GuestTopologyIDs, strings.TrimSpace(id))
-	if index < 0 {
-		return nil
+// CanCreateInOrganization checks the stable organization requested for a new topology.
+func (m *Manager) CanCreateInOrganization(principal Principal, organizationID string) bool {
+	organizationID = strings.TrimSpace(organizationID)
+	if organizationID == "" {
+		return false
 	}
-	next := clonePersistentState(m.state)
-	next.GuestTopologyIDs = slices.Delete(next.GuestTopologyIDs, index, index+1)
-	return m.commitLocked(ctx, next)
+	m.mu.Lock()
+	registered := m.organizations.contains(organizationID)
+	guestOrganization := m.guestOrganization
+	m.mu.Unlock()
+	if !registered {
+		return false
+	}
+	if principal.IsGuest() {
+		return m.guestEnabled && organizationID == guestOrganization
+	}
+	return principal.IsAdmin() || principal.AllOrganizations || slices.Contains(principal.OrganizationIDs, organizationID)
 }
 
 func (m *Manager) challengeUserLocked(token string, now time.Time) (pendingChallenge, persistedUser, error) {
@@ -743,7 +861,9 @@ func (m *Manager) failChallengeLocked(token string) {
 
 func (m *Manager) newSessionLocked(user persistedUser, now time.Time) (Session, error) {
 	return m.newPrincipalSessionLocked(Principal{
-		UserID: user.ID, Username: user.Username, Role: user.Role, Organizations: slices.Clone(user.Organizations),
+		UserID: user.ID, Username: user.Username, Role: user.Role,
+		AllOrganizations: user.Role == RoleAdmin || user.AllOrganizations,
+		OrganizationIDs:  slices.Clone(user.OrganizationIDs),
 	}, now)
 }
 
@@ -758,6 +878,7 @@ func (m *Manager) newPrincipalSessionLocked(principal Principal, now time.Time) 
 	}
 	session := Session{Token: token, CSRFToken: csrfToken, Principal: clonePrincipal(principal), ExpiresAt: now.Add(sessionLifetime)}
 	m.sessions[token] = session
+	session.Principal = clonePrincipal(session.Principal)
 	return session, nil
 }
 
@@ -767,7 +888,7 @@ func (m *Manager) userByUsernameKeyLocked(usernameKey string) (persistedUser, bo
 		return persistedUser{}, false
 	}
 	user := m.state.Users[index]
-	user.Organizations = slices.Clone(user.Organizations)
+	user.OrganizationIDs = slices.Clone(user.OrganizationIDs)
 	user.RecoveryCodeHashes = slices.Clone(user.RecoveryCodeHashes)
 	return user, true
 }
@@ -778,7 +899,7 @@ func (m *Manager) userByIDLocked(id string) (persistedUser, bool) {
 		return persistedUser{}, false
 	}
 	user := m.state.Users[index]
-	user.Organizations = slices.Clone(user.Organizations)
+	user.OrganizationIDs = slices.Clone(user.OrganizationIDs)
 	user.RecoveryCodeHashes = slices.Clone(user.RecoveryCodeHashes)
 	return user, true
 }
@@ -821,9 +942,11 @@ func (m *Manager) commitLocked(ctx context.Context, next persistentState) error 
 func userView(user persistedUser) UserView {
 	return UserView{
 		ID: user.ID, Username: user.Username, Role: user.Role,
-		Organizations: slices.Clone(user.Organizations), TOTPConfigured: user.EncryptedTOTPSecret != "",
+		AllOrganizations: user.Role == RoleAdmin || user.AllOrganizations,
+		OrganizationIDs:  slices.Clone(user.OrganizationIDs), TOTPConfigured: user.EncryptedTOTPSecret != "",
 		AuthSource: user.AuthSource, ExternalLogin: user.ExternalLogin, ExternalLinked: user.ExternalObjectID != "",
-		Disabled: user.Disabled, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt,
+		Disabled: user.Disabled, Protected: user.IsBootstrapAdministrator,
+		CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt,
 	}
 }
 
@@ -871,32 +994,40 @@ func (m *Manager) externalLoginExistsLocked(externalLogin, exceptID string) bool
 	})
 }
 
-func normalizeOrganizations(values []string) ([]string, error) {
-	organizations := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if len(value) > 120 {
-			return nil, errors.New("auth: organization name is too long")
-		}
-		key := strings.ToLower(value)
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		organizations = append(organizations, value)
+func (m *Manager) normalizeAccessLocked(access Access, allowEmpty bool) (Access, error) {
+	access.Role = strings.TrimSpace(access.Role)
+	if access.Role == "" {
+		access.Role = RoleUser
 	}
-	if len(organizations) == 0 {
-		return nil, errors.New("auth: at least one organization is required")
+	if access.Role != RoleAdmin && access.Role != RoleUser {
+		return Access{}, errors.New("auth: account role is invalid")
 	}
-	if len(organizations) > 64 {
-		return nil, errors.New("auth: too many organization assignments")
+	organizationIDs := normalizeIDs(access.OrganizationIDs)
+	if len(organizationIDs) > 64 {
+		return Access{}, errors.New("auth: too many organization assignments")
 	}
-	slices.SortFunc(organizations, func(left, right string) int { return strings.Compare(strings.ToLower(left), strings.ToLower(right)) })
-	return organizations, nil
+	for _, id := range organizationIDs {
+		if !m.organizations.contains(id) {
+			return Access{}, errors.New("auth: organization assignment is not registered")
+		}
+	}
+	if access.Role == RoleAdmin {
+		if len(organizationIDs) != 0 {
+			return Access{}, errors.New("auth: administrator cannot have scoped organization assignments")
+		}
+		return Access{Role: RoleAdmin, AllOrganizations: true, OrganizationIDs: []string{}}, nil
+	}
+	if access.AllOrganizations && len(organizationIDs) != 0 {
+		return Access{}, errors.New("auth: global access cannot include scoped organization assignments")
+	}
+	if !access.AllOrganizations && len(organizationIDs) == 0 && !allowEmpty {
+		return Access{}, errors.New("auth: at least one organization is required")
+	}
+	return Access{
+		Role:             RoleUser,
+		AllOrganizations: access.AllOrganizations,
+		OrganizationIDs:  organizationIDs,
+	}, nil
 }
 
 func normalizeIDs(values []string) []string {
@@ -917,7 +1048,17 @@ func normalizeIDs(values []string) []string {
 	return result
 }
 
-func validatePersistentState(state persistentState, encryptionKey []byte) error {
+func validatePersistentState(
+	state persistentState,
+	encryptionKey []byte,
+	organizations organizationCatalog,
+) error {
+	if state.Version != authStateVersion {
+		return fmt.Errorf("auth: unsupported state version %d", state.Version)
+	}
+	if state.GuestOrganizationID != "" && !organizations.contains(state.GuestOrganizationID) {
+		return errors.New("auth: guest organization assignment is not registered")
+	}
 	userIDs := make(map[string]struct{}, len(state.Users))
 	usernames := make(map[string]struct{}, len(state.Users))
 	externalLogins := make(map[string]struct{}, len(state.Users))
@@ -937,6 +1078,31 @@ func validatePersistentState(state persistentState, encryptionKey []byte) error 
 		if user.Role != RoleAdmin && user.Role != RoleUser {
 			return errors.New("auth: account state contains an invalid role")
 		}
+		if len(user.LegacyOrganizations) != 0 {
+			return errors.New("auth: account state contains legacy organization names")
+		}
+		if len(user.OrganizationIDs) > 64 || !slices.Equal(user.OrganizationIDs, normalizeIDs(user.OrganizationIDs)) {
+			return errors.New("auth: account state contains invalid organization assignments")
+		}
+		for _, organizationID := range user.OrganizationIDs {
+			if !organizations.contains(organizationID) {
+				return errors.New("auth: account state contains an unregistered organization assignment")
+			}
+		}
+		if user.Role == RoleAdmin {
+			if !user.AllOrganizations || len(user.OrganizationIDs) != 0 {
+				return errors.New("auth: administrator account contains scoped organization access")
+			}
+		} else if user.AllOrganizations && len(user.OrganizationIDs) != 0 {
+			return errors.New("auth: global account contains scoped organization access")
+		}
+		if user.IsBootstrapAdministrator {
+			validBootstrap := user.ID == bootstrapAdminID && user.Role == RoleAdmin &&
+				user.AllOrganizations && !user.Disabled && user.AuthSource == AuthSourceLocal
+			if !validBootstrap {
+				return errors.New("auth: bootstrap administrator protections are invalid")
+			}
+		}
 		switch user.AuthSource {
 		case AuthSourceLocal:
 			if user.ExternalLogin != "" || user.ExternalTenantID != "" || user.ExternalObjectID != "" || !user.ExternalLinkedAt.IsZero() {
@@ -946,7 +1112,7 @@ func validatePersistentState(state persistentState, encryptionKey []byte) error 
 				return err
 			}
 		case AuthSourceEntra:
-			if user.Role != RoleUser || user.PasswordHash != "" || user.EncryptedTOTPSecret != "" ||
+			if user.PasswordHash != "" || user.EncryptedTOTPSecret != "" ||
 				len(user.RecoveryCodeHashes) != 0 || user.LastTOTPStep != 0 || user.IsBootstrapAdministrator {
 				return errors.New("auth: Entra account contains local authentication secrets")
 			}

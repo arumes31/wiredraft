@@ -64,8 +64,10 @@ role remains either `admin` or `user`; `guest` continues to be an ephemeral
 principal. State validation enforces these invariants:
 
 - an administrator has effective access to all organizations;
-- a regular user has either `allOrganizations=true` or at least one valid
-  organization assignment;
+- a regular user has either `allOrganizations=true` or only valid organization
+  assignments; creation and interactive updates require at least one, while
+  deleting the user's last assigned organization safely leaves no map access
+  until an administrator reassigns the account;
 - an Entra user has no password hash, TOTP secret, or recovery codes;
 - the bootstrap administrator cannot be disabled, demoted, or converted;
 - organization assignments contain unique registered IDs.

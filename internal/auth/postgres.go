@@ -21,7 +21,7 @@ func NewPostgres(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	config Config,
-	existingTopologyIDs []string,
+	organizations []OrganizationRef,
 ) (*Manager, error) {
 	config.AdminUsername = normalizeUsernameDisplay(config.AdminUsername)
 	if config.AdminUsername == "" {
@@ -30,64 +30,108 @@ func NewPostgres(
 	if err := validatePassword(config.AdminPassword); err != nil {
 		return nil, fmt.Errorf("bootstrap administrator password: %w", err)
 	}
-	state, key, migrated, err := loadOrCreatePostgresState(ctx, pool)
+	catalog, err := newOrganizationCatalog(organizations)
 	if err != nil {
 		return nil, err
 	}
-	if err := validatePersistentState(state, key); err != nil {
+	state, key, schemaMigrated, previousVersion, err := loadOrCreatePostgresState(ctx, pool)
+	if err != nil {
 		return nil, err
 	}
-	if migrated {
-		persisted, err := savePostgresMigration(ctx, pool, state, key, 1)
+	migrationComplete := false
+	for range 3 {
+		organizationMigrated, err := migrateOrganizationAssignments(&state, catalog)
 		if err != nil {
 			return nil, err
 		}
-		if !persisted {
-			state, key, _, err = loadPostgresState(ctx, pool)
-			if err != nil {
-				return nil, fmt.Errorf("reloading concurrently migrated authentication state: %w", err)
-			}
-			if err := validatePersistentState(state, key); err != nil {
-				return nil, err
-			}
+		guestMigrated, err := migrateGuestOrganization(&state, catalog, config.GuestEnabled)
+		if err != nil {
+			return nil, err
+		}
+		guestAllowlistRetired := retireLegacyGuestTopologyIDs(&state)
+		if err := validatePersistentState(state, key, catalog); err != nil {
+			return nil, err
+		}
+		if !schemaMigrated && !organizationMigrated && !guestMigrated && !guestAllowlistRetired {
+			migrationComplete = true
+			break
+		}
+		persisted := true
+		if previousVersion < authStateVersion {
+			persisted, err = savePostgresMigration(ctx, pool, state, key, previousVersion)
+		} else {
+			err = savePostgresState(ctx, pool, state, key)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if persisted {
+			migrationComplete = true
+			break
+		}
+		state, key, schemaMigrated, previousVersion, err = loadPostgresState(ctx, pool)
+		if err != nil {
+			return nil, fmt.Errorf("reloading concurrently migrated authentication state: %w", err)
 		}
 	}
-	manager := newManager(state, key, config, func(saveCtx context.Context, next persistentState) error {
+	if !migrationComplete || state.Version != authStateVersion {
+		return nil, errors.New("auth: authentication state migration did not converge")
+	}
+	manager := newManager(state, key, config, catalog, func(saveCtx context.Context, next persistentState) error {
 		return savePostgresState(saveCtx, pool, next, key)
 	})
 	if err := manager.preparePasswordComparison(); err != nil {
 		return nil, err
 	}
-	if err := manager.bootstrap(ctx, config, existingTopologyIDs); err != nil {
+	if err := manager.bootstrap(ctx, config); err != nil {
 		return nil, err
 	}
 	return manager, nil
 }
 
-func loadOrCreatePostgresState(ctx context.Context, pool *pgxpool.Pool) (persistentState, []byte, bool, error) {
-	state, key, migrated, err := loadPostgresState(ctx, pool)
+// ReadPostgresPreflight reads organization state required before NewPostgres
+// can migrate to a stable catalog.
+func ReadPostgresPreflight(ctx context.Context, pool *pgxpool.Pool) (Preflight, error) {
+	state, _, _, _, err := loadPostgresState(ctx, pool)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Preflight{LegacyOrganizationNames: []string{}}, nil
+	}
+	if err != nil {
+		return Preflight{}, err
+	}
+	return preflight(state), nil
+}
+
+func loadOrCreatePostgresState(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+) (persistentState, []byte, bool, int, error) {
+	state, key, migrated, previousVersion, err := loadPostgresState(ctx, pool)
 	if err == nil {
-		return state, key, migrated, nil
+		return state, key, migrated, previousVersion, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return persistentState{}, nil, false, err
+		return persistentState{}, nil, false, 0, err
 	}
 	key = make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
-		return persistentState{}, nil, false, fmt.Errorf("generating authentication encryption key: %w", err)
+		return persistentState{}, nil, false, 0, fmt.Errorf("generating authentication encryption key: %w", err)
 	}
 	state = persistentState{Version: authStateVersion, Users: []persistedUser{}}
 	inserted, err := insertInitialPostgresState(ctx, pool, state, key)
 	if err != nil {
-		return persistentState{}, nil, false, err
+		return persistentState{}, nil, false, 0, err
 	}
 	if !inserted {
 		return loadPostgresState(ctx, pool)
 	}
-	return state, key, false, nil
+	return state, key, false, authStateVersion, nil
 }
 
-func loadPostgresState(ctx context.Context, pool *pgxpool.Pool) (persistentState, []byte, bool, error) {
+func loadPostgresState(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+) (persistentState, []byte, bool, int, error) {
 	var version int
 	var document []byte
 	var key []byte
@@ -96,35 +140,48 @@ func loadPostgresState(ctx context.Context, pool *pgxpool.Pool) (persistentState
 		FROM auth_state
 		WHERE singleton`).Scan(&version, &document, &key)
 	if err != nil {
-		return persistentState{}, nil, false, err
+		return persistentState{}, nil, false, 0, err
 	}
+	state, migrated, previousVersion, err := decodePostgresState(version, document, key)
+	if err != nil {
+		return persistentState{}, nil, false, 0, err
+	}
+	return state, key, migrated, previousVersion, nil
+}
+
+func decodePostgresState(
+	version int,
+	document []byte,
+	key []byte,
+) (persistentState, bool, int, error) {
 	if version < 1 || version > authStateVersion {
-		return persistentState{}, nil, false, fmt.Errorf("auth: unsupported state version %d", version)
+		return persistentState{}, false, 0, fmt.Errorf("auth: unsupported state version %d", version)
 	}
 	if len(key) != 32 {
-		return persistentState{}, nil, false, errors.New("auth: encryption key must contain exactly 32 bytes")
+		return persistentState{}, false, 0, errors.New("auth: encryption key must contain exactly 32 bytes")
 	}
 	var state persistentState
 	decoder := json.NewDecoder(bytes.NewReader(document))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&state); err != nil {
-		return persistentState{}, nil, false, fmt.Errorf("decoding postgres authentication state: %w", err)
+		return persistentState{}, false, 0, fmt.Errorf("decoding postgres authentication state: %w", err)
 	}
 	var extra json.RawMessage
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return persistentState{}, nil, false, errors.New("auth: postgres state contains multiple json values")
+		return persistentState{}, false, 0, errors.New("auth: postgres state contains multiple json values")
 	}
 	if state.Version != version {
-		return persistentState{}, nil, false, errors.New("auth: postgres state version does not match its document")
+		return persistentState{}, false, 0, errors.New("auth: postgres state version does not match its document")
 	}
+	previousVersion := version
 	migrated, err := migratePersistentState(&state)
 	if err != nil {
-		return persistentState{}, nil, false, err
+		return persistentState{}, false, 0, err
 	}
 	if state.Users == nil {
 		state.Users = []persistedUser{}
 	}
-	return state, key, migrated, nil
+	return state, migrated, previousVersion, nil
 }
 
 func insertInitialPostgresState(ctx context.Context, pool *pgxpool.Pool, state persistentState, key []byte) (bool, error) {

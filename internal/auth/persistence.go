@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	authStateVersion = 2
+	authStateVersion = 4
 	maxAuthStateSize = 4 << 20
 )
 
@@ -32,7 +32,9 @@ type persistedUser struct {
 	ExternalTenantID         string    `json:"externalTenantId,omitempty"`
 	ExternalObjectID         string    `json:"externalObjectId,omitempty"`
 	ExternalLinkedAt         time.Time `json:"externalLinkedAt,omitzero"`
-	Organizations            []string  `json:"organizations,omitempty"`
+	AllOrganizations         bool      `json:"allOrganizations,omitempty"`
+	OrganizationIDs          []string  `json:"organizationIds,omitempty"`
+	LegacyOrganizations      []string  `json:"organizations,omitempty"`
 	EncryptedTOTPSecret      string    `json:"encryptedTotpSecret,omitempty"`
 	RecoveryCodeHashes       []string  `json:"recoveryCodeHashes,omitempty"`
 	LastTOTPStep             uint64    `json:"lastTotpStep,omitempty"`
@@ -43,10 +45,13 @@ type persistedUser struct {
 }
 
 type persistentState struct {
-	Version                   int             `json:"version"`
-	GuestWorkspaceInitialized bool            `json:"guestWorkspaceInitialized"`
-	GuestTopologyIDs          []string        `json:"guestTopologyIds,omitempty"`
-	Users                     []persistedUser `json:"users"`
+	Version             int             `json:"version"`
+	GuestOrganizationID string          `json:"guestOrganizationId,omitempty"`
+	Users               []persistedUser `json:"users"`
+
+	// Retained only to decode and erase the version 3 Guest topology allowlist.
+	LegacyGuestWorkspaceInitialized bool     `json:"guestWorkspaceInitialized,omitempty"`
+	LegacyGuestTopologyIDs          []string `json:"guestTopologyIds,omitempty"`
 }
 
 func loadOrCreateEncryptionKey(directory string) ([]byte, error) {
@@ -111,18 +116,32 @@ func loadPersistentState(path string) (state persistentState, exists bool, migra
 }
 
 func migratePersistentState(state *persistentState) (bool, error) {
+	changed := false
 	switch state.Version {
 	case 1:
 		for index := range state.Users {
 			state.Users[index].AuthSource = AuthSourceLocal
 		}
+		state.Version = 2
+		changed = true
+	case 2:
+	case 3:
 		state.Version = authStateVersion
-		return true, nil
+		changed = true
 	case authStateVersion:
-		return false, nil
 	default:
 		return false, fmt.Errorf("auth: unsupported state version %d", state.Version)
 	}
+	return changed, nil
+}
+
+func retireLegacyGuestTopologyIDs(state *persistentState) bool {
+	if !state.LegacyGuestWorkspaceInitialized && len(state.LegacyGuestTopologyIDs) == 0 {
+		return false
+	}
+	state.LegacyGuestWorkspaceInitialized = false
+	state.LegacyGuestTopologyIDs = nil
+	return true
 }
 
 func savePersistentState(path string, state persistentState) (returnErr error) {
@@ -243,10 +262,10 @@ func openSecret(key []byte, encoded string) (string, error) {
 
 func clonePersistentState(state persistentState) persistentState {
 	clone := state
-	clone.GuestTopologyIDs = slices.Clone(state.GuestTopologyIDs)
 	clone.Users = make([]persistedUser, len(state.Users))
 	for index, user := range state.Users {
-		user.Organizations = slices.Clone(user.Organizations)
+		user.OrganizationIDs = slices.Clone(user.OrganizationIDs)
+		user.LegacyOrganizations = slices.Clone(user.LegacyOrganizations)
 		user.RecoveryCodeHashes = slices.Clone(user.RecoveryCodeHashes)
 		clone.Users[index] = user
 	}

@@ -49,10 +49,12 @@ func TestTopologyOrganizationAndLocationRoundTrip(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
 	topology := requestTopology(t, handler, http.MethodPost, "/api/v1/topologies", map[string]string{
-		"name": "Vienna core", "organization": "Example Corp", "location": "Vienna DC1", "template": "blank",
+		"name": "Vienna core", "organizationId": model.DefaultOrganizationID,
+		"location": "Vienna DC1", "template": "blank",
 	}, http.StatusCreated)
-	if topology.Organization != "Example Corp" || topology.Location != "Vienna DC1" {
-		t.Fatalf("created scope = %q / %q, want Example Corp / Vienna DC1", topology.Organization, topology.Location)
+	if topology.OrganizationID != model.DefaultOrganizationID || topology.Organization != model.DefaultOrganizationName || topology.Location != "Vienna DC1" {
+		t.Fatalf("created scope = %q / %q / %q, want protected Default / Vienna DC1",
+			topology.OrganizationID, topology.Organization, topology.Location)
 	}
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/topologies", nil)

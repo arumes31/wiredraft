@@ -6,7 +6,7 @@ const css = readFileSync(new URL("./static/css/styles.css", import.meta.url), "u
 const appJS = readFileSync(new URL("./static/js/app.js", import.meta.url), "utf8");
 
 const dialogs = [...html.matchAll(/<dialog\s+([^>]+)>([\s\S]*?)<\/dialog>/g)];
-assert.equal(dialogs.length, 15, "every application dialog should be covered by the modal system");
+assert.equal(dialogs.length, 16, "every application dialog should be covered by the modal system");
 
 for (const [, attributes, body] of dialogs) {
   const id = attributes.match(/\bid="([^"]+)"/)?.[1];
