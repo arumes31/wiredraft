@@ -26,7 +26,7 @@ export default defineConfig({
     command: "node scripts/playwright-server.mjs",
     url: `${baseURL}/api/v1/health`,
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 240_000,
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
