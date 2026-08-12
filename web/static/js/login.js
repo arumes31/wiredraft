@@ -55,16 +55,17 @@ function safely(action) {
 
 async function startLogin(event) {
   event.preventDefault();
+  const form = event.currentTarget;
   clearError();
-  const data = new FormData(event.currentTarget);
-  setBusy(event.currentTarget, true);
+  const data = new FormData(form);
+  setBusy(form, true);
   try {
     const result = await request("/api/v1/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: String(data.get("username")), password: String(data.get("password")) }),
     });
     challenge = result.challenge;
-    event.currentTarget.elements.password.value = "";
+    form.elements.password.value = "";
     if (result.next === "setup") {
       elements["totp-qr"].src = result.enrollment.qrCodeDataUrl;
       elements["totp-secret"].textContent = result.enrollment.manualCode;
@@ -77,7 +78,7 @@ async function startLogin(event) {
     showStep("totp-step");
     elements["totp-form"].elements.code.focus();
   } finally {
-    setBusy(event.currentTarget, false);
+    setBusy(form, false);
   }
 }
 
@@ -94,10 +95,11 @@ async function loginGuest() {
 
 async function completeSetup(event) {
   event.preventDefault();
+  const form = event.currentTarget;
   clearError();
-  setBusy(event.currentTarget, true);
+  setBusy(form, true);
   try {
-    const result = await verifyChallenge("/api/v1/auth/setup", event.currentTarget.elements.code.value);
+    const result = await verifyChallenge("/api/v1/auth/setup", form.elements.code.value);
     recoveryCodes = result.recoveryCodes || [];
     elements["recovery-code-list"].replaceChildren(...recoveryCodes.map((code) => {
       const item = document.createElement("li");
@@ -107,31 +109,33 @@ async function completeSetup(event) {
     setConsoleHeading("ENROLLMENT COMPLETE", "SECURE THE FALLBACK", "Store the one-use recovery codes before continuing.");
     showStep("recovery-codes-step");
   } finally {
-    setBusy(event.currentTarget, false);
+    setBusy(form, false);
   }
 }
 
 async function completeTOTP(event) {
   event.preventDefault();
+  const form = event.currentTarget;
   clearError();
-  setBusy(event.currentTarget, true);
+  setBusy(form, true);
   try {
-    await verifyChallenge("/api/v1/auth/totp", event.currentTarget.elements.code.value);
+    await verifyChallenge("/api/v1/auth/totp", form.elements.code.value);
     window.location.assign("/");
   } finally {
-    setBusy(event.currentTarget, false);
+    setBusy(form, false);
   }
 }
 
 async function completeRecovery(event) {
   event.preventDefault();
+  const form = event.currentTarget;
   clearError();
-  setBusy(event.currentTarget, true);
+  setBusy(form, true);
   try {
-    await verifyChallenge("/api/v1/auth/recovery", event.currentTarget.elements.code.value);
+    await verifyChallenge("/api/v1/auth/recovery", form.elements.code.value);
     window.location.assign("/");
   } finally {
-    setBusy(event.currentTarget, false);
+    setBusy(form, false);
   }
 }
 

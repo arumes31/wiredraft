@@ -40,7 +40,7 @@ test("uploads, previews, edits, enlarges, and deletes a protected device photo",
   await manager.locator('[name="originalName"]').fill("cabinet-overview.png");
   await manager.locator('[name="caption"]').fill("Cabinet before scheduled maintenance");
   await manager.getByRole("button", { name: "SAVE DETAILS" }).click({ force: true });
-  await expect(manager.locator('[name="caption"]')).toHaveValue("Cabinet before scheduled maintenance");
+  await expect(manager.locator("#photo-preview")).toHaveAttribute("alt", "Cabinet before scheduled maintenance");
 
   await manager.locator("#photo-preview").click({ force: true });
   await expect(manager.locator("#photo-preview")).toHaveClass(/is-enlarged/);

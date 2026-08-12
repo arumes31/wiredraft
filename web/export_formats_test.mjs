@@ -71,6 +71,7 @@ const engine = {
 };
 const html = buildHTMLDocument(topology, engine, new Date("2026-08-03T19:30:00.000Z"));
 assert.ok(html.startsWith("<!doctype html>"), "HTML export should be a standalone document");
+assert.match(html, /rel="icon" href="data:image\/svg\+xml,/);
 assert.match(html, /<title>Core &lt;A&gt; &amp; Edge · WireDraft export<\/title>/, "HTML title must be escaped");
 assert.match(html, /WIREDRAFT · STANDALONE EXPORT/, "HTML exports must carry the WireDraft product identity");
 assert.match(html, /<svg role="img" aria-label="Core &lt;A&gt; &amp; Edge network topology"/, "HTML must embed the accessible topology SVG");
@@ -237,6 +238,7 @@ const configuredTopology = {
 };
 const workbook = buildConfigurationDocument(configuredTopology, new Date("2026-08-04T12:00:00.000Z"));
 assert.ok(workbook.startsWith("<!doctype html>"), "configuration export should be a standalone document");
+assert.match(workbook, /rel="icon" href="data:image\/svg\+xml,/);
 assert.match(workbook, /Example Corp \/ Vienna DC1 · Inventory/,
   "configuration workbooks must identify their organization and location");
 assert.match(workbook, /WIREDRAFT · CONFIGURATION WORKBOOK/,
