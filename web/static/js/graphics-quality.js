@@ -5,7 +5,7 @@ export const GraphicsMode = Object.freeze({
   QUALITY: "quality",
 });
 
-export const GRAPHICS_STORAGE_KEY = "netdiagram.graphics-mode";
+export const GRAPHICS_STORAGE_KEY = "wiredraft.graphics-mode";
 
 const profiles = Object.freeze({
   [GraphicsMode.PERFORMANCE]: Object.freeze({

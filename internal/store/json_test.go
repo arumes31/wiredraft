@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"netdiagram/internal/model"
+	"wiredraft/internal/model"
 )
 
 func TestJSONStoreRecovery(t *testing.T) {

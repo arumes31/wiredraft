@@ -1,4 +1,4 @@
-export const AUTOSAVE_STORAGE_KEY = "netdiagram.autosave.v1";
+export const AUTOSAVE_STORAGE_KEY = "wiredraft.autosave.v1";
 export const AutosaveIntervals = Object.freeze([30, 60, 300]);
 
 export function loadAutosaveSettings(storage = globalThis.localStorage) {

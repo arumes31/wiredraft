@@ -33,11 +33,11 @@ type Config struct {
 
 // Parse reads environment defaults and applies command-line overrides.
 func Parse(args []string) (Config, error) {
-	guestEnabled, err := envBoolAlias("WIREDRAFT_GUEST_ENABLED", "NETDIAGRAM_GUEST_ENABLED", true)
+	guestEnabled, err := envBool("WIREDRAFT_GUEST_ENABLED", true)
 	if err != nil {
 		return Config{}, err
 	}
-	cookieSecure, err := envBoolAlias("WIREDRAFT_COOKIE_SECURE", "NETDIAGRAM_COOKIE_SECURE", false)
+	cookieSecure, err := envBool("WIREDRAFT_COOKIE_SECURE", false)
 	if err != nil {
 		return Config{}, err
 	}
@@ -47,9 +47,9 @@ func Parse(args []string) (Config, error) {
 		MediaDir:         envString("WIREDRAFT_MEDIA_DIR", "data/media"),
 		LogLevel:         envString("LOG_LEVEL", "info"),
 		LogFormat:        envString("LOG_FORMAT", "json"),
-		AdminUsername:    envStringAlias("WIREDRAFT_ADMIN_USER", "NETDIAGRAM_ADMIN_USER", "admin"),
-		AdminPassword:    envStringAlias("WIREDRAFT_ADMIN_PASSWORD", "NETDIAGRAM_ADMIN_PASSWORD", ""),
-		AdminTOTPSecret:  envStringAlias("WIREDRAFT_ADMIN_TOTP_SECRET", "NETDIAGRAM_ADMIN_TOTP_SECRET", ""),
+		AdminUsername:    envString("WIREDRAFT_ADMIN_USER", "admin"),
+		AdminPassword:    envString("WIREDRAFT_ADMIN_PASSWORD", ""),
+		AdminTOTPSecret:  envString("WIREDRAFT_ADMIN_TOTP_SECRET", ""),
 		GuestEnabled:     guestEnabled,
 		CookieSecure:     cookieSecure,
 		EntraEnabled:     false,
@@ -101,13 +101,6 @@ func envString(name, fallback string) string {
 	return fallback
 }
 
-func envStringAlias(name, legacyName, fallback string) string {
-	if value := os.Getenv(name); value != "" {
-		return value
-	}
-	return envString(legacyName, fallback)
-}
-
 func envInt(name string, fallback int) int {
 	value := os.Getenv(name)
 	if value == "" {
@@ -130,11 +123,4 @@ func envBool(name string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s must be true or false: %w", name, err)
 	}
 	return parsed, nil
-}
-
-func envBoolAlias(name, legacyName string, fallback bool) (bool, error) {
-	if os.Getenv(name) != "" {
-		return envBool(name, fallback)
-	}
-	return envBool(legacyName, fallback)
 }

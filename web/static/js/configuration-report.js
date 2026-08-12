@@ -199,7 +199,7 @@ export function buildConfigurationDocument(topology, generatedAt = new Date()) {
     <main>${sections.map((section) => section.html).join("")}</main>
   </div>
   <footer><span><strong>WIREDRAFT</strong> · OFFLINE CONFIGURATION WORKBOOK</span><span>SOURCE TOPOLOGY EMBEDDED FOR AUDIT</span></footer>
-  <script id="netdiagram-topology" type="application/json">${sourceData}</script>
+  <script id="wiredraft-topology" type="application/json">${sourceData}</script>
   <script>
     const filter=document.querySelector('#filter');
     filter.addEventListener('input',()=>{const term=filter.value.trim().toLocaleLowerCase();document.querySelectorAll('tbody tr').forEach(row=>{row.hidden=Boolean(term)&&!row.textContent.toLocaleLowerCase().includes(term)})});

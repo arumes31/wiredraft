@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"netdiagram/internal/model"
+	"wiredraft/internal/model"
 )
 
 func TestDecodePostgresTopology(t *testing.T) {

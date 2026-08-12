@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode"
 
-	"netdiagram/internal/media"
-	"netdiagram/internal/model"
-	"netdiagram/internal/store"
+	"wiredraft/internal/media"
+	"wiredraft/internal/model"
+	"wiredraft/internal/store"
 )
 
 const (

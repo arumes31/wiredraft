@@ -14,14 +14,14 @@ import (
 	"syscall"
 	"time"
 
-	"netdiagram/internal/auth"
-	"netdiagram/internal/config"
-	"netdiagram/internal/handler"
-	"netdiagram/internal/logger"
-	"netdiagram/internal/media"
-	"netdiagram/internal/sse"
-	"netdiagram/internal/store"
-	webassets "netdiagram/web"
+	"wiredraft/internal/auth"
+	"wiredraft/internal/config"
+	"wiredraft/internal/handler"
+	"wiredraft/internal/logger"
+	"wiredraft/internal/media"
+	"wiredraft/internal/sse"
+	"wiredraft/internal/store"
+	webassets "wiredraft/web"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -50,6 +50,9 @@ func run(args []string) error {
 		return err
 	}
 	defer databasePool.Close()
+	if err := store.MigrateDatabase(databasePool); err != nil {
+		return fmt.Errorf("migrating database: %w", err)
+	}
 	topologyStore := store.NewPostgresStore(databasePool)
 	if err := topologyStore.EnsureDemo(context.Background()); err != nil {
 		return fmt.Errorf("initializing topology store: %w", err)

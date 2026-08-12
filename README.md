@@ -78,7 +78,7 @@ docker pull ghcr.io/arumes31/wiredraft:latest
 
 Available tags include `latest`, `main`, `sha-<commit>`, `v<version>`, `<version>`, and `<major>.<minor>` according to the triggering branch or release tag. Use a version or digest instead of `latest` for repeatable production deployments.
 
-The repository includes a standalone [GHCR Compose stack](docker-compose.ghcr.yml) with both the application and PostgreSQL. It mounts `db/migrations` into new PostgreSQL containers, keeps the database and protected media in separate host directories, waits for database readiness, and runs the application with a read-only root filesystem and dropped Linux capabilities. The accompanying [.env.example](.env.example) lists every setting accepted by this stack with runnable defaults and placeholder credentials.
+The repository includes a standalone [GHCR Compose stack](docker-compose.ghcr.yml) with both the application and PostgreSQL. WireDraft embeds and applies pending schema migrations before serving requests, keeps the database and protected media in separate host directories, waits for database readiness, and runs with a read-only root filesystem and dropped Linux capabilities. The accompanying [.env.example](.env.example) lists every setting accepted by this stack with runnable defaults and placeholder credentials.
 
 Start it from a WireDraft checkout:
 
@@ -107,7 +107,7 @@ Compose-specific settings are separate from the application configuration below:
 | `POSTGRES_USER` | `wiredraft` | Database owner initialized in a new PostgreSQL data directory |
 | `POSTGRES_PASSWORD` | required | Password for the bundled PostgreSQL container; replace the placeholder before startup |
 
-The app connection defaults (`PGDATABASE`, `PGUSER`, and `PGPASSWORD`) must match the bundled PostgreSQL settings. `PGPASSWORD` may be left empty in `.env` to reuse `POSTGRES_PASSWORD`. For an external database, set `DATABASE_URL` or the five `PG*` connection variables; the included PostgreSQL service will still start unless you remove it from the copied deployment file.
+The app connection defaults (`PGDATABASE`, `PGUSER`, and `PGPASSWORD`) must match the bundled PostgreSQL settings. `PGPASSWORD` may be left empty in `.env` to reuse `POSTGRES_PASSWORD`. For an external database, set `DATABASE_URL` or the five `PG*` connection variables; the included PostgreSQL service will still start unless you remove it from the copied deployment file. The configured database role must own the application schema or otherwise be allowed to apply its versioned DDL migrations.
 
 `PORT` is the container-side listen port while `WIREDRAFT_PUBLISHED_PORT` is the host-side port. If `PORT` changes, update `HEALTHCHECK_URL` to the same container port. `WIREDRAFT_MEDIA_DIR` must be an absolute in-container path in this Compose deployment; the protected `data/media` host directory is mounted at that path automatically.
 
@@ -203,7 +203,7 @@ Back up PostgreSQL and `data/media` together to preserve topology, authenticatio
 docker compose exec -T postgres sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > wiredraft-backup.sql
 ```
 
-PostgreSQL runs on `127.0.0.1:5432` in the included development Compose file. Do not expose it publicly. The scripts in `db/migrations` are applied automatically only when PostgreSQL initializes an empty data directory; apply later migrations explicitly to existing databases before starting a newer application version.
+PostgreSQL runs on `127.0.0.1:5432` in the included development Compose file. Do not expose it publicly. WireDraft applies pending migrations from the schema files embedded in its binary before opening the HTTP server. This initializes fresh databases and upgrades existing databases automatically; startup stops with an error if a migration cannot be applied.
 
 ## Configuration
 
@@ -232,8 +232,6 @@ WireDraft reads environment variables first and lets command-line flags override
 | `WIREDRAFT_ENTRA_CLIENT_SECRET_FILE` | — | empty | Path to a read-only file containing the app registration client secret |
 | `WIREDRAFT_ENTRA_REDIRECT_URL` | — | empty | Exact HTTPS callback registered in Entra, ending in `/api/v1/auth/entra/callback` |
 | `HEALTHCHECK_URL` | `-healthcheck-url` | `http://127.0.0.1:8080/api/v1/health` | Target used with `-healthcheck` |
-
-The legacy `NETDIAGRAM_ADMIN_*`, `NETDIAGRAM_GUEST_ENABLED`, and `NETDIAGRAM_COOKIE_SECURE` variables remain fallback aliases. When both names are set, `WIREDRAFT_*` wins.
 
 ## Microsoft Entra ID login
 
@@ -360,7 +358,7 @@ To rotate the secret, create a second Entra client secret, replace the mounted f
 - Terminate TLS at a trusted reverse proxy and set `WIREDRAFT_COOKIE_SECURE=true`.
 - Keep PostgreSQL on a private network and back up `data/postgres`.
 - Back up `data/media` with PostgreSQL; do not publish or serve the media directory directly from a reverse proxy.
-- Pin the WireDraft image to a release tag or digest and apply database migrations before upgrades.
+- Pin the WireDraft image to a release tag or digest; WireDraft applies its embedded database migrations during startup.
 - Preserve the `auth_state` row with the rest of the database; its encryption key is required to read stored TOTP secrets.
 - Run one WireDraft application replica. Authentication state is currently maintained as one PostgreSQL aggregate and is not yet safe for concurrent writers across multiple replicas.
 
@@ -441,12 +439,11 @@ For quicker iteration, `-SkipBrowsers` and `-SkipContainers` are available. The 
 
 ```text
 cmd/server/          Application entry point and health probe
-db/migrations/       PostgreSQL schema migrations
 internal/auth/       Password, TOTP, recovery, sessions, and user access
 internal/config/     Environment and flag parsing
 internal/handler/    HTTP API, middleware, static delivery, and authorization
 internal/model/      Topology domain, validation, STP, tracing, and analysis
-internal/store/      PostgreSQL persistence and revision transactions
+internal/store/      PostgreSQL persistence, embedded migrations, and revision transactions
 internal/sse/        Per-topology event broker
 web/static/          Embedded browser application
 web/*_test.mjs       Frontend unit and contract tests

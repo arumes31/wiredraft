@@ -12,7 +12,7 @@ import (
 	"slices"
 	"testing"
 
-	"netdiagram/internal/model"
+	"wiredraft/internal/model"
 )
 
 //go:embed testdata/snapshots/v1-api-contract.json

@@ -10,8 +10,6 @@ data
 docs
 e2e
 graphify-out
-netdiagram
-netdiagram.exe
 wiredraft
 wiredraft.exe
 node_modules

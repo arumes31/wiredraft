@@ -9,7 +9,7 @@ export const NavigationGesture = Object.freeze({
   ZOOM: "zoom",
 });
 
-export const NAVIGATION_STORAGE_KEY = "netdiagram.navigation-mode";
+export const NAVIGATION_STORAGE_KEY = "wiredraft.navigation-mode";
 export const DRAG_ACTIVATION_DISTANCE = 5;
 
 const TRACKPAD_LATCH_MS = 1200;

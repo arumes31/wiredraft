@@ -12,8 +12,6 @@ compose.override.yml
 # Go and release build output
 /bin/
 /dist/
-/netdiagram
-/netdiagram.exe
 /wiredraft
 /wiredraft.exe
 *.exe

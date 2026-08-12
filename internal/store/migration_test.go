@@ -2,14 +2,59 @@ package store
 
 import (
 	"embed"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 //go:embed testdata/migrations/*.json
 var migrationFixtures embed.FS
+
+func TestEmbeddedMigrations(t *testing.T) {
+	t.Parallel()
+	source, err := newMigrationSource()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := source.Close(); err != nil {
+			t.Errorf("closing migration source: %v", err)
+		}
+	})
+
+	version, err := source.First()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 {
+		t.Fatalf("first migration version = %d, want 1", version)
+	}
+
+	reader, identifier, err := source.ReadUp(version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := reader.Close(); err != nil {
+			t.Errorf("closing migration: %v", err)
+		}
+	})
+	document, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identifier != "initial" {
+		t.Fatalf("migration identifier = %q, want %q", identifier, "initial")
+	}
+	for _, table := range []string{"topologies", "auth_state"} {
+		if !strings.Contains(string(document), "CREATE TABLE IF NOT EXISTS "+table) {
+			t.Errorf("migration does not create %s", table)
+		}
+	}
+}
 
 func TestLegacyTopologyFixturesLoadAndNormalize(t *testing.T) {
 	t.Parallel()

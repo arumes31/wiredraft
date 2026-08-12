@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"netdiagram/internal/model"
+	"wiredraft/internal/model"
 )
 
 func TestCommentsDocumentationAndReadOnlyShares(t *testing.T) {

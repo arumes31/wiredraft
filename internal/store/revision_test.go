@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"netdiagram/internal/model"
+	"wiredraft/internal/model"
 )
 
 func TestMutateAtRevisionRejectsStaleMutation(t *testing.T) {
