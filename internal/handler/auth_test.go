@@ -14,12 +14,12 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
-	"netdiagram/internal/auth"
-	"netdiagram/internal/media"
-	"netdiagram/internal/model"
-	"netdiagram/internal/sse"
-	"netdiagram/internal/store"
-	webassets "netdiagram/web"
+	"wiredraft/internal/auth"
+	"wiredraft/internal/media"
+	"wiredraft/internal/model"
+	"wiredraft/internal/sse"
+	"wiredraft/internal/store"
+	webassets "wiredraft/web"
 )
 
 const authTestPassword = "a sufficiently long test password"

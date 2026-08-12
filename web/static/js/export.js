@@ -137,7 +137,7 @@ function standaloneExportCSS() {
 
 function standaloneExportBootstrap() {
   "use strict";
-  const topologyNode = document.getElementById("netdiagram-topology");
+  const topologyNode = document.getElementById("wiredraft-topology");
   const viewport = document.getElementById("map-viewport");
   const scene = document.getElementById("map-scene");
   const svg = document.getElementById("topology-map");
@@ -460,7 +460,7 @@ export function buildHTMLDocument(topology, engine, generatedAt = new Date()) {
   </section>
   ${documentation ? `<section class="documents"><h2>ATTACHED DOCUMENTATION</h2><div>${documentation}</div></section>` : ""}
   <footer><span><strong>WIREDRAFT</strong> · SELF-CONTAINED HTML</span><time datetime="${timestamp}">${timestamp ? `GENERATED ${escapeHTML(timestamp)}` : ""}</time></footer>
-  <script id="netdiagram-topology" type="application/json">${embeddedTopology}</script>
+  <script id="wiredraft-topology" type="application/json">${embeddedTopology}</script>
   <script>(${standaloneExportBootstrap.toString()})();</script>
 </body>
 </html>`;

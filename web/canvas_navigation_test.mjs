@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 
 import {
-  applyNavigationFrame, classifyWheelGesture, NavigationGesture, NavigationMode, navigationGestureHints,
+  applyNavigationFrame, classifyWheelGesture, loadStoredNavigationMode, NavigationGesture, NavigationMode, navigationGestureHints,
   navigationModeSummary, normalizeNavigationMode, normalizeWheelDelta, wheelZoomLogDelta,
 } from "./static/js/canvas-navigation.js";
 
 assert.equal(normalizeNavigationMode("trackpad"), NavigationMode.TRACKPAD);
 assert.equal(normalizeNavigationMode("unsupported"), NavigationMode.AUTO);
+const migratedNavigationStorage = new Map([["netdiagram.navigation-mode", NavigationMode.TRACKPAD]]);
+const navigationStorage = {
+  getItem(key) { return migratedNavigationStorage.get(key) ?? null; },
+  setItem(key, value) { migratedNavigationStorage.set(key, value); },
+};
+assert.equal(loadStoredNavigationMode(navigationStorage), NavigationMode.TRACKPAD);
+assert.equal(migratedNavigationStorage.get("wiredraft.navigation-mode"), NavigationMode.TRACKPAD);
 assert.deepEqual(normalizeWheelDelta({ deltaX: 2, deltaY: -3, deltaMode: 1 }), { x: 32, y: -48 });
 assert.deepEqual(normalizeWheelDelta({ deltaX: 0, deltaY: 1, deltaMode: 2 }, 900), { x: 0, y: 900 });
 

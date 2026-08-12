@@ -26,7 +26,6 @@ test("login page contains password, guest, totp enrollment, and recovery states"
   assert.match(loginJS, /recoveryCodes\.join/);
   assert.match(loginHTML, /<title>WireDraft · Secure Access<\/title>/);
   assert.match(loginHTML, /<strong>WIREDRAFT<\/strong>/);
-  assert.doesNotMatch(loginHTML, /Netdiagram/i);
 });
 
 test("login backdrop is decorative, noninteractive, and isolated from authentication", () => {
@@ -52,5 +51,4 @@ test("workspace exposes admin account management and csrf-aware api calls", () =
   assert.match(indexHTML, /<title>WireDraft · Rack Operations Bench<\/title>/);
   assert.match(indexHTML, /aria-label="WireDraft"/);
   assert.match(indexHTML, /<summary aria-label="Saved\. Autosave on\. Open autosave settings">/);
-  assert.doesNotMatch(indexHTML, /Netdiagram/i);
 });

@@ -1,4 +1,4 @@
-export const ACTIVE_MAP_STORAGE_KEY = "netdiagram.activeMap";
+export const ACTIVE_MAP_STORAGE_KEY = "wiredraft.activeMap";
 
 export function preferredTopologyID(topologies, storedID) {
   const summaries = Array.isArray(topologies) ? topologies : [];

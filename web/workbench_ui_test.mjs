@@ -10,6 +10,14 @@ const storage = {
   setItem(_key, value) { this.value = value; },
 };
 assert.deepEqual(loadAutosaveSettings(storage), { enabled: true, intervalSeconds: 30 });
+const legacyAutosave = JSON.stringify({ enabled: false, intervalSeconds: 300 });
+const migratedAutosaveStorage = new Map([["netdiagram.autosave.v1", legacyAutosave]]);
+const autosaveStorage = {
+  getItem(key) { return migratedAutosaveStorage.get(key) ?? null; },
+  setItem(key, value) { migratedAutosaveStorage.set(key, value); },
+};
+assert.deepEqual(loadAutosaveSettings(autosaveStorage), { enabled: false, intervalSeconds: 300 });
+assert.equal(migratedAutosaveStorage.get("wiredraft.autosave.v1"), legacyAutosave);
 assert.deepEqual(normalizeAutosaveSettings({ enabled: false, intervalSeconds: 60 }), { enabled: false, intervalSeconds: 60 });
 assert.deepEqual(normalizeAutosaveSettings({ enabled: true, intervalSeconds: 17 }), { enabled: true, intervalSeconds: 30 });
 

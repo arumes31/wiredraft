@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Complete the remaining WireDraft rename across Go module paths, runtime configuration, cookies, browser storage, exports, tests, and build artifacts.
+- Embed versioned PostgreSQL migrations in the WireDraft binary and apply them automatically before startup, removing the host migration-directory requirement from Compose deployments.
 - Populate login-background racks with more varied devices while retaining chassis clearance and the existing animation performance cap.
 - Keep cross-rack trunks and ordinary same-rack cables in separate rack-edge vertical lanes with at least four pixels of centerline separation.
 - List every permanent rear mapping in a selected patch panel's inspector and allow its local and remote panel ports to be edited with occupancy and connector validation.

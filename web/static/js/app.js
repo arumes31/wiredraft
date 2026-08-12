@@ -6,7 +6,8 @@ import {
   GRAPHICS_STORAGE_KEY, GraphicsMode, graphicsProfileSummary, normalizeGraphicsMode,
 } from "./graphics-quality.js";
 import {
-  NAVIGATION_STORAGE_KEY, NavigationMode, navigationGestureHints, navigationModeSummary, normalizeNavigationMode,
+  loadStoredNavigationMode, NAVIGATION_STORAGE_KEY, NavigationMode, navigationGestureHints, navigationModeSummary,
+  normalizeNavigationMode,
 } from "./canvas-navigation.js";
 import {
   TopologyCollaboration, absoluteShareURL, isRevisionConflict, validateDocumentationURL,
@@ -469,11 +470,7 @@ function loadGraphicsMode() {
 }
 
 function loadNavigationMode() {
-  try {
-    return normalizeNavigationMode(localStorage.getItem(NAVIGATION_STORAGE_KEY));
-  } catch {
-    return NavigationMode.AUTO;
-  }
+  return loadStoredNavigationMode(localStorage);
 }
 
 function renderGraphicsQuality() {

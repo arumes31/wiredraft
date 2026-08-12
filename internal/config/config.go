@@ -47,9 +47,9 @@ func Parse(args []string) (Config, error) {
 		MediaDir:         envString("WIREDRAFT_MEDIA_DIR", "data/media"),
 		LogLevel:         envString("LOG_LEVEL", "info"),
 		LogFormat:        envString("LOG_FORMAT", "json"),
-		AdminUsername:    envStringAlias("WIREDRAFT_ADMIN_USER", "NETDIAGRAM_ADMIN_USER", "admin"),
-		AdminPassword:    envStringAlias("WIREDRAFT_ADMIN_PASSWORD", "NETDIAGRAM_ADMIN_PASSWORD", ""),
-		AdminTOTPSecret:  envStringAlias("WIREDRAFT_ADMIN_TOTP_SECRET", "NETDIAGRAM_ADMIN_TOTP_SECRET", ""),
+		AdminUsername:    envString("WIREDRAFT_ADMIN_USER", "admin"),
+		AdminPassword:    envString("WIREDRAFT_ADMIN_PASSWORD", ""),
+		AdminTOTPSecret:  envString("WIREDRAFT_ADMIN_TOTP_SECRET", ""),
 		GuestEnabled:     guestEnabled,
 		CookieSecure:     cookieSecure,
 		EntraEnabled:     false,
@@ -99,13 +99,6 @@ func envString(name, fallback string) string {
 		return value
 	}
 	return fallback
-}
-
-func envStringAlias(name, legacyName, fallback string) string {
-	if value := os.Getenv(name); value != "" {
-		return value
-	}
-	return envString(legacyName, fallback)
 }
 
 func envInt(name string, fallback int) int {

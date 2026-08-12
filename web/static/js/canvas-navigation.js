@@ -9,7 +9,8 @@ export const NavigationGesture = Object.freeze({
   ZOOM: "zoom",
 });
 
-export const NAVIGATION_STORAGE_KEY = "netdiagram.navigation-mode";
+export const NAVIGATION_STORAGE_KEY = "wiredraft.navigation-mode";
+const LEGACY_NAVIGATION_STORAGE_KEY = "netdiagram.navigation-mode";
 export const DRAG_ACTIVATION_DISTANCE = 5;
 
 const TRACKPAD_LATCH_MS = 1200;
@@ -21,6 +22,19 @@ const MAX_ZOOM_DELTA = 240;
 
 export function normalizeNavigationMode(mode) {
   return Object.values(NavigationMode).includes(mode) ? mode : NavigationMode.AUTO;
+}
+
+export function loadStoredNavigationMode(storage = globalThis.localStorage) {
+  try {
+    let mode = storage?.getItem(NAVIGATION_STORAGE_KEY);
+    if (mode === null || mode === undefined) {
+      mode = storage?.getItem(LEGACY_NAVIGATION_STORAGE_KEY);
+      if (mode !== null && mode !== undefined) storage?.setItem(NAVIGATION_STORAGE_KEY, mode);
+    }
+    return normalizeNavigationMode(mode);
+  } catch {
+    return NavigationMode.AUTO;
+  }
 }
 
 export function normalizeWheelDelta(event, viewportHeight = 800) {

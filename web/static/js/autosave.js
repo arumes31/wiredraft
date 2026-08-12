@@ -1,10 +1,16 @@
-export const AUTOSAVE_STORAGE_KEY = "netdiagram.autosave.v1";
+export const AUTOSAVE_STORAGE_KEY = "wiredraft.autosave.v1";
+const LEGACY_AUTOSAVE_STORAGE_KEY = "netdiagram.autosave.v1";
 export const AutosaveIntervals = Object.freeze([30, 60, 300]);
 
 export function loadAutosaveSettings(storage = globalThis.localStorage) {
   const defaults = { enabled: true, intervalSeconds: 30 };
   try {
-    const stored = JSON.parse(storage?.getItem(AUTOSAVE_STORAGE_KEY) || "null");
+    let serialized = storage?.getItem(AUTOSAVE_STORAGE_KEY);
+    if (serialized === null || serialized === undefined) {
+      serialized = storage?.getItem(LEGACY_AUTOSAVE_STORAGE_KEY);
+      if (serialized !== null && serialized !== undefined) storage?.setItem(AUTOSAVE_STORAGE_KEY, serialized);
+    }
+    const stored = JSON.parse(serialized || "null");
     return normalizeAutosaveSettings(stored || defaults);
   } catch {
     return defaults;

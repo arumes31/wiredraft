@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 
-	"netdiagram/internal/model"
+	"wiredraft/internal/model"
 )
 
 var (

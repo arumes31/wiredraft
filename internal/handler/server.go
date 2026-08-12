@@ -21,11 +21,11 @@ import (
 	"strings"
 	"time"
 
-	"netdiagram/internal/auth"
-	"netdiagram/internal/media"
-	"netdiagram/internal/model"
-	"netdiagram/internal/sse"
-	"netdiagram/internal/store"
+	"wiredraft/internal/auth"
+	"wiredraft/internal/media"
+	"wiredraft/internal/model"
+	"wiredraft/internal/sse"
+	"wiredraft/internal/store"
 )
 
 // Server coordinates HTTP handlers with persistence and event delivery.

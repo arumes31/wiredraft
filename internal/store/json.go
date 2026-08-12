@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"netdiagram/internal/model"
+	"wiredraft/internal/model"
 )
 
 const maxTopologyFileSize = 32 << 20

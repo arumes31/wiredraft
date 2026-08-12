@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"netdiagram/internal/model"
-	"netdiagram/internal/testutil"
+	"wiredraft/internal/model"
+	"wiredraft/internal/testutil"
 )
 
 func BenchmarkTopologyJSON(b *testing.B) {

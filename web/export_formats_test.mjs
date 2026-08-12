@@ -77,7 +77,7 @@ assert.match(html, /<svg role="img" aria-label="Core &lt;A&gt; &amp; Edge networ
 assert.match(html, /<b>0<\/b>RACKS[^]*<b>0<\/b>DEVICES[^]*<b>0<\/b>CABLES[^]*<b>0<\/b>VLANS/, "HTML should include topology totals");
 assert.match(html, /Example Corp \/ Vienna DC1 · Portable physical topology report/,
   "standalone reports must retain their organization and location assignment");
-assert.match(html, /id="netdiagram-topology" type="application\/json"/, "HTML must embed restorable source data as inert JSON");
+assert.match(html, /id="wiredraft-topology" type="application\/json"/, "HTML must embed restorable source data as inert JSON");
 assert.equal(html.includes("</script><script>alert(1)</script>"), false, "embedded JSON must not break out of its data block");
 assert.match(html, /safe \\u003c\/script\\u003e\\u003cscript\\u003ealert\(1\)\\u003c\/script\\u003e/, "HTML must retain escaped source data");
 assert.match(html, /ATTACHED DOCUMENTATION[^]*Runbook[^]*https:\/\/docs\.example\.test\/runbook/, "HTML reports must preserve attached documentation links");
@@ -252,7 +252,7 @@ assert.match(workbook, /10 · Management[^]*20 · Users/, "port and link records
 assert.match(workbook, /CORE VSF[^]*Aruba VSF/, "switch-system configuration must include stack technology");
 assert.match(workbook, /EDGE HA[^]*Active \/ passive[^]*EDGE FW A · ACTIVE[^]*EDGE FW B · PASSIVE/,
   "firewall configuration must include cluster mode and member roles");
-assert.match(workbook, /id="netdiagram-topology" type="application\/json"/, "configuration workbook must embed its source topology for audit");
+assert.match(workbook, /id="wiredraft-topology" type="application\/json"/, "configuration workbook must embed its source topology for audit");
 assert.equal(workbook.includes("</script><script>alert(1)</script>"), false, "configuration data must not break out of its inert JSON block");
 assert.match(workbook, /safe \\u003c\/script\\u003e\\u003cscript\\u003ealert\(1\)\\u003c\/script\\u003e/,
   "configuration workbook must retain safely escaped source data");

@@ -11,10 +11,10 @@ import (
 	"slices"
 	"testing"
 
-	"netdiagram/internal/model"
-	"netdiagram/internal/sse"
-	"netdiagram/internal/store"
-	webassets "netdiagram/web"
+	"wiredraft/internal/model"
+	"wiredraft/internal/sse"
+	"wiredraft/internal/store"
+	webassets "wiredraft/web"
 )
 
 func TestHealth(t *testing.T) {

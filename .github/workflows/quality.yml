@@ -123,10 +123,6 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
-      - name: Initialize PostgreSQL schema
-        env:
-          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
-        run: docker exec --interactive "$POSTGRES_CONTAINER_ID" psql --username wiredraft --dbname wiredraft --set ON_ERROR_STOP=1 < db/migrations/0001_initial.sql
       - name: Install browser runtime
         run: npx playwright install --with-deps "$BROWSER"
       - name: Run browser tests
@@ -184,8 +180,6 @@ jobs:
           $psql = Join-Path $env:PGBIN "psql.exe"
           & $psql --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE ROLE wiredraft LOGIN PASSWORD 'wiredraft-playwright'"
           & $psql --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE wiredraft OWNER wiredraft"
-          $env:PGPASSWORD = "wiredraft-playwright"
-          & $psql --host 127.0.0.1 --username wiredraft --dbname wiredraft --set ON_ERROR_STOP=1 --file db/migrations/0001_initial.sql
       - name: Install Playwright media runtime
         run: npx playwright install ffmpeg
       - name: Run Edge tests
@@ -234,7 +228,6 @@ jobs:
             --env POSTGRES_DB=wiredraft \
             --env POSTGRES_USER=wiredraft \
             --env POSTGRES_PASSWORD=wiredraft-ci-postgres \
-            --volume "$PWD/db/migrations:/docker-entrypoint-initdb.d:ro" \
             --health-cmd "pg_isready -U wiredraft -d wiredraft" \
             --health-interval 2s \
             --health-timeout 2s \
@@ -258,12 +251,19 @@ jobs:
             --env WIREDRAFT_ADMIN_PASSWORD='WireDraft-Smoke-Only-2026!' wiredraft:ci
           for _ in {1..20}; do
             if docker exec wiredraft-ci /wiredraft -healthcheck; then
-              exit 0
+              break
             fi
             sleep 1
           done
-          docker logs wiredraft-ci
-          exit 1
+          docker exec wiredraft-ci /wiredraft -healthcheck
+          docker restart wiredraft-ci
+          for _ in {1..20}; do
+            if docker exec wiredraft-ci /wiredraft -healthcheck; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec wiredraft-ci /wiredraft -healthcheck
       - name: Verify embedded JavaScript is minified
         run: |
           curl --fail --silent --show-error http://127.0.0.1:18080/js/app.js --output /tmp/app.js

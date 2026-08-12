@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"netdiagram/internal/testutil"
+	"wiredraft/internal/testutil"
 )
 
 func main() {

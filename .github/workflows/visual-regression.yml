@@ -16,6 +16,28 @@ jobs:
     name: Compare screenshots
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGDATABASE: wiredraft
+      PGUSER: wiredraft
+      PGPASSWORD: wiredraft-playwright
+      PGSSLMODE: disable
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_DB: wiredraft
+          POSTGRES_USER: wiredraft
+          POSTGRES_PASSWORD: wiredraft-playwright
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wiredraft -d wiredraft"
+          --health-interval 5s
+          --health-timeout 4s
+          --health-start-period 5s
+          --health-retries 12
     steps:
       - name: Check out source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

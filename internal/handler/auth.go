@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"netdiagram/internal/auth"
+	"wiredraft/internal/auth"
 )
 
 const (
-	sessionCookieName   = "netdiagram_session"
+	sessionCookieName   = "wiredraft_session"
 	entraFlowCookieName = "wiredraft_entra_flow"
 )
 

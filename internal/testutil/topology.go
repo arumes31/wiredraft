@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"netdiagram/internal/model"
+	"wiredraft/internal/model"
 )
 
 // TopologyOptions controls the size of a generated linear switching topology.
