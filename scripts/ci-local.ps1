@@ -138,6 +138,9 @@ if (-not $SkipContainers) {
     finally {
         docker rm --force --volumes $containerName *> $null
     }
+    Invoke-Gate 'Container outbound TLS trust' {
+        docker run --rm $imageName -healthcheck -healthcheck-url 'https://example.com'
+    }
     Invoke-Gate 'Trivy filesystem scan' {
         docker run --rm --volume "${repositoryRoot}:/workspace:ro" `
             --volume wiredraft-trivy-cache:/root/.cache/trivy --workdir /workspace `

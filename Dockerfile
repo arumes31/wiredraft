@@ -20,6 +20,7 @@ RUN mkdir -p /media
 FROM scratch
 COPY --from=builder --chown=10001:10001 /wiredraft /wiredraft
 COPY --from=builder --chown=10001:10001 /media /media
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=4s --start-period=5s --retries=3 CMD ["/wiredraft", "-healthcheck"]

@@ -264,6 +264,10 @@ jobs:
             sleep 1
           done
           docker exec wiredraft-ci /wiredraft -healthcheck
+      - name: Verify outbound TLS trust
+        run: >-
+          docker run --rm wiredraft:ci -healthcheck
+          -healthcheck-url https://example.com
       - name: Verify embedded JavaScript is minified
         run: |
           curl --fail --silent --show-error http://127.0.0.1:18080/js/app.js --output /tmp/app.js

@@ -171,6 +171,7 @@ export function buildConfigurationDocument(topology, generatedAt = new Date()) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="generator" content="WireDraft">
   <title>${escapeHTML(topology?.name || "Network topology")} · Configuration workbook</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23071012'/%3E%3Cpath d='M16 12v40M48 12v40M22 19h20M22 32h20M22 45h20' fill='none' stroke='%2336d7d0' stroke-width='6'/%3E%3Cpath d='M16 48 48 16' fill='none' stroke='%23ffb84a' stroke-width='5'/%3E%3Cg fill='%23ffb84a' stroke='%23071012' stroke-width='3'%3E%3Ccircle cx='16' cy='48' r='6'/%3E%3Ccircle cx='48' cy='16' r='6'/%3E%3C/g%3E%3C/svg%3E" type="image/svg+xml">
   <style>
     :root{color-scheme:dark;--paper:#081012;--panel:#101a1d;--ink:#e8f3f2;--muted:#84999c;--line:#2b4146;--cyan:#48dfcf;--amber:#efb25d;--red:#fa746b}
     *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);background:var(--paper);background-image:linear-gradient(rgb(72 223 207/.035) 1px,transparent 1px),linear-gradient(90deg,rgb(72 223 207/.035) 1px,transparent 1px);background-size:28px 28px;font-family:Bahnschrift,"DIN Alternate","Arial Narrow",sans-serif}

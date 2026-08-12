@@ -26,6 +26,8 @@ test("login page contains password, guest, totp enrollment, and recovery states"
   assert.match(loginJS, /recoveryCodes\.join/);
   assert.match(loginHTML, /<title>WireDraft · Secure Access<\/title>/);
   assert.match(loginHTML, /<strong>WIREDRAFT<\/strong>/);
+  assert.match(loginHTML, /rel="icon" href="\/favicon\.svg"/);
+  assert.match(indexHTML, /rel="icon" href="\/favicon\.svg"/);
 });
 
 test("login backdrop is decorative, noninteractive, and isolated from authentication", () => {
