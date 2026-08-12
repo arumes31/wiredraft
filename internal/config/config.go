@@ -33,11 +33,11 @@ type Config struct {
 
 // Parse reads environment defaults and applies command-line overrides.
 func Parse(args []string) (Config, error) {
-	guestEnabled, err := envBool("WIREDRAFT_GUEST_ENABLED", true)
+	guestEnabled, err := envBoolAlias("WIREDRAFT_GUEST_ENABLED", "NETDIAGRAM_GUEST_ENABLED", true)
 	if err != nil {
 		return Config{}, err
 	}
-	cookieSecure, err := envBool("WIREDRAFT_COOKIE_SECURE", false)
+	cookieSecure, err := envBoolAlias("WIREDRAFT_COOKIE_SECURE", "NETDIAGRAM_COOKIE_SECURE", false)
 	if err != nil {
 		return Config{}, err
 	}
@@ -123,4 +123,11 @@ func envBool(name string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s must be true or false: %w", name, err)
 	}
 	return parsed, nil
+}
+
+func envBoolAlias(name, legacyName string, fallback bool) (bool, error) {
+	if os.Getenv(name) != "" {
+		return envBool(name, fallback)
+	}
+	return envBool(legacyName, fallback)
 }

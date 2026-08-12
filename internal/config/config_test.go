@@ -49,6 +49,21 @@ func TestWireDraftAuthenticationEnvironment(t *testing.T) {
 	}
 }
 
+func TestLegacyAuthenticationBooleansRemainSupported(t *testing.T) {
+	t.Setenv("WIREDRAFT_GUEST_ENABLED", "")
+	t.Setenv("WIREDRAFT_COOKIE_SECURE", "")
+	t.Setenv("NETDIAGRAM_GUEST_ENABLED", "false")
+	t.Setenv("NETDIAGRAM_COOKIE_SECURE", "true")
+
+	configuration, err := Parse(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.GuestEnabled || !configuration.CookieSecure {
+		t.Fatalf("legacy authentication booleans = %#v", configuration)
+	}
+}
+
 func TestAuthenticationEnvironmentBooleansAreStrict(t *testing.T) {
 	t.Setenv("WIREDRAFT_GUEST_ENABLED", "fasle")
 	_, err := Parse(nil)

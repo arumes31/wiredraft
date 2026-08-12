@@ -233,6 +233,8 @@ WireDraft reads environment variables first and lets command-line flags override
 | `WIREDRAFT_ENTRA_REDIRECT_URL` | — | empty | Exact HTTPS callback registered in Entra, ending in `/api/v1/auth/entra/callback` |
 | `HEALTHCHECK_URL` | `-healthcheck-url` | `http://127.0.0.1:8080/api/v1/health` | Target used with `-healthcheck` |
 
+During the rename migration window, `NETDIAGRAM_GUEST_ENABLED` and `NETDIAGRAM_COOKIE_SECURE` remain fallback aliases when their `WIREDRAFT_*` replacements are unset.
+
 ## Microsoft Entra ID login
 
 WireDraft can use a private Microsoft 365 work account as an alternative login. This is an optional, single-tenant OpenID Connect integration: the local administrator remains available for recovery and explicitly pre-provisions every Entra user and their organization grants.
