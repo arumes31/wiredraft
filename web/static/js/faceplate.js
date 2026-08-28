@@ -38,6 +38,11 @@ const STATUS_AREA_X = Object.freeze({
   "fortinet-desktop": .214,
   "fortinet-rack": .218,
   "fortinet-switch": .218,
+  "fortinet-compact-switch": .09,
+  "fortinet-campus-switch": .135,
+  "fortinet-core-switch": .905,
+  "fortinet-dense-core-switch": .905,
+  "fortinet-rugged-switch": .08,
   "cisco-campus": .218,
   "cisco-datacenter": .218,
   "aruba-campus": .214,
@@ -46,12 +51,32 @@ const STATUS_AREA_X = Object.freeze({
 });
 
 const templates = Object.freeze({
-  "fortinet-desktop": template("fortinet-desktop", "Fortinet", "#e7e8e6", "#c8cdca", "#202426", "#e64135", "slots", "left-io", "desktop"),
-  "fortinet-rack": template("fortinet-rack", "Fortinet", "#d8dcda", "#aeb6b4", "#1c2224", "#e64135", "slots", "status-stack", "rack"),
-  "fortinet-datacenter": template("fortinet-datacenter", "Fortinet", "#c8cdcb", "#929b99", "#171c1e", "#e64135", "perforated", "status-stack", "datacenter", true),
+  "fortinet-desktop": compactStatus(template("fortinet-desktop", "Fortinet", "#e7e8e6", "#c8cdca", "#202426", "#e64135", "slots", "left-io", "desktop"), .214),
+  "fortinet-rack": compactStatus(template("fortinet-rack", "Fortinet", "#d8dcda", "#aeb6b4", "#1c2224", "#e64135", "slots", "status-stack", "rack"), .218),
+  "fortinet-datacenter": compactStatus(template("fortinet-datacenter", "Fortinet", "#c8cdcb", "#929b99", "#171c1e", "#e64135", "perforated", "status-stack", "datacenter", true), .218),
   "fortinet-modular": template("fortinet-modular", "Fortinet", "#aeb6b4", "#747e7d", "#111719", "#e64135", "mesh", "status-stack", "modular", true),
   "fortinet-switch": template("fortinet-switch", "Fortinet", "#dfe2df", "#b7bfbc", "#192022", "#e64135", "slots", "status-stack", "switch"),
+  "fortinet-compact-switch": {
+    ...template("fortinet-compact-switch", "Fortinet", "#e7e8e6", "#c8cdca", "#202426", "#e64135", "minimal", "status-stack", "desktop"),
+    statusArea: Object.freeze({ kind: "status-stack", x: .09, y: .55, known: true, width: 26, height: 28 }),
+  },
+  "fortinet-campus-switch": {
+    ...template("fortinet-campus-switch", "Fortinet", "#dfe2df", "#b7bfbc", "#192022", "#e64135", "minimal", "status-stack", "switch"),
+    statusArea: Object.freeze({ kind: "status-stack", x: .135, y: .55, known: true, width: 26, height: 28 }),
+  },
+  "fortinet-core-switch": {
+    ...template("fortinet-core-switch", "Fortinet", "#d7dbd8", "#aeb6b4", "#171c1e", "#e64135", "perforated", "status-stack", "datacenter"),
+    statusArea: Object.freeze({ kind: "status-stack", x: .905, y: .2, known: true, width: 30, height: 28 }),
+  },
+  "fortinet-dense-core-switch": {
+    ...template("fortinet-dense-core-switch", "Fortinet", "#d7dbd8", "#aeb6b4", "#171c1e", "#e64135", "minimal", "status-stack", "datacenter"),
+    statusArea: Object.freeze({ kind: "status-stack", x: .89, y: .08, known: true, compact: true, width: 24, height: 10 }),
+  },
   "fortinet-rugged": template("fortinet-rugged", "Fortinet", "#4d5352", "#262c2d", "#f0f2ed", "#e64135", "louvers", "sealed", "rugged", true),
+  "fortinet-rugged-switch": {
+    ...template("fortinet-rugged-switch", "Fortinet", "#d7d9d7", "#929a98", "#171c1e", "#e64135", "minimal", "status-stack", "rugged"),
+    statusArea: Object.freeze({ kind: "status-stack", x: .08, y: .08, known: true, compact: true, width: 24, height: 10 }),
+  },
   "cisco-campus": template("cisco-campus", "Cisco", "#26343b", "#10191e", "#e7f2f5", "#53bde9", "perforated", "status-stack", "switch"),
   "cisco-datacenter": template("cisco-datacenter", "Cisco", "#1e2b32", "#0c1317", "#e8f3f5", "#53bde9", "mesh", "status-stack", "datacenter", true),
   "aruba-campus": template("aruba-campus", "HPE Aruba", "#313b3d", "#161d1f", "#eef4f1", "#f28c28", "slots", "status-stack", "switch"),
@@ -87,6 +112,13 @@ function template(id, vendor, surface, surfaceDark, ink, accent, vent, control, 
   });
 }
 
+function compactStatus(base, x) {
+  return Object.freeze({
+    ...base,
+    statusArea: Object.freeze({ kind: base.control, x, y: .08, known: true, compact: true, width: 24, height: 10 }),
+  });
+}
+
 function statusArea(id, control, known) {
   const dimensions = control === "lcm" ? { width: 39, height: 30 } :
     control === "server" ? { width: 126, height: 66 } : { width: 38, height: 40 };
@@ -113,7 +145,12 @@ export function resolveFaceplateTemplate(device) {
     return sourcedTemplate(templates["cellular-edge"], vendor);
   }
   if (vendor === "Fortinet") {
+    if (/FortiSwitch Rugged/i.test(model)) return templates["fortinet-rugged-switch"];
     if (/Rugged/i.test(model)) return templates["fortinet-rugged"];
+    if (/FortiSwitch 108F/i.test(model)) return templates["fortinet-compact-switch"];
+    if (/FortiSwitch (?:648F|1048[EG]|2048F|3032[EG])/i.test(model)) return templates["fortinet-dense-core-switch"];
+    if (/FortiSwitch (?:624F|T?1024[EF])/i.test(model)) return templates["fortinet-core-switch"];
+    if (/FortiSwitch (?:224[DE]|248[DE]|348G|424E|448E|M426E|524D|548D)/i.test(model)) return templates["fortinet-campus-switch"];
     if (/FortiSwitch/i.test(model)) return templates["fortinet-switch"];
     if (/FortiGate\s(?:5001|6000|6001|6300|6301|6500|6501|7000|7000F|7030|7040|7060|7081|7121)/i.test(model)) return templates["fortinet-modular"];
     if (units >= 2 || /FortiGate\s(?:1[018]\d\d|2[0256]\d\d|3\d\d\d|4[248]\d\d)/i.test(model)) return templates["fortinet-datacenter"];
@@ -141,7 +178,14 @@ function sourcedTemplate(base, vendor) {
 }
 
 export function faceplateResearchCoverage(profiles) {
-  const result = { total: profiles.length, sourced: 0, fallback: 0, templates: new Map() };
+  const result = {
+    total: profiles.length,
+    sourced: 0,
+    fallback: 0,
+    templates: new Map(),
+    labels: { exact: 0, family: 0, generic: 0, modular: 0 },
+    positions: { exact: 0, schematic: 0, generic: 0, modular: 0 },
+  };
   for (const profile of profiles) {
     const resolved = resolveFaceplateTemplate({
       model: profile.model,
@@ -151,6 +195,10 @@ export function faceplateResearchCoverage(profiles) {
     if (resolved.source.startsWith("https://")) result.sourced += 1;
     else result.fallback += 1;
     result.templates.set(resolved.id, (result.templates.get(resolved.id) || 0) + 1);
+    const labelFidelity = profile.portLayout?.labelFidelity || "family";
+    const positionFidelity = profile.portLayout?.positionFidelity || "schematic";
+    result.labels[labelFidelity] = (result.labels[labelFidelity] || 0) + 1;
+    result.positions[positionFidelity] = (result.positions[positionFidelity] || 0) + 1;
   }
   return result;
 }

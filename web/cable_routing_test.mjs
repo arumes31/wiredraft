@@ -547,6 +547,12 @@ const bounds = { x: 50, y: 100, width: 200, height: 100 };
 assert.equal(portDescriptionPlacement(upperPort, bounds).side, "above");
 assert.equal(portDescriptionPlacement(lowerPort, bounds).side, "below");
 assert.ok(portDescriptionPlacement(lowerPort, bounds).fontSize < portDescriptionPlacement(upperPort, bounds).fontSize);
+const leftConsole = {
+  port: { label: "CONSOLE", group: "CONSOLE" }, x: 34, y: 22, width: 16, height: 12, centerX: 42, centerY: 28,
+};
+const leftConsoleLabel = portDescriptionPlacement(leftConsole, bounds);
+assert.equal(leftConsoleLabel.side, "right");
+assert.ok(leftConsoleLabel.x > leftConsole.x + leftConsole.width);
 
 const canvasSource = readFileSync(new URL("./static/js/canvas.js", import.meta.url), "utf8");
 const exportSource = readFileSync(new URL("./static/js/export.js", import.meta.url), "utf8");
