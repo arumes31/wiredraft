@@ -64,6 +64,41 @@ assert.deepEqual(instantiatedLabels("Palo Alto", "PA-440 / PA-450").slice(0, 2),
 assert.equal(instantiatedLabels("Cisco", "Catalyst C9200L-24P-4X").at(-1), "CONSOLE");
 assert.ok(hardwareCatalog.every((profile) => profile.portLayout?.source && profile.portLayout?.fidelity));
 
+const fortiSwitch1024EProfile = hardwareCatalog.find((profile) => profile.model === "FortiSwitch 1024E");
+const fortiSwitch1024E = instantiateProfile(fortiSwitch1024EProfile, "CORE 1024E", { x: 0, y: 0 });
+const fortiSwitch1024EDataPorts = fortiSwitch1024E.ports.filter((port) => /^\d+$/.test(port.label));
+const fortiSwitch1024ESFPPorts = fortiSwitch1024EDataPorts.slice(0, 24);
+const fortiSwitch1024EMgmtPort = fortiSwitch1024E.ports.find((port) => port.label === "MGMT");
+const fortiSwitch1024EConsolePort = fortiSwitch1024E.ports.find((port) => port.label === "CONSOLE");
+assert.equal(fortiSwitch1024EProfile.portLayout.fidelity, "exact");
+assert.match(fortiSwitch1024EProfile.portLayout.source, /fortiswitch-t1024e-1024e-quickstart-guide/);
+assert.deepEqual(fortiSwitch1024EDataPorts.map((port) => port.label),
+  Array.from({ length: 26 }, (_, index) => String(index + 1)));
+assert.equal(new Set(fortiSwitch1024ESFPPorts.map((port) => port.faceplateX)).size, 12);
+assert.deepEqual([...new Set(fortiSwitch1024ESFPPorts.map((port) => port.faceplateY))], [.4, .7]);
+const fortiSwitch1024EColumns = [...new Set(fortiSwitch1024ESFPPorts.map((port) => port.faceplateX))].sort((a, b) => a - b);
+assert.ok(fortiSwitch1024EColumns.every((x, index) => index === 0 || (x - fortiSwitch1024EColumns[index - 1]) * 690 > 17),
+  "1024E SFP+ cages must not overlap at the 690px faceplate width");
+assert.deepEqual(fortiSwitch1024EDataPorts.slice(24).map((port) => [port.faceplateX, port.faceplateY]), [[.78, .4], [.78, .7]]);
+assert.equal(fortiSwitch1024EMgmtPort.faceplateX, .84);
+assert.equal(fortiSwitch1024EMgmtPort.faceplateY, .55);
+assert.equal(fortiSwitch1024EConsolePort.faceplateX, .235);
+assert.equal(fortiSwitch1024EConsolePort.faceplateY, .7);
+
+const legacyFortiSwitch1024E = structuredClone(fortiSwitch1024E);
+legacyFortiSwitch1024E.id = "device-1024e";
+legacyFortiSwitch1024E.ports.forEach((port, index) => {
+  port.id = `existing-1024e-${index}`;
+  port.deviceId = legacyFortiSwitch1024E.id;
+  port.faceplateX = .83 + index * .001;
+  port.faceplateY = index % 2 ? .7 : .4;
+});
+const fortiSwitchPortIDs = legacyFortiSwitch1024E.ports.map((port) => port.id);
+assert.equal(upgradeInstalledPhysicalPorts({ devices: [legacyFortiSwitch1024E], linkGroups: [] }), true);
+assert.deepEqual(legacyFortiSwitch1024E.ports.map((port) => port.id), fortiSwitchPortIDs);
+assert.deepEqual(legacyFortiSwitch1024E.ports.map((port) => [port.faceplateX, port.faceplateY]),
+  fortiSwitch1024E.ports.map((port) => [port.faceplateX, port.faceplateY]));
+
 const legacy80FProfile = hardwareCatalog.find((profile) => profile.model === "FortiGate 80F");
 const legacy80F = instantiateProfile(legacy80FProfile, "OLD 80F", { x: 0, y: 0 });
 legacy80F.id = "device-80f";

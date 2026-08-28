@@ -160,6 +160,12 @@ export function upgradeInstalledPhysicalPorts(topology) {
           current.label = expected[index].label;
           changed = true;
         }
+        if (profile.portLayout?.fidelity === "exact" &&
+          (current.faceplateX !== expected[index].faceplateX || current.faceplateY !== expected[index].faceplateY)) {
+          current.faceplateX = expected[index].faceplateX;
+          current.faceplateY = expected[index].faceplateY;
+          changed = true;
+        }
       }
       continue;
     }
@@ -296,8 +302,8 @@ function layoutGroups(groups, x1, x2) {
         speed: group.speed,
         poe: group.poe,
         group: group.prefix || group.zone,
-        x: columns === 1 ? (x1 + x2) / 2 : x1 + (x2 - x1) * column / (columns - 1),
-        y: rows === 1 ? .55 : .4 + row * .3,
+        x: group.positions?.[index]?.x ?? (columns === 1 ? (x1 + x2) / 2 : x1 + (x2 - x1) * column / (columns - 1)),
+        y: group.positions?.[index]?.y ?? (rows === 1 ? .55 : .4 + row * .3),
       });
       globalIndex += 1;
     }

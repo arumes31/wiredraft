@@ -26,8 +26,26 @@ const exactFortiGateLayouts = new Map([
   ["FortiGate 6000F", zones([], [...range(1, 28)], ["HA1", "HA2", "MGMT1", "MGMT2", "MGMT3", "CONSOLE1", "CONSOLE2"])],
 ]);
 
+const FORTISWITCH_1024E_QSG = "https://docs.fortinet.com/document/fortiswitch/hardware/fortiswitch-t1024e-1024e-quickstart-guide";
+
+const exactFortiSwitchLayouts = new Map([
+  ["FortiSwitch 1024E", {
+    source: FORTISWITCH_1024E_QSG,
+    groups: new Map([
+      ["SFP_PLUS_10G:PORT", portGrid(24, .36, .72, .4, .7)],
+      ["QSFP28_100G:QSFP28", portGrid(2, .78, .78, .4, .7)],
+      ["RJ45_1G:MGMT", [{ x: .84, y: .55 }]],
+      ["Console:CONSOLE", [{ x: .235, y: .7 }]],
+    ]),
+  }],
+]);
+
 export function resolvePhysicalPortGroups(profile) {
-  const groups = profile.groups.map((group) => ({ ...group, labels: group.labels ? [...group.labels] : undefined }));
+  const groups = profile.groups.map((group) => ({
+    ...group,
+    labels: group.labels ? [...group.labels] : undefined,
+    positions: group.positions?.map((position) => ({ ...position })),
+  }));
   const familyName = fortinetFamilyName(profile.model);
   const exact = profile.vendor === "Fortinet" ? exactFortiGateLayouts.get(familyName) : null;
   if (exact) {
@@ -36,6 +54,7 @@ export function resolvePhysicalPortGroups(profile) {
   }
   if (profile.vendor === "Fortinet" && profile.model.startsWith("FortiSwitch")) {
     applySequentialDataLabels(groups);
+    applyExactFortiSwitchLayout(groups, exactFortiSwitchLayouts.get(profile.model));
     return groups;
   }
   if (profile.vendor === "Fortinet" && profile.model.startsWith("FortiGate")) {
@@ -79,11 +98,19 @@ export function resolvePhysicalPortGroups(profile) {
 
 export function portLayoutMetadata(profile) {
   const familyName = fortinetFamilyName(profile.model);
-  const exactSource = FORTINET_PORT_SOURCES[familyName];
+  const exactSource = FORTINET_PORT_SOURCES[familyName] || exactFortiSwitchLayouts.get(profile.model)?.source;
   return {
     fidelity: exactSource ? "exact" : profile.fidelity || "family",
     source: exactSource || profile.source || "vendor front-panel family documentation",
   };
+}
+
+function applyExactFortiSwitchLayout(groups, layout) {
+  if (!layout) return;
+  for (const group of groups) {
+    const positions = layout.groups.get(`${group.type}:${group.prefix || ""}`);
+    if (positions?.length === group.count) group.positions = positions.map((position) => ({ ...position }));
+  }
 }
 
 function fortinetFamilyName(model) {
@@ -139,4 +166,13 @@ function zones(access, uplink, management) {
 
 function range(first, last) {
   return Array.from({ length: last - first + 1 }, (_, index) => String(first + index));
+}
+
+function portGrid(count, x1, x2, topY, bottomY) {
+  const rows = count > 1 ? 2 : 1;
+  const columns = Math.ceil(count / rows);
+  return Array.from({ length: count }, (_, index) => ({
+    x: columns === 1 ? (x1 + x2) / 2 : x1 + (x2 - x1) * Math.floor(index / rows) / (columns - 1),
+    y: rows === 1 ? (topY + bottomY) / 2 : index % rows === 0 ? topY : bottomY,
+  }));
 }
