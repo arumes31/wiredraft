@@ -90,6 +90,8 @@ for (const model of ["CRS354", "CRS518", "CRS354-48G-4S+2Q+RM", "CRS518-16XS-2XQ
   assert.deepEqual(types, ["RJ45_1G", "Console"], `${model} must expose separate management and serial connectors`);
 }
 assert.equal(catalogDevice("CRS354-48G-4S+2Q+RM").device.ports.filter((port) => port.type === "QSFP_PLUS_40G").length, 2);
+assert.equal(catalogDevice("CRS354-48G-4S+2Q+RM").device.ports.at(-2).speedMbps, 1000,
+  "CRS354 management Ethernet must use its 1G catalog speed");
 
 for (const [model, portCount] of [
   ["PA-220", 11], ["PA-440", 10], ["PA-450", 10], ["PA-460", 10],

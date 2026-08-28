@@ -46,7 +46,7 @@ const profiles = [
 
   p("MikroTik", "CRS326-24G-2S+RM", "Switch", 1, "#e1e4e1", [r(24, "RJ45_1G", 1000, false), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
   p("MikroTik", "CRS328-24P-4S+RM", "Switch", 1, "#e1e4e1", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("MikroTik", "CRS354-48G-4S+2Q+RM", "Switch", 1, "#e1e4e1", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), u(2, "QSFP_PLUS_40G", 40000, "QSFP+"), { zone: "management", count: 1, type: "RJ45_1G", speed: 100, poe: false, prefix: "MGMT" }, m(1)]),
+  p("MikroTik", "CRS354-48G-4S+2Q+RM", "Switch", 1, "#e1e4e1", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), u(2, "QSFP_PLUS_40G", 40000, "QSFP+"), { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGMT" }, m(1)]),
   p("MikroTik", "CRS317-1G-16S+RM", "Switch", 1, "#e1e4e1", [r(1, "RJ45_1G", 1000, false), u(16, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
   p("MikroTik", "CRS518-16XS-2XQ-RM", "Switch", 1, "#e1e4e1", [u(16, "SFP28_25G", 25000, "SFP28"), u(2, "QSFP28_100G", 100000, "QSFP"), { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGMT" }, m(1)]),
 
@@ -178,11 +178,11 @@ export function upgradeInstalledPhysicalPorts(topology) {
           changed = true;
         }
         if (profile.portLayout?.fidelity === "exact" && generated &&
-          (current.type !== expected[index].type || current.speed !== expected[index].speed ||
-            current.poe !== expected[index].poe || current.group !== expected[index].group)) {
+          (current.type !== expected[index].type || current.speedMbps !== expected[index].speedMbps ||
+            current.isPoe !== expected[index].isPoe || current.group !== expected[index].group)) {
           current.type = expected[index].type;
-          current.speed = expected[index].speed;
-          current.poe = expected[index].poe;
+          current.speedMbps = expected[index].speedMbps;
+          current.isPoe = expected[index].isPoe;
           current.group = expected[index].group;
           changed = true;
         }

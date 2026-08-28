@@ -591,6 +591,7 @@ export function buildSVGDocument(topology, engine) {
     if (template.id === "fortinet-dense-core-switch") {
       parts.push(`<text class="name" x="${x + 270}" y="${y + 9}" fill="${template.ink}" style="font-size:6px">${escapeXML(device.name)}</text>`);
     } else if (template.id === "fortinet-core-switch") {
+      parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML((device.faceplate.vendor || "FORTINET").toUpperCase())}</text>`);
       parts.push(`<text class="name" x="${x + 27}" y="${y + 18}" fill="${template.ink}" style="font-size:8px">${escapeXML(device.name)}</text>`);
     } else if (template.id === "fortinet-campus-switch") {
       parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML(device.faceplate.vendor || "FORTINET")}</text>`);

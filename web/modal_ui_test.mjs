@@ -25,6 +25,8 @@ assert.match(html, /<button id="patch-panel-map-button">PANEL MAP<\/button>/,
   "the toolbar should use the user-facing Panel Map name");
 assert.doesNotMatch(appJS, /patch-panel-map-button"\)\.disabled\s*=/,
   "Panel Map must remain clickable so unavailable-state feedback can be displayed");
+assert.match(appJS, /labelFidelity === "modular" \? " · MODULE-DEPENDENT PORT LEGENDS"/,
+  "modular profile summaries must identify module-dependent port legends");
 assert.match(appJS, /PANEL MAP UNAVAILABLE · \$\{availability\.message\}/,
   "Panel Map must display explicit feedback when fewer than two panels exist");
 const resourcesDialog = dialogs.find(([, attributes]) => /\bid="resources-dialog"/.test(attributes))?.[2] || "";

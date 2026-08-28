@@ -386,8 +386,8 @@ export function portLayoutMetadata(profile) {
   const generic = profile.fidelity === "generic" || profile.vendor?.startsWith("Generic");
   const modular = profile.fidelity === "modular";
   const explicitLabels = profile.groups.every((group) => group.labels?.length === group.count);
-  const explicitPositions = profile.groups.every((group) => group.positions?.length === group.count);
-  const exactPositions = explicitPositions || exactFortiGateFaceplates.has(familyName) || exactFortiSwitchLayouts.has(profile.model);
+  const exactPositions = resolvePhysicalPortGroups(profile)
+    .every((group) => group.positions?.length === group.count);
   return {
     fidelity: exactSource ? "exact" : profile.fidelity || "family",
     source: exactSource || profile.source || "vendor front-panel family documentation",

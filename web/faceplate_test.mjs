@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { cableBezier } from "./static/js/cabling.js";
 import { hardwareCatalog, instantiateProfile, upgradeInstalledPhysicalPorts } from "./static/js/catalog.js";
+import { portLayoutMetadata } from "./static/js/catalog-port-layouts.js";
 import { buildSVGDocument } from "./static/js/export.js";
 import { faceplateResearchCoverage, resolveFaceplateTemplate } from "./static/js/faceplate.js";
 import { connectorKind, connectorSize, endpointRouteSegment, faceplateConnectorSize, portLinkLEDColor } from "./static/js/termination.js";
@@ -90,6 +91,20 @@ for (const model of ["FortiGate 2200E", "FortiGate 2600F", "FortiGate 3200F", "F
 }
 
 const fortiSwitch1024EProfile = hardwareCatalog.find((profile) => profile.model === "FortiSwitch 1024E");
+const unmatchedExactLayout = portLayoutMetadata({
+  ...fortiSwitch1024EProfile,
+  groups: [{ zone: "access", count: 1, type: "SFP_PLUS_10G", speed: 10000, poe: false, prefix: "UNMATCHED" }],
+});
+assert.equal(unmatchedExactLayout.positionFidelity, "schematic",
+  "a model-level source must not imply exact geometry when no layout coordinates matched");
+assert.equal(portLayoutMetadata({
+  vendor: "Generic Lab", model: "Generic switch", category: "Switch", fidelity: "generic",
+  groups: [{ zone: "access", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "PORT" }],
+}).positionFidelity, "generic");
+assert.equal(portLayoutMetadata({
+  vendor: "Fortinet", model: "FortiGate modular chassis", category: "Firewall", fidelity: "modular",
+  groups: [{ zone: "uplink", count: 1, type: "SFP_PLUS_10G", speed: 10000, poe: false, prefix: "SLOT" }],
+}).positionFidelity, "modular");
 const fortiSwitch1024E = instantiateProfile(fortiSwitch1024EProfile, "CORE 1024E", { x: 0, y: 0 });
 const fortiSwitch1024EDataPorts = fortiSwitch1024E.ports.filter((port) => /^\d+$/.test(port.label));
 const fortiSwitch1024ESFPPorts = fortiSwitch1024EDataPorts.slice(0, 24);
@@ -320,11 +335,16 @@ const fortiSwitch424EProfile = hardwareCatalog.find((profile) => profile.model =
 const legacyFortiSwitch424E = instantiateProfile(fortiSwitch424EProfile, "OLD 424E", { x: 0, y: 0 });
 const legacyFortiSwitch424EManagement = legacyFortiSwitch424E.ports.at(-1);
 legacyFortiSwitch424EManagement.type = "Console";
-legacyFortiSwitch424EManagement.speed = 0;
+legacyFortiSwitch424EManagement.speedMbps = 0;
+legacyFortiSwitch424EManagement.isPoe = true;
 legacyFortiSwitch424EManagement.group = "CONSOLE";
 legacyFortiSwitch424EManagement.label = "CONSOLE";
 assert.equal(upgradeInstalledPhysicalPorts({ devices: [legacyFortiSwitch424E], linkGroups: [] }), true);
 assert.equal(legacyFortiSwitch424EManagement.type, "RJ45_1G");
+assert.equal(legacyFortiSwitch424EManagement.speedMbps, 1000);
+assert.equal(legacyFortiSwitch424EManagement.isPoe, false);
+assert.equal(Object.hasOwn(legacyFortiSwitch424EManagement, "speed"), false);
+assert.equal(Object.hasOwn(legacyFortiSwitch424EManagement, "poe"), false);
 assert.equal(legacyFortiSwitch424EManagement.label, "MGMT");
 assert.equal(legacyFortiSwitch424EManagement.faceplateX, .055);
 
@@ -382,5 +402,20 @@ assert.match(svg, /class="name"[^>]+fill="#202426"[^>]*>SOURCE<\/text>/, "light 
 assert.match(svg, /width="18" height="14" rx="2"/, "RJ45 SVG geometry should match the canvas connector size");
 assert.match(svg, /width="17" height="12" rx="2"/, "SFP SVG geometry should match the canvas connector size");
 assert.match(svg, /data-layer="status-area"/, "SVG status indicators should use faceplate status-area geometry");
+
+const coreExportDevice = structuredClone(fortiSwitch1024E);
+coreExportDevice.id = "core-export";
+const coreSVG = buildSVGDocument({
+  name: "Core export", racks: [], devices: [coreExportDevice], links: [], linkGroups: [], vlans: [],
+}, {
+  worldBounds: () => ({ x: 0, y: 0, width: 690, height: 100 }),
+  portCenters: () => new Map(),
+  rackRectangles: () => [],
+  deviceRectangles: () => [{ device: coreExportDevice, x: 0, y: 0, width: 690, height: 100 }],
+});
+assert.match(coreSVG, /<text x="77" y="59" fill="#e64135" font-size="6" font-weight="700">FORTINET<\/text>/,
+  "core-switch SVG identity must include the Fortinet vendor legend at y + 9");
+assert.match(coreSVG, /<text class="name" x="77" y="68"[^>]*>CORE 1024E<\/text>/,
+  "core-switch SVG identity must retain the device name at y + 18");
 
 console.log(`faceplate checks passed: ${coverage.sourced} sourced profiles across ${coverage.templates.size} templates`);
