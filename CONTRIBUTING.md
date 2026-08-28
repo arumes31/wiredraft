@@ -2,7 +2,7 @@
 
 WireDraft deliberately has no runtime Go module, NPM, or browser build-tool dependencies. Quality-only development tools are locked in `package-lock.json`; changes must preserve the dependency-free runtime.
 
-1. Install Go 1.26.5 or later, Node.js 24, Docker, PowerShell 7, `golangci-lint`, `uvx`, and `act`.
+1. Install Go 1.27.0 or later, Node.js 24, Docker, PowerShell 7, `golangci-lint`, `uvx`, and `act`.
 2. Run `pwsh -NoProfile -File scripts/ci-local.ps1` before submitting a change. It mirrors all locally reproducible GitHub checks, including lint, race/fuzz/coverage tests, vulnerability and secret scans, container checks, browser coverage, accessibility, and visual regression.
 3. During quick iteration, `-SkipBrowsers` and `-SkipContainers` may be used; the complete command is required before review.
 4. Keep browser code as native ES modules under `web/static`; do not add generated bundles.

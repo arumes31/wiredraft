@@ -162,6 +162,9 @@ func TestV1APIResponseContractSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Git may check text fixtures out with CRLF on Windows. Preserve the JSON
+	// contract check while making the snapshot comparison platform-independent.
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 	if !bytes.Equal(encoded, want) {
 		t.Fatalf("v1 API contract changed; inspect compatibility or run UPDATE_SNAPSHOTS=1 go test ./internal/handler\nwant:\n%s\ngot:\n%s", want, encoded)
 	}
