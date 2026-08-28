@@ -7,7 +7,7 @@ import { linkVLANPalette, vlanBandPattern } from "./link-vlan-colors.js";
 import { linkGroupPortBadges } from "./link-group-display.js";
 import { layoutEndpointBadges, linkEndpointBadges } from "./link-end-labels.js";
 import { isRearPanelLink, RearPanelLinkVisual } from "./patch-panels.js";
-import { connectorKind, connectorSize, portDescriptionPlacement } from "./termination.js";
+import { connectorKind, faceplateConnectorSize, portDescriptionPlacement } from "./termination.js";
 import { buildConfigurationDocument } from "./configuration-report.js";
 
 export { buildConfigurationDocument };
@@ -478,7 +478,7 @@ export function buildSVGDocument(topology, engine) {
   const deviceBoxList = engine.deviceRectangles();
   const deviceBoxes = new Map(deviceBoxList.map((box) => [box.device.id, box]));
   const portGeometry = new Map(topology.devices.flatMap((device) => device.ports.map((port) => {
-    const point = portPoints.get(port.id); const size = connectorSize(port.type);
+    const point = portPoints.get(port.id); const size = faceplateConnectorSize(port, device);
     return [port.id, point ? { x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height } : null];
   })).filter(([, box]) => box));
   const portBoxes = topology.devices.flatMap((device) => device.ports.map((port) => {
@@ -568,8 +568,15 @@ export function buildSVGDocument(topology, engine) {
     parts.push(`<g data-layer="faceplate" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${rackFace}" data-name="${escapeXML(device.name)}" data-template="${template.id}"><title>${escapeXML(device.name)} · ${escapeXML(device.model || device.category || "Device")}</title>`);
     parts.push(`<rect x="${x}" y="${y}" width="690" height="${heightU}" rx="8" fill="${template.surface}" stroke="#687b7f"/>`);
     parts.push(`<path d="M${x + 20} ${y + 5}H${x + 670}" stroke="rgba(255,255,255,.28)"/>`);
-    if (template.control !== "passive") parts.push(`<rect data-layer="status-area" x="${statusX}" y="${statusY}" width="${statusArea.width}" height="${statusArea.height}" rx="3" fill="${template.surfaceDark}" opacity=".72"/>`);
-    if (!["lcm", "server", "passive"].includes(statusArea.kind)) {
+    if (statusArea.compact) {
+      const statusColors = [template.accent, "#55c98e", "#536265", "#536265"];
+      for (let index = 0; index < 4; index += 1) {
+        parts.push(`<circle data-layer="status-indicator" cx="${statusX + index * 6}" cy="${y + 7}" r="1.6" fill="${statusColors[index]}"/>`);
+      }
+    } else if (template.control !== "passive") {
+      parts.push(`<rect data-layer="status-area" x="${statusX}" y="${statusY}" width="${statusArea.width}" height="${statusArea.height}" rx="3" fill="${template.surfaceDark}" opacity=".72"/>`);
+    }
+    if (!statusArea.compact && !["lcm", "server", "passive"].includes(statusArea.kind)) {
       const statusColors = [template.accent, "#55c98e", "#536265", "#536265"];
       for (let index = 0; index < 4; index += 1) {
         parts.push(`<circle data-layer="status-indicator" cx="${statusX + 10 + (index % 2) * 13}" cy="${statusY + 10 + Math.floor(index / 2) * 14}" r="2" fill="${statusColors[index]}"/>`);
@@ -581,15 +588,41 @@ export function buildSVGDocument(topology, engine) {
         parts.push(`<circle cx="${ventX}" cy="${ventY}" r="1.4" fill="${template.surfaceDark}" opacity=".65"/>`);
       }
     }
-    parts.push(`<text class="name" x="${x + 28}" y="${y + 28}" fill="${template.ink}">${escapeXML(device.name)}</text>`);
-    parts.push(`<text class="model" x="${x + 28}" y="${y + 43}" fill="${template.ink}" opacity=".68">${escapeXML(device.model)}</text>`);
+    if (template.id === "fortinet-dense-core-switch") {
+      parts.push(`<text class="name" x="${x + 270}" y="${y + 9}" fill="${template.ink}" style="font-size:6px">${escapeXML(device.name)}</text>`);
+    } else if (template.id === "fortinet-core-switch") {
+      parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML((device.faceplate.vendor || "FORTINET").toUpperCase())}</text>`);
+      parts.push(`<text class="name" x="${x + 27}" y="${y + 18}" fill="${template.ink}" style="font-size:8px">${escapeXML(device.name)}</text>`);
+    } else if (template.id === "fortinet-campus-switch") {
+      parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML(device.faceplate.vendor || "FORTINET")}</text>`);
+      const dataPoints = device.ports.filter((port) =>
+        !/MGMT|CONSOLE|OOB|BMC|ILO|IDRAC/i.test(`${port.group || ""} ${port.label || ""}`))
+        .map((port) => portPoints.get(port.id)?.x).filter(Number.isFinite);
+      const firstDataX = dataPoints.length ? Math.min(...dataPoints) + offsetX : x + 160;
+      const nameWidth = Math.max(50, firstDataX - x - 35);
+      const nameSize = fittedFontSize(device.name, nameWidth, 8);
+      parts.push(`<text class="name" x="${x + 27}" y="${y + 18}" fill="${template.ink}" style="font-size:${nameSize}px">${escapeXML(device.name)}</text>`);
+    } else if (template.id === "fortinet-compact-switch") {
+      parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML(device.faceplate.vendor || "FORTINET")}</text>`);
+      parts.push(`<text class="name" x="${x + 555}" y="${y + 18}" fill="${template.ink}" style="font-size:8px">${escapeXML(device.name)}</text>`);
+    } else if (template.id === "fortinet-rugged-switch") {
+      parts.push(`<text class="name" x="${x + 27}" y="${y + 13}" fill="${template.ink}" style="font-size:7px">${escapeXML(device.name)}</text>`);
+    } else if (/^fortinet-(?:desktop|rack|datacenter)$/.test(template.id)) {
+      const nameSize = fittedFontSize(device.name, 94, 12);
+      parts.push(`<text x="${x + 28}" y="${y + 16}" fill="${template.accent}" font-size="7" font-weight="700">${escapeXML(device.faceplate.vendor || "FORTINET")}</text>`);
+      parts.push(`<text class="name" x="${x + 28}" y="${y + 31}" fill="${template.ink}" style="font-size:${nameSize}px">${escapeXML(device.name)}</text>`);
+      parts.push(`<text class="model" x="${x + 28}" y="${y + 43}" fill="${template.ink}" style="font-size:8px" opacity=".68">${escapeXML(device.model)}</text>`);
+    } else {
+      parts.push(`<text class="name" x="${x + 28}" y="${y + 28}" fill="${template.ink}">${escapeXML(device.name)}</text>`);
+      parts.push(`<text class="model" x="${x + 28}" y="${y + 43}" fill="${template.ink}" opacity=".68">${escapeXML(device.model)}</text>`);
+    }
     if (template.control === "server") {
       const cardGroups = new Map();
       for (const port of device.ports) {
         const point = portPoints.get(port.id);
         if (!point) continue;
         const group = cardGroups.get(port.group || "REAR CARD") || [];
-        group.push({ port, point, size: connectorSize(port.type) });
+        group.push({ port, point, size: faceplateConnectorSize(port, device) });
         cardGroups.set(port.group || "REAR CARD", group);
       }
       for (const [name, group] of cardGroups) {
@@ -615,7 +648,7 @@ export function buildSVGDocument(topology, engine) {
     for (const port of device.ports) {
       const point = portPoints.get(port.id);
       if (point) {
-        const size = connectorSize(port.type);
+        const size = faceplateConnectorSize(port, device);
         const kind = connectorKind(port.type);
         const portLabel = String(port.label || `PORT ${port.portIndex || ""}`).trim();
         parts.push(`<g data-entity="port" data-port-id="${escapeXML(port.id)}" data-device-id="${escapeXML(device.id)}" data-name="${escapeXML(portLabel)}"><title>${escapeXML(device.name)}:${escapeXML(portLabel)} · ${escapeXML(port.type || "PORT")}</title>`);
@@ -726,6 +759,11 @@ function translateRoute(route, offsetX, offsetY) {
       apex: { x: bridge.apex.x + offsetX, y: bridge.apex.y + offsetY },
     })),
   };
+}
+
+function fittedFontSize(value, maxWidth, preferredSize) {
+  const estimatedWidth = Math.max(1, String(value || "").length) * preferredSize * .55;
+  return Math.max(5, Math.min(preferredSize, preferredSize * maxWidth / estimatedWidth));
 }
 
 export function svgRoutePath(route) {

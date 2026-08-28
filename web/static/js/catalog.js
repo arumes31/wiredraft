@@ -46,9 +46,9 @@ const profiles = [
 
   p("MikroTik", "CRS326-24G-2S+RM", "Switch", 1, "#e1e4e1", [r(24, "RJ45_1G", 1000, false), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
   p("MikroTik", "CRS328-24P-4S+RM", "Switch", 1, "#e1e4e1", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("MikroTik", "CRS354-48G-4S+2Q+RM", "Switch", 1, "#e1e4e1", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), u(2, "QSFP28_100G", 40000, "QSFP+"), m(1)]),
+  p("MikroTik", "CRS354-48G-4S+2Q+RM", "Switch", 1, "#e1e4e1", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), u(2, "QSFP_PLUS_40G", 40000, "QSFP+"), { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGMT" }, m(1)]),
   p("MikroTik", "CRS317-1G-16S+RM", "Switch", 1, "#e1e4e1", [r(1, "RJ45_1G", 1000, false), u(16, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("MikroTik", "CRS518-16XS-2XQ-RM", "Switch", 1, "#e1e4e1", [u(16, "SFP28_25G", 25000, "SFP28"), u(2, "QSFP28_100G", 100000, "QSFP"), m(1)]),
+  p("MikroTik", "CRS518-16XS-2XQ-RM", "Switch", 1, "#e1e4e1", [u(16, "SFP28_25G", 25000, "SFP28"), u(2, "QSFP28_100G", 100000, "QSFP"), { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGMT" }, m(1)]),
 
   p("Dell", "PowerSwitch N3248TE-ON", "Switch", 1, "#1d3d50", [r(48, "RJ45_1G", 1000, false), u(6, "QSFP28_100G", 100000, "QSFP"), m(1)]),
   p("Dell", "PowerSwitch S4148F-ON", "Switch", 1, "#1d3d50", [u(48, "SFP_PLUS_10G", 10000, "SFP+"), u(6, "QSFP28_100G", 100000, "QSFP"), m(1)]),
@@ -74,10 +74,26 @@ const profiles = [
   p("Ruckus", "ICX 7150-48P", "Switch", 1, "#4b3520", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
   p("Ruckus", "ICX 7550-48ZP", "Switch", 1, "#4b3520", [r(48, "RJ45_10G", 2500, true, "MGE"), u(8, "SFP28_25G", 25000, "SFP28"), m(1)]),
 
-  p("Palo Alto", "PA-440 / PA-450", "Firewall", 1, "#304047", [r(8, "RJ45_1G", 1000, false, "ETH"), m(2)]),
+  p("Palo Alto", "PA-440 / PA-450", "Firewall", 1, "#304047", [
+    { ...r(8, "RJ45_1G", 1000, false, "ETH"), labels: Array.from({ length: 8 }, (_, index) => `ethernet1/${index + 1}`) },
+    { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGT", labels: ["MGT"] },
+    { zone: "management", count: 1, type: "USB_MICRO_CONSOLE", speed: 0, poe: false, prefix: "CONSOLE", labels: ["MICRO-USB"] },
+  ]),
   p("Palo Alto", "PA-1410 / PA-1420", "Firewall", 1, "#304047", [r(12, "RJ45_1G", 1000, false, "ETH"), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(2)]),
-  p("Sophos", "XGS 126 / 136", "Firewall", 1, "#21466a", [r(10, "RJ45_1G", 1000, false, "GE"), u(2, "SFP_1G", 1000, "SFP"), m(2)]),
-  p("Sophos", "XGS 2100 / 2300", "Firewall", 1, "#21466a", [r(8, "RJ45_1G", 1000, false, "GE"), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(2)]),
+  p("Sophos", "XGS 126 / 136", "Firewall", 1, "#21466a", [
+    { ...r(10, "RJ45_1G", 1000, false, "GE"), labels: Array.from({ length: 10 }, (_, index) => String(index + 1)) },
+    { ...r(2, "RJ45_MGIG", 2500, true, "GE"), labels: ["11", "12"] },
+    { ...u(2, "SFP_1G", 1000, "SFP"), labels: ["F1", "F2"] },
+    { zone: "management", count: 1, type: "Console", speed: 0, poe: false, prefix: "COM", labels: ["COM"] },
+    { zone: "management", count: 1, type: "USB_MICRO_CONSOLE", speed: 0, poe: false, prefix: "COM", labels: ["MICRO-USB"] },
+  ]),
+  p("Sophos", "XGS 2100 / 2300", "Firewall", 1, "#21466a", [
+    { ...r(8, "RJ45_1G", 1000, false, "GE"), labels: Array.from({ length: 8 }, (_, index) => String(index + 1)) },
+    { ...u(2, "SFP_1G", 1000, "SFP"), labels: ["F1", "F2"] },
+    { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGMT", labels: ["MGMT"] },
+    { zone: "management", count: 1, type: "Console", speed: 0, poe: false, prefix: "COM", labels: ["COM"] },
+    { zone: "management", count: 1, type: "USB_MICRO_CONSOLE", speed: 0, poe: false, prefix: "COM", labels: ["MICRO-USB"] },
+  ]),
   p("Check Point", "Quantum 6200 / 6600", "Firewall", 1, "#442839", [r(8, "RJ45_1G", 1000, false, "GE"), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(2)]),
 ];
 
@@ -156,8 +172,24 @@ export function upgradeInstalledPhysicalPorts(topology) {
     if (expected.length === device.ports.length) {
       for (let index = 0; index < expected.length; index += 1) {
         const current = device.ports[index];
-        if (isGeneratedPortLabel(current.label) && current.label !== expected[index].label) {
+        const generated = isGeneratedPortLabel(current.label);
+        if (generated && current.label !== expected[index].label) {
           current.label = expected[index].label;
+          changed = true;
+        }
+        if (profile.portLayout?.fidelity === "exact" && generated &&
+          (current.type !== expected[index].type || current.speedMbps !== expected[index].speedMbps ||
+            current.isPoe !== expected[index].isPoe || current.group !== expected[index].group)) {
+          current.type = expected[index].type;
+          current.speedMbps = expected[index].speedMbps;
+          current.isPoe = expected[index].isPoe;
+          current.group = expected[index].group;
+          changed = true;
+        }
+        if (profile.portLayout?.fidelity === "exact" &&
+          (current.faceplateX !== expected[index].faceplateX || current.faceplateY !== expected[index].faceplateY)) {
+          current.faceplateX = expected[index].faceplateX;
+          current.faceplateY = expected[index].faceplateY;
           changed = true;
         }
       }
@@ -198,9 +230,12 @@ export function registerProfiles(input) {
       Number.isInteger(profile.units) && profile.units >= 1 && profile.units <= 12 && /^#[0-9a-f]{6}$/i.test(profile.color) &&
       Array.isArray(profile.groups) && profile.groups.every((group) => Number.isInteger(group.count) && group.count > 0 &&
         ["access", "uplink", "management"].includes(group.zone) &&
-        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
+        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
         Number.isFinite(group.speed) && group.speed >= 0 && group.speed <= 800000 &&
-        (group.labels === undefined || (Array.isArray(group.labels) && group.labels.length === group.count && group.labels.every((label) => typeof label === "string" && label.trim()))));
+        (group.labels === undefined || (Array.isArray(group.labels) && group.labels.length === group.count && group.labels.every((label) => typeof label === "string" && label.trim()))) &&
+        (group.positions === undefined || (Array.isArray(group.positions) && group.positions.length === group.count &&
+          group.positions.every((position) => Number.isFinite(position?.x) && position.x >= .02 && position.x <= .98 &&
+            Number.isFinite(position?.y) && position.y >= .05 && position.y <= .95))));
     if (!isValid) throw new Error(`Invalid hardware profile: ${profile?.vendor || "unknown"} ${profile?.model || "model"}`);
     profile.family = String(profile.family || defaultCatalogFamily(profile.category)).trim();
     profile.layout ||= profile.vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -216,12 +251,13 @@ export function instantiateProfile(profile, name, position) {
   const accessGroups = groups.filter((group) => group.zone === "access");
   const uplinkGroups = groups.filter((group) => group.zone === "uplink");
   const managementGroups = groups.filter((group) => group.zone === "management");
+  const managementCount = managementGroups.reduce((sum, group) => sum + group.count, 0);
+  const denseManagement = managementCount > 2;
   const ports = [
-    ...layoutGroups(accessGroups, .29, .79),
-    ...layoutGroups(uplinkGroups, .83, .955),
-    ...layoutGroups(managementGroups, .18, .275),
+    ...layoutGroups([...accessGroups, ...uplinkGroups], denseManagement ? .34 : .29, .955),
+    ...layoutGroups(managementGroups, denseManagement ? .22 : .18, denseManagement ? .31 : .275, 2),
   ].map((port, index) => {
-    const passive = profile.category === "PatchPanel" || ["Console", "Power", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack"].includes(port.type);
+    const passive = profile.category === "PatchPanel" || ["Console", "Power", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack"].includes(port.type);
     return {
       id: "", deviceId: "", portIndex: index + 1, label: port.label, type: port.type,
       mode: passive ? "Unconfigured" : "Access", nativeVlan: passive ? 0 : 1,
@@ -279,10 +315,10 @@ export function instantiateStaticServer(input, position) {
   }, String(input.name || "SERVER"), position);
 }
 
-function layoutGroups(groups, x1, x2) {
+function layoutGroups(groups, x1, x2, maxColumns = 16) {
   const total = groups.reduce((sum, group) => sum + group.count, 0);
   if (!total) return [];
-  const rows = total > 16 ? 2 : 1;
+  const rows = Math.min(3, Math.ceil(total / maxColumns));
   const columns = Math.ceil(total / rows);
   const result = [];
   let globalIndex = 0;
@@ -296,8 +332,8 @@ function layoutGroups(groups, x1, x2) {
         speed: group.speed,
         poe: group.poe,
         group: group.prefix || group.zone,
-        x: columns === 1 ? (x1 + x2) / 2 : x1 + (x2 - x1) * column / (columns - 1),
-        y: rows === 1 ? .55 : .4 + row * .3,
+        x: group.positions?.[index]?.x ?? (columns === 1 ? (x1 + x2) / 2 : x1 + (x2 - x1) * column / (columns - 1)),
+        y: group.positions?.[index]?.y ?? (rows === 1 ? .55 : .25 + row * .6 / (rows - 1)),
       });
       globalIndex += 1;
     }
@@ -315,5 +351,5 @@ function u(count, type, speed, prefix = "") { return { zone: "uplink", count, ty
 function m(count) { return { zone: "management", count, type: "Console", speed: 0, poe: false, prefix: "CONSOLE" }; }
 
 function isGeneratedPortLabel(label) {
-  return /^(?:\d+|(?:GE|PORT|SFP\+?|SFP28|SFP56|QSFP\+?|QSFP28|QSFP56|QSFP-DD|MGMT|CONSOLE|SHARED|ETH|10GE|MGIG|2\.5GE|5GE)\d+)$/i.test(String(label || ""));
+  return /^(?:\d+|(?:GE|PORT|SFP\+?|SFP28|SFP56|QSFP\+?|QSFP28|QSFP56|QSFP-DD|MGMT|CONSOLE|SHARED|ETH|10GE|MGIG|2\.5GE|5GE)(?:\d+)?)$/i.test(String(label || ""));
 }

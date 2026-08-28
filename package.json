@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "audit:faceplates": "node scripts/audit-faceplates.mjs",
     "minify:js": "node scripts/minify-js.mjs --source web/static/js --output .quality-data/minified-js",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "node --test web/*_test.mjs",
