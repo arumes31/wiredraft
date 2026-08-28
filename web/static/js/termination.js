@@ -8,6 +8,7 @@ export function connectorKind(type = "") {
   if (type === "FIBER_LC") return "lc";
   if (type === "FIBER_SC") return "sc";
   if (type === "FIBER_MPO") return "mpo";
+  if (type === "USB_MINI_CONSOLE") return "usb-mini";
   if (type === "USB_MICRO_CONSOLE") return "usb-micro";
   if (type === "USB_C_CONSOLE") return "usb-c";
   if (type === "Stack") return "stack";
@@ -27,6 +28,7 @@ export function connectorSize(type = "") {
   if (kind === "lc") return { width: 16, height: 12 };
   if (kind === "sc") return { width: 15, height: 15 };
   if (kind === "mpo") return { width: 20, height: 11 };
+  if (kind === "usb-mini") return { width: 14, height: 9 };
   if (kind === "usb-micro") return { width: 14, height: 7 };
   if (kind === "usb-c") return { width: 15, height: 7 };
   if (kind === "stack") return { width: 22, height: 16 };
@@ -35,6 +37,14 @@ export function connectorSize(type = "") {
   if (kind === "console") return { width: 16, height: 12 };
   if (kind === "power") return { width: 18, height: 16 };
   return { width: 18, height: 14 };
+}
+
+export function faceplateConnectorSize(port, device) {
+  const base = connectorSize(port?.type);
+  const group = port?.group || "";
+  const groupCount = (device?.ports || []).filter((candidate) => (candidate.group || "") === group).length;
+  const scale = groupCount >= 48 ? .78 : groupCount >= 32 ? .88 : 1;
+  return { width: base.width * scale, height: base.height * scale };
 }
 
 export function portLinkLEDColor(status) {
@@ -85,14 +95,27 @@ export function endpointRouteSegment(route, side, bounds, padding = 6) {
 }
 
 export function portDescriptionPlacement(portBox, deviceBounds) {
-  const topHalf = portBox.centerY <= deviceBounds.y + deviceBounds.height / 2;
   const label = String(portBox.port?.label || "");
+  const fontSize = label.length > 10 ? 5.5 : label.length > 6 ? 6.5 : 8;
+  const maxWidth = label.length > 6 ? 38 : 30;
+  const leftManagement = portBox.centerX <= deviceBounds.x + deviceBounds.width * .12 &&
+    /MGMT|CONSOLE|OOB|BMC|ILO|IDRAC/i.test(`${portBox.port?.group || ""} ${label}`);
+  if (leftManagement) {
+    return {
+      x: portBox.x + portBox.width + maxWidth / 2 + 4,
+      y: portBox.centerY,
+      side: "right",
+      fontSize,
+      maxWidth,
+    };
+  }
+  const topHalf = portBox.centerY <= deviceBounds.y + deviceBounds.height / 2;
   return {
     x: portBox.centerX,
     y: topHalf ? portBox.y - 8 : portBox.y + portBox.height + 9,
     side: topHalf ? "above" : "below",
-    fontSize: label.length > 10 ? 5.5 : label.length > 6 ? 6.5 : 8,
-    maxWidth: label.length > 6 ? 38 : 30,
+    fontSize,
+    maxWidth,
   };
 }
 

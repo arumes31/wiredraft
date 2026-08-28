@@ -2326,11 +2326,15 @@ function updateHardwareSummary() {
 	const lifecycle = profile.lifecycle ? ` · ${profile.lifecycle.toUpperCase()}` : "";
 	const fidelity = profile.fidelity === "family" ? " · FAMILY-EQUIVALENT PANEL" :
 		profile.fidelity === "modular" ? " · MODULAR CHASSIS" : profile.fidelity ? " · VERIFIED PANEL" : "";
-	const portFidelity = profile.portLayout?.fidelity === "exact" ? " · SOURCE-VERIFIED PORT LEGENDS" : " · FAMILY PORT LEGENDS";
+	const labelFidelity = profile.portLayout?.labelFidelity === "exact" ? " · SOURCE-VERIFIED PORT LEGENDS" :
+		profile.portLayout?.labelFidelity === "generic" ? " · GENERIC PORT LEGENDS" : " · FAMILY PORT LEGENDS";
+	const positionFidelity = profile.portLayout?.positionFidelity === "exact" ? " · SOURCE-VERIFIED FACEPLATE" :
+		profile.portLayout?.positionFidelity === "generic" ? " · GENERIC FACEPLATE" :
+		profile.portLayout?.positionFidelity === "modular" ? " · MODULE-DEPENDENT FACEPLATE" : " · SCHEMATIC FACEPLATE";
 	const family = profile.family ? `${profile.family.toUpperCase()} · ` : "";
 	const placement = profile.placement ? ` · ${profile.placement.toUpperCase()}` : "";
 	const note = profile.note ? ` — ${profile.note}` : "";
-	document.getElementById("catalog-profile-summary").textContent = `${family}${profile.category.toUpperCase()} · ${profile.units}U · ${ports} INTERFACES${placement}${lifecycle}${fidelity}${portFidelity} — ${media}${note}`;
+	document.getElementById("catalog-profile-summary").textContent = `${family}${profile.category.toUpperCase()} · ${profile.units}U · ${ports} INTERFACES${placement}${lifecycle}${fidelity}${labelFidelity}${positionFidelity} — ${media}${note}`;
 	form.elements.color.value = profile.color;
 	form.elements.name.value = profile.model;
 }

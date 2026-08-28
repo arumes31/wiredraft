@@ -17,7 +17,7 @@ import {
 } from "./patch-panels.js";
 import { cableLabelVisibility, curveLabelCandidates, placeCableLabels, pointerBubblePlacement, radialCandidates } from "./label-layout.js";
 import { findPort } from "./state.js";
-import { connectorKind, connectorSize, portDescriptionPlacement, portLinkLEDColor } from "./termination.js";
+import { connectorKind, faceplateConnectorSize, portDescriptionPlacement, portLinkLEDColor } from "./termination.js";
 import { switchSystemAccent, switchSystemForDevice } from "./switch-systems.js";
 import { firewallClusterAccent, firewallClusterForDevice, firewallClusterRole } from "./firewall-clusters.js";
 import {
@@ -458,7 +458,7 @@ export class CanvasEngine {
       const hasFaceplatePosition = port.faceplateX > 0 && port.faceplateY > 0;
       const centerX = hasFaceplatePosition ? position.x + port.faceplateX * DEVICE_WIDTH : baseX + column * stepX;
       const centerY = hasFaceplatePosition ? position.y + port.faceplateY * height : baseY + row * stepY;
-      const connector = connectorSize(port.type);
+      const connector = faceplateConnectorSize(port, device);
       const portBox = {
         port, device,
         x: centerX - connector.width / 2, y: centerY - connector.height / 2,
@@ -1560,7 +1560,13 @@ export class CanvasEngine {
       this.drawVentField(ctx, template, maxPortX + 16, box.y + box.height * .22, box.x + box.width - maxPortX - 69, box.height * .56);
     }
 
-    if (template.control === "lcm") {
+    if (statusArea.compact) {
+      for (let index = 0; index < 4; index += 1) {
+        const color = index === 0 ? template.accent : index === 1 ? "#55c98e" : "#536265";
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(statusX + index * 6, box.y + 7, 1.6, 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (template.control === "lcm") {
       const screenX = statusX; const screenY = statusCenterY - statusArea.height / 2;
       ctx.fillStyle = "#0b1113"; ctx.strokeStyle = "#889497"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(screenX, screenY, statusArea.width, statusArea.height, 3); ctx.fill(); ctx.stroke();
@@ -1655,6 +1661,50 @@ export class CanvasEngine {
 
   drawDeviceIdentity(ctx, device, box, template) {
     ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+	if (template.id === "fortinet-dense-core-switch") {
+		ctx.fillStyle = template.ink; ctx.font = "700 6px Bahnschrift Condensed, sans-serif";
+		ctx.fillText(device.name, box.x + 270, box.y + 9, 120);
+		return;
+	}
+	if (template.id === "fortinet-core-switch") {
+		ctx.fillStyle = template.accent; ctx.font = "700 6px Bahnschrift Condensed, sans-serif";
+		ctx.fillText((device.faceplate.vendor || "FORTINET").toUpperCase(), box.x + 27, box.y + 9, 90);
+		ctx.fillStyle = template.ink; ctx.font = "700 8px Bahnschrift Condensed, sans-serif";
+		ctx.fillText(device.name, box.x + 27, box.y + 18, 118);
+		return;
+	}
+	if (template.id === "fortinet-campus-switch") {
+		ctx.fillStyle = template.accent; ctx.font = "700 6px Bahnschrift Condensed, sans-serif";
+		ctx.fillText((device.faceplate.vendor || "FORTINET").toUpperCase(), box.x + 27, box.y + 9, 70);
+		ctx.fillStyle = template.ink; ctx.font = "700 8px Bahnschrift Condensed, sans-serif";
+		const dataPorts = (this.portBoxesByDevice.get(device.id) || []).filter((port) =>
+			!/MGMT|CONSOLE|OOB|BMC|ILO|IDRAC/i.test(`${port.port.group || ""} ${port.port.label || ""}`));
+		const firstDataX = dataPorts.length ? Math.min(...dataPorts.map((port) => port.x)) : box.x + 160;
+		ctx.fillText(device.name, box.x + 27, box.y + 18, Math.max(50, firstDataX - box.x - 35));
+		return;
+	}
+	if (template.id === "fortinet-compact-switch") {
+		ctx.fillStyle = template.accent; ctx.font = "700 6px Bahnschrift Condensed, sans-serif";
+		ctx.fillText((device.faceplate.vendor || "FORTINET").toUpperCase(), box.x + 27, box.y + 9, 70);
+		ctx.fillStyle = template.ink; ctx.font = "700 8px Bahnschrift Condensed, sans-serif";
+		ctx.fillText(device.name, box.x + 555, box.y + 18, 105);
+		return;
+	}
+	if (template.id === "fortinet-rugged-switch") {
+		ctx.fillStyle = template.ink; ctx.font = "700 7px Bahnschrift Condensed, sans-serif";
+		ctx.fillText(device.name, box.x + 27, box.y + 13, 155);
+		return;
+	}
+	if (/^fortinet-(?:desktop|rack|datacenter)$/.test(template.id)) {
+		ctx.fillStyle = template.accent; ctx.font = "700 7px Bahnschrift Condensed, sans-serif";
+		ctx.fillText((device.faceplate.vendor || "FORTINET").toUpperCase(), box.x + 28, box.y + 16, 95);
+		ctx.fillStyle = template.ink; ctx.font = "700 11px Bahnschrift Condensed, sans-serif";
+		ctx.fillText(device.name, box.x + 28, box.y + 31, 94);
+		ctx.globalAlpha = .68; ctx.font = "8px Bahnschrift Condensed, sans-serif";
+		ctx.fillText(device.model || device.category, box.x + 28, box.y + 43, 94);
+		ctx.globalAlpha = 1;
+		return;
+	}
 	const vendor = device.faceplate.vendor || "WIREDRAFT";
 	ctx.fillStyle = template.accent;
 	ctx.font = "700 8px Bahnschrift Condensed, sans-serif";
@@ -1686,7 +1736,7 @@ export class CanvasEngine {
     const optical = ["sfp", "qsfp", "cfp", "osfp"].includes(kind);
     const passiveFiber = ["lc", "sc", "mpo"].includes(kind);
     const management = /MGMT|OOB|ILO|IDRAC|BMC|NMC|NETWORK|UNITY/i.test(port.group || port.label || "");
-    const connectorEdge = management ? "#55b9d8" : ["console", "usb-micro", "usb-c"].includes(kind) ? "#5a9ec8" :
+    const connectorEdge = management ? "#55b9d8" : ["console", "usb-mini", "usb-micro", "usb-c"].includes(kind) ? "#5a9ec8" :
       optical ? "#879397" : passiveFiber ? "#52bac8" : kind === "stack" ? "#d39a48" : "#60757a";
     ctx.fillStyle = invalid ? "#2d1717" : optical ? "#182124" : passiveFiber ? "#10272b" : "#080d0f";
     ctx.strokeStyle = invalid ? "#743b38" : hovered || selected || draftTarget ? "#7affee" : connectorEdge;
@@ -1710,9 +1760,9 @@ export class CanvasEngine {
     } else if (kind === "mpo") {
       ctx.fillStyle = "#6cd2de";
       for (let pin = 0; pin < 6; pin += 1) { ctx.beginPath(); ctx.arc(box.x + 4 + pin * 2.4, box.centerY, .7, 0, Math.PI * 2); ctx.fill(); }
-    } else if (kind === "usb-c" || kind === "usb-micro") {
+    } else if (kind === "usb-c" || kind === "usb-mini" || kind === "usb-micro") {
       ctx.strokeStyle = "#7eb9d8"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(box.x + 2, box.y + 2, box.width - 4, box.height - 4, kind === "usb-c" ? 3 : 1); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(box.x + 2, box.y + 2, box.width - 4, box.height - 4, kind === "usb-c" ? 3 : kind === "usb-mini" ? 2 : 1); ctx.stroke();
     } else if (kind === "stack") {
       ctx.strokeStyle = "#d39a48"; ctx.lineWidth = 1;
       ctx.strokeRect(box.x + 3, box.y + 3, box.width - 6, box.height - 6);

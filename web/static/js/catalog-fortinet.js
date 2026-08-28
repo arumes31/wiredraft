@@ -27,6 +27,7 @@ const qsfp100 = (count, prefix = "QSFP28") => group("uplink", count, "QSFP28_100
 const qsfp200 = (count, prefix = "QSFP56") => group("uplink", count, "QSFP56_200G", 200000, prefix);
 const qsfp400 = (count, prefix = "QSFP-DD") => group("uplink", count, "QSFP_DD_400G", 400000, prefix);
 const consolePort = (count = 1) => group("management", count, "Console", 0, "CONSOLE");
+const usbMicroConsole = () => group("management", 1, "USB_MICRO_CONSOLE", 0, "CONSOLE");
 const managementRJ45 = (count, prefix = "MGMT") => group("management", count, "RJ45_1G", 1000, prefix);
 const dsl = (count = 1) => group("access", count, "DSL_RJ11", 1000, "DSL");
 
@@ -152,7 +153,7 @@ add(["FortiGate Rugged 50G-5G"], "Firewall", 2, [ge(6), sfp(2), consolePort()], 
 add(["FortiGate Rugged 60F", "FortiGate Rugged 60F-3G4G", "FortiGate Rugged 70F", "FortiGate Rugged 70F-3G4G", "FortiGate Rugged 70G", "FortiGate Rugged 70G-5G-Dual"], "Firewall", 3, [ge(6), sfp(2), consolePort(2)], { lifecycle: "current", source: FORTIGATE_MATRIX });
 
 // FortiSwitch 100/200 series.
-add(["FortiSwitch 108F"], "Switch", 1, [ge(8, "PORT"), sfp(2), consolePort()], { lifecycle: "current" });
+add(["FortiSwitch 108F"], "Switch", 1, [ge(8, "PORT"), sfp(2)], { lifecycle: "current" });
 add(["FortiSwitch 108F-POE", "FortiSwitch 108F-FPOE"], "Switch", 1, [ge(8, "PORT", true), sfp(2), consolePort()], { lifecycle: "current" });
 add(["FortiSwitch 110G-FPOE"], "Switch", 1, [mg(8, 2500, "2.5GE", true), mg(2, 5000, "5GE", true), sfpp(4), consolePort()], { lifecycle: "current" });
 add(["FortiSwitch 124E"], "Switch", 1, [ge(24, "PORT"), sfp(4), consolePort()], { lifecycle: "legacy", source: FORTISWITCH_MODELS });
@@ -165,26 +166,32 @@ add(["FortiSwitch 148E"], "Switch", 1, [ge(48, "PORT"), sfp(4), consolePort()], 
 add(["FortiSwitch 148E-POE"], "Switch", 1, [ge(48, "PORT", true), sfp(4), consolePort()], { lifecycle: "legacy", source: FORTISWITCH_MODELS });
 add(["FortiSwitch 148F"], "Switch", 1, [ge(48, "PORT"), sfpp(4), consolePort()], { lifecycle: "current" });
 add(["FortiSwitch 148F-POE", "FortiSwitch 148F-FPOE"], "Switch", 1, [ge(48, "PORT", true), sfpp(4), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch 224D-FPOE", "FortiSwitch 224E-POE"], "Switch", 1, [ge(24, "PORT", true), sfp(4), consolePort()], { lifecycle: "supported", source: FORTISWITCH_MODELS });
-add(["FortiSwitch 224E"], "Switch", 1, [ge(24, "PORT"), sfp(4), consolePort()], { lifecycle: "supported", source: FORTISWITCH_MODELS });
-add(["FortiSwitch 248D"], "Switch", 1, [ge(48, "PORT"), sfp(4), consolePort()], { lifecycle: "supported", source: FORTISWITCH_MODELS });
-add(["FortiSwitch 248E-POE", "FortiSwitch 248E-FPOE"], "Switch", 1, [ge(48, "PORT", true), sfp(4), consolePort()], { lifecycle: "supported", source: FORTISWITCH_MODELS });
+add(["FortiSwitch 224D-FPOE"], "Switch", 1, [ge(24, "PORT", true), sfp(4), managementRJ45(1)], { lifecycle: "supported", source: FORTISWITCH_MODELS });
+add(["FortiSwitch 224E"], "Switch", 1, [ge(24, "PORT"), sfp(4), managementRJ45(1)], { lifecycle: "supported", source: FORTISWITCH_MODELS });
+add(["FortiSwitch 224E-POE"], "Switch", 1, [ge(12, "POE", true), ge(12, "PORT"), sfp(4), managementRJ45(1)], { lifecycle: "supported", source: FORTISWITCH_MODELS });
+add(["FortiSwitch 248D"], "Switch", 1, [ge(48, "PORT"), sfp(4), managementRJ45(1)], { lifecycle: "supported", source: FORTISWITCH_MODELS });
+add(["FortiSwitch 248E-POE"], "Switch", 1, [ge(24, "POE", true), ge(24, "PORT"), sfp(4), managementRJ45(1)], { lifecycle: "supported", source: FORTISWITCH_MODELS });
+add(["FortiSwitch 248E-FPOE"], "Switch", 1, [ge(48, "PORT", true), sfp(4), managementRJ45(1)], { lifecycle: "supported", source: FORTISWITCH_MODELS });
 
 // FortiSwitch campus and multi-gig series.
-add(["FortiSwitch 348G"], "Switch", 1, [ge(24, "GE"), mg(24, 2500), sfpp(4), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch 348G-FPOE"], "Switch", 1, [ge(24, "GE", true), mg(24, 2500, "MGIG", true), sfpp(4), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch 424E"], "Switch", 1, [ge(24, "PORT"), sfpp(4), consolePort()], { lifecycle: "supported" });
-add(["FortiSwitch 424E-POE", "FortiSwitch 424E-FPOE"], "Switch", 1, [ge(24, "PORT", true), sfpp(4), consolePort()], { lifecycle: "supported" });
-add(["FortiSwitch 424E-Fiber"], "Switch", 1, [sfp(24, "PORT"), sfpp(4), consolePort()], { lifecycle: "supported" });
-add(["FortiSwitch M426E-FPOE"], "Switch", 1, [ge(16, "GE", true), mg(8, 2500, "2.5GE", true), mg(2, 5000, "5GE", true), sfpp(4), consolePort()], { lifecycle: "supported" });
-add(["FortiSwitch 448E"], "Switch", 1, [ge(48, "PORT"), sfpp(4), consolePort()], { lifecycle: "supported" });
-add(["FortiSwitch 448E-POE", "FortiSwitch 448E-FPOE"], "Switch", 1, [ge(48, "PORT", true), sfpp(4), consolePort()], { lifecycle: "supported" });
-add(["FortiSwitch 524D", "FortiSwitch 524D-FPOE"], "Switch", 1, [ge(24, "PORT", true), sfpp(4), qsfp40(2), consolePort()], { lifecycle: "legacy", fidelity: "family", source: FORTISWITCH_MODELS });
-add(["FortiSwitch 548D", "FortiSwitch 548D-FPOE"], "Switch", 1, [ge(48, "PORT", true), sfpp(4), qsfp40(2), consolePort()], { lifecycle: "legacy", source: FORTISWITCH_MODELS });
-add(["FortiSwitch 624F"], "Switch", 1, [mg(24, 5000), sfp28(4), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch 624F-FPOE"], "Switch", 1, [mg(24, 5000, "MGIG", true), sfp28(4), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch 648F"], "Switch", 1, [mg(32, 2500, "2.5GE"), mg(16, 5000, "5GE"), sfp28(8), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch 648F-FPOE"], "Switch", 1, [mg(32, 2500, "2.5GE", true), mg(16, 5000, "5GE", true), sfp28(8), consolePort()], { lifecycle: "current" });
+add(["FortiSwitch 348G"], "Switch", 1, [ge(24, "GE"), mg(24, 2500), sfpp(4), consolePort(), managementRJ45(1)], { lifecycle: "current" });
+add(["FortiSwitch 348G-FPOE"], "Switch", 1, [ge(24, "GE", true), mg(24, 2500, "MGIG", true), sfpp(4), consolePort(), managementRJ45(1)], { lifecycle: "current" });
+add(["FortiSwitch 424E"], "Switch", 1, [ge(24, "PORT"), sfpp(4), managementRJ45(1)], { lifecycle: "supported" });
+add(["FortiSwitch 424E-POE", "FortiSwitch 424E-FPOE"], "Switch", 1, [ge(24, "PORT", true), sfpp(4), managementRJ45(1)], { lifecycle: "supported" });
+add(["FortiSwitch 424E-Fiber"], "Switch", 1, [sfp(24, "PORT"), sfpp(4), managementRJ45(1)], { lifecycle: "supported" });
+add(["FortiSwitch M426E-FPOE"], "Switch", 1, [
+  ge(16, "GE", true), mg(8, 2500, "2.5GE", true), mg(2, 5000, "5GE"), sfpp(4), managementRJ45(1),
+], { lifecycle: "supported" });
+add(["FortiSwitch 448E"], "Switch", 1, [ge(48, "PORT"), sfpp(4), managementRJ45(1)], { lifecycle: "supported" });
+add(["FortiSwitch 448E-POE", "FortiSwitch 448E-FPOE"], "Switch", 1, [ge(48, "PORT", true), sfpp(4), managementRJ45(1)], { lifecycle: "supported" });
+add(["FortiSwitch 524D"], "Switch", 1, [ge(24, "PORT"), sfpp(4), qsfp40(2), managementRJ45(1), usbMicroConsole()], { lifecycle: "legacy" });
+add(["FortiSwitch 524D-FPOE"], "Switch", 1, [ge(24, "PORT", true), sfpp(4), qsfp40(2), managementRJ45(1), usbMicroConsole()], { lifecycle: "legacy" });
+add(["FortiSwitch 548D"], "Switch", 1, [ge(48, "PORT"), sfpp(4), qsfp40(2), managementRJ45(1), usbMicroConsole()], { lifecycle: "legacy" });
+add(["FortiSwitch 548D-FPOE"], "Switch", 1, [ge(48, "PORT", true), sfpp(4), qsfp40(2), managementRJ45(1), usbMicroConsole()], { lifecycle: "legacy" });
+add(["FortiSwitch 624F"], "Switch", 1, [mg(24, 5000), sfp28(4), managementRJ45(1), consolePort()], { lifecycle: "current" });
+add(["FortiSwitch 624F-FPOE"], "Switch", 1, [mg(24, 5000, "MGIG", true), sfp28(4), managementRJ45(1), consolePort()], { lifecycle: "current" });
+add(["FortiSwitch 648F"], "Switch", 1, [mg(32, 2500, "2.5GE"), mg(16, 5000, "5GE"), sfp28(8), managementRJ45(1), consolePort()], { lifecycle: "current" });
+add(["FortiSwitch 648F-FPOE"], "Switch", 1, [mg(32, 2500, "2.5GE", true), mg(16, 5000, "5GE", true), sfp28(8), managementRJ45(1), consolePort()], { lifecycle: "current" });
 
 // FortiSwitch core, data-center, and rugged platforms.
 add(["FortiSwitch 1024E"], "Switch", 1, [sfpp(24, "PORT"), qsfp100(2), ge(1, "MGMT"), consolePort()], { lifecycle: "current" });
@@ -192,13 +199,17 @@ add(["FortiSwitch T1024E"], "Switch", 1, [tenT(24, "PORT"), qsfp100(2), ge(1, "M
 add(["FortiSwitch T1024F-FPOE"], "Switch", 1, [tenT(24, "PORT", true), qsfp100(2), ge(1, "MGMT"), consolePort()], { lifecycle: "current" });
 add(["FortiSwitch 1048E"], "Switch", 1, [sfpp(48, "PORT"), qsfp100(4), qsfp40(2), ge(1, "MGMT"), consolePort()], { lifecycle: "supported" });
 add(["FortiSwitch 1048G"], "Switch", 1, [sfpp(48, "PORT"), qsfp100(6), ge(1, "MGMT"), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch 2048F"], "Switch", 1, [sfp28(48, "PORT"), qsfp100(8), ge(1, "MGMT"), consolePort()], { lifecycle: "current" });
+add(["FortiSwitch 2048F"], "Switch", 1, [sfp28(48, "PORT"), qsfp100(8), sfpp(2), ge(1, "MGMT"), consolePort()], { lifecycle: "current" });
 add(["FortiSwitch 3032E"], "Switch", 1, [qsfp100(32, "PORT"), ge(1, "MGMT"), consolePort()], { lifecycle: "supported" });
 add(["FortiSwitch 3032G"], "Switch", 1, [qsfp100(32, "PORT"), sfpp(2), ge(1, "MGMT"), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch Rugged 108F"], "Switch", 2, [ge(6, "PORT"), sfp(2), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch Rugged 112F-POE"], "Switch", 2, [ge(8, "PORT", true), sfp(4), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch Rugged 216F-POE"], "Switch", 2, [ge(16, "PORT", true), sfpp(4), consolePort()], { lifecycle: "current" });
-add(["FortiSwitch Rugged 424F-POE"], "Switch", 2, [mg(24, 2500, "PORT", true), sfpp(4), qsfp40(2), consolePort()], { lifecycle: "current" });
+add(["FortiSwitch Rugged 108F"], "Switch", 2, [ge(6, "PORT"), sfp(2), consolePort(), managementRJ45(1)], { lifecycle: "current" });
+add(["FortiSwitch Rugged 112F-POE"], "Switch", 2, [ge(8, "PORT", true), sfp(4), consolePort(), managementRJ45(1)], { lifecycle: "current" });
+add(["FortiSwitch Rugged 216F-POE"], "Switch", 2, [ge(16, "PORT", true), sfpp(4), consolePort(), managementRJ45(1)], { lifecycle: "current" });
+add(["FortiSwitch Rugged 424F-POE"], "Switch", 2, [
+  mg(12, 2500, "PORT", true),
+  group("uplink", 12, "SFP_PLUS_10G", 2500, "2.5G SFP+"),
+  sfpp(4), qsfp40(2), managementRJ45(1),
+], { lifecycle: "current" });
 
 // Detect accidental duplicate model rows during development; duplicate options
 // are otherwise hard to notice in a long select list.
