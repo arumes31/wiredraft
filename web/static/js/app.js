@@ -2327,7 +2327,8 @@ function updateHardwareSummary() {
 	const fidelity = profile.fidelity === "family" ? " · FAMILY-EQUIVALENT PANEL" :
 		profile.fidelity === "modular" ? " · MODULAR CHASSIS" : profile.fidelity ? " · VERIFIED PANEL" : "";
 	const labelFidelity = profile.portLayout?.labelFidelity === "exact" ? " · SOURCE-VERIFIED PORT LEGENDS" :
-		profile.portLayout?.labelFidelity === "generic" ? " · GENERIC PORT LEGENDS" : " · FAMILY PORT LEGENDS";
+		profile.portLayout?.labelFidelity === "generic" ? " · GENERIC PORT LEGENDS" :
+		profile.portLayout?.labelFidelity === "modular" ? " · MODULE-DEPENDENT PORT LEGENDS" : " · FAMILY PORT LEGENDS";
 	const positionFidelity = profile.portLayout?.positionFidelity === "exact" ? " · SOURCE-VERIFIED FACEPLATE" :
 		profile.portLayout?.positionFidelity === "generic" ? " · GENERIC FACEPLATE" :
 		profile.portLayout?.positionFidelity === "modular" ? " · MODULE-DEPENDENT FACEPLATE" : " · SCHEMATIC FACEPLATE";
