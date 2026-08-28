@@ -387,7 +387,7 @@ Mutations support optimistic concurrency with `If-Match: "rev-N"`. Error respons
 
 ### Toolchain
 
-- Go 1.26.5 or later
+- Go 1.27.0 or later
 - PostgreSQL 14 or later
 - Node.js 24 for tests and release-time minification only
 - Docker, PowerShell 7, and the quality tools listed in [CONTRIBUTING.md](CONTRIBUTING.md) for the full CI mirror

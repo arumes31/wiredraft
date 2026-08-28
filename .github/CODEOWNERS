@@ -1,0 +1,9 @@
+# The repository owner reviews application, dependency, deployment, and CI changes.
+* @arumes31
+
+# Keep security and supply-chain policy changes under explicit review.
+/.github/ @arumes31
+/Dockerfile @arumes31
+/docker-compose*.yml @arumes31
+/SECURITY.md @arumes31
+
