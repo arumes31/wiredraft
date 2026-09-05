@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"wiredraft/internal/model"
@@ -28,6 +33,45 @@ func TestHealth(t *testing.T) {
 	}
 	if response.Header().Get("Content-Security-Policy") == "" {
 		t.Fatal("Content-Security-Policy header is missing")
+	}
+}
+
+func TestTopologyRoutesUseProtectedRegistrar(t *testing.T) {
+	t.Parallel()
+	files := token.NewFileSet()
+	source, err := parser.ParseFile(files, "server.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protectedRoutes := 0
+	ast.Inspect(source, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		literal, ok := call.Args[0].(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING {
+			return true
+		}
+		pattern, err := strconv.Unquote(literal.Value)
+		if err != nil || !strings.Contains(pattern, "/api/v1/topologies") {
+			return true
+		}
+		switch function := call.Fun.(type) {
+		case *ast.Ident:
+			if function.Name == "protected" {
+				protectedRoutes++
+			}
+		case *ast.SelectorExpr:
+			if function.Sel.Name == "Handle" || function.Sel.Name == "HandleFunc" {
+				position := files.Position(call.Pos())
+				t.Errorf("topology route %q bypasses protected registrar at %s", pattern, position)
+			}
+		}
+		return true
+	})
+	if protectedRoutes == 0 {
+		t.Fatal("no protected topology routes found")
 	}
 }
 

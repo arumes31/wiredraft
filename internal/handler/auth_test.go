@@ -160,6 +160,17 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	if user.TOTPConfigured || len(user.OrganizationIDs) != 1 {
 		t.Fatalf("created user = %#v", user)
 	}
+	setupResponse := performJSONRequest(t, handler, http.MethodPost, "/api/v1/auth/login", map[string]string{
+		"username": account["username"].(string), "password": account["password"].(string),
+	}, nil)
+	var setupChallenge auth.LoginChallenge
+	decodeResponse(t, setupResponse, &setupChallenge)
+	if setupResponse.Code != http.StatusOK || setupChallenge.Next != "setup" {
+		t.Fatalf("unenrolled login status/challenge = %d/%#v, want setup", setupResponse.Code, setupChallenge)
+	}
+	if bytes.Contains(setupResponse.Body.Bytes(), []byte(user.ID)) {
+		t.Fatalf("login challenge exposed internal user id: %s", setupResponse.Body.String())
+	}
 
 	statusResponse := performJSONRequest(t, handler, http.MethodGet, "/api/v1/auth/status", nil, cookie)
 	var status authStatusResponse
@@ -199,7 +210,7 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 		t.Fatalf("updated user = %#v", updated)
 	}
 	logOutput := logs.String()
-	for _, event := range []string{"authentication succeeded", "account created", "account updated"} {
+	for _, event := range []string{"authentication succeeded", "totp enrollment required", "account created", "account updated"} {
 		if !strings.Contains(logOutput, `"msg":"`+event+`"`) {
 			t.Errorf("audit log is missing %q event", event)
 		}
@@ -209,11 +220,18 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 			t.Errorf("audit log contains user-controlled identity field %q: %s", userValue, logOutput)
 		}
 	}
+	enrollmentEntryFound := false
 	updateEntryFound := false
 	for line := range strings.SplitSeq(strings.TrimSpace(logOutput), "\n") {
 		var entry map[string]any
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			t.Fatalf("decoding audit log entry: %v", err)
+		}
+		if entry["msg"] == "totp enrollment required" {
+			enrollmentEntryFound = true
+			if entry["user_id"] != user.ID {
+				t.Errorf("enrollment audit user_id = %#v, want %q", entry["user_id"], user.ID)
+			}
 		}
 		if entry["msg"] != "account updated" {
 			continue
@@ -227,6 +245,9 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 	}
 	if !updateEntryFound {
 		t.Error("account update audit log entry was not found")
+	}
+	if !enrollmentEntryFound {
+		t.Error("totp enrollment audit log entry was not found")
 	}
 
 	logout := newJSONRequest(t, http.MethodPost, "/api/v1/auth/logout", nil, cookie)

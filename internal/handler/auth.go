@@ -81,6 +81,9 @@ func (s *Server) login(w http.ResponseWriter, request *http.Request) {
 		s.authFailure(w, err)
 		return
 	}
+	if challenge.Next == "setup" {
+		s.logger.Warn("totp enrollment required", "user_id", challenge.UserID)
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, challenge)
 }
