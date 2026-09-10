@@ -1,11 +1,14 @@
+import { sameDocument } from "./editor-lock.js";
+
 function clone(value) {
   return value == null ? value : structuredClone(value);
 }
 
 export class AppState extends EventTarget {
   /** Initialize topology history and independent local view preferences. */
-  constructor() {
+  constructor({ editLock = null } = {}) {
     super();
+    this.editLock = editLock;
     this.topology = null;
     this.selection = null;
     this.analysis = { issues: [], loops: [], stp: [] };
@@ -19,6 +22,7 @@ export class AppState extends EventTarget {
 
   /** Replace the map snapshot and retain local views only for live entities. */
   setTopology(topology, { remember = false } = {}) {
+    if (this.editLock && this.topology?.id !== topology?.id) this.editLock.setMode("read-only", "map");
     if (remember && this.topology) {
       this.history.push(clone(this.topology));
       this.history = this.history.slice(-50);
@@ -37,12 +41,17 @@ export class AppState extends EventTarget {
   }
 
   commit(mutator) {
-    if (!this.topology) return;
+    if (!this.topology) return false;
+    const next = clone(this.topology);
+    mutator(next);
+    if (this.editLock && (!this.editLock.allowsChange(this.topology, next) || sameDocument(this.topology, next))) return false;
     this.history.push(clone(this.topology));
     this.history = this.history.slice(-50);
     this.future = [];
-    mutator(this.topology);
+    this.editLock?.recordChange(this.topology, next);
+    this.topology = next;
     this.emit("topology");
+    return true;
   }
 
   select(type, id) {
@@ -109,8 +118,12 @@ export class AppState extends EventTarget {
 
   undo() {
     if (!this.history.length || !this.topology) return false;
+    if (this.editLock && !this.editLock.allowsChange(this.topology, this.history.at(-1))) return false;
+    this.editLock?.recordChange(this.topology, this.history.at(-1));
+    const revision = this.topology.revision;
     this.future.push(clone(this.topology));
     this.topology = this.history.pop();
+    if (revision !== undefined) this.topology.revision = revision;
     this.ensureSelection();
     this.emit("topology");
     return true;
@@ -118,8 +131,12 @@ export class AppState extends EventTarget {
 
   redo() {
     if (!this.future.length || !this.topology) return false;
+    if (this.editLock && !this.editLock.allowsChange(this.topology, this.future.at(-1))) return false;
+    this.editLock?.recordChange(this.topology, this.future.at(-1));
+    const revision = this.topology.revision;
     this.history.push(clone(this.topology));
     this.topology = this.future.pop();
+    if (revision !== undefined) this.topology.revision = revision;
     this.ensureSelection();
     this.emit("topology");
     return true;

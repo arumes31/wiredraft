@@ -493,6 +493,54 @@ func TestTopologyValidateRejectsInvalidFirewallClusterRole(t *testing.T) {
 	}
 }
 
+// TestTelephoneEndpointRoundTrip preserves analogue service semantics in saved ports and cables.
+func TestTelephoneEndpointRoundTrip(t *testing.T) {
+	t.Parallel()
+	source := Port{
+		ID: fixtureUUID(901), DeviceID: fixtureUUID(902), PortIndex: 53, Label: "MODEM",
+		Type: PortType("POTS_RJ11"), Mode: PortModeUnconfigured, SpeedMbps: 0,
+		AllowedVLANs: []int{}, Status: PortStatusDown,
+	}
+	target := source
+	target.ID = fixtureUUID(903)
+	target.DeviceID = fixtureUUID(904)
+	link := Link{
+		ID: fixtureUUID(905), SourceDeviceID: source.DeviceID, SourcePortID: source.ID,
+		TargetDeviceID: target.DeviceID, TargetPortID: target.ID, CableType: "TELEPHONE", VLANIDs: []int{},
+	}
+	for _, port := range []Port{source, target} {
+		if err := port.Validate(port.DeviceID, map[int]struct{}{}); err != nil {
+			t.Fatalf("telephone port without Ethernet VLANs: %v", err)
+		}
+	}
+	if err := link.Validate(map[string]struct{}{source.DeviceID: {}, target.DeviceID: {}},
+		map[string]Port{source.ID: source, target.ID: target}, map[int]struct{}{}); err != nil {
+		t.Fatalf("telephone link without Ethernet VLANs: %v", err)
+	}
+	data := struct {
+		Port Port `json:"port"`
+		Link Link `json:"link"`
+	}{source, link}
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored struct {
+		Port Port `json:"port"`
+		Link Link `json:"link"`
+	}
+	if err := json.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored, data) {
+		t.Fatalf("telephone endpoint/cable changed in JSON round trip: %#v", restored)
+	}
+	source.Type = PortType("POTS_RJ12")
+	if err := source.Validate(source.DeviceID, map[int]struct{}{}); err == nil {
+		t.Fatal("unknown telephone connector type was accepted")
+	}
+}
+
 func TestExpandedPhysicalPortTypesValidate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

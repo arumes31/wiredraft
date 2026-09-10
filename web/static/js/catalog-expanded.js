@@ -42,6 +42,7 @@ function profile(vendor, model, category, units, color, groups, extra = {}) {
   return {
     vendor, model, category, units, color, groups,
     inventoryRevision: extra.inventoryRevision || 0,
+    ...(extra.preserveInstalledPorts === true ? { preserveInstalledPorts: true } : {}),
     layout: extra.layout || vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     fidelity: extra.fidelity || "family",
     source: extra.source || sources[vendor] || "built-in generic physical profile",
@@ -71,10 +72,50 @@ const profiles = [
   ...many("Cisco", ["ISR 1100 family", "ISR 4300 family", "ISR 4400 family"], "Router", 2, "#263b4b", [r(8), u(4), mgmt(), con("USB_C_CONSOLE")]),
 
   // Aruba/HPE and Dell switching/server families.
-  ...many("HPE Aruba", ["CX 6000 family", "CX 6100 family", "CX 6200 family", "CX 6300 family"], "Switch", 1, "#27383a", [r(48, 1000, true), u(4, "SFP56_50G", 50000, "SFP56"), mgmt(), con("USB_C_CONSOLE"), stack(2, "VSF")]),
+  profile("HPE Aruba", "CX 6000 family", "Switch", 1, "#27383a", [r(48, 1000, true), u(4, "SFP_1G", 1000, "SFP"), con("USB_C_CONSOLE")], {
+    ...verified("https://arubanetworking.hpe.com/techdocs/hardware/switches/6100/IGSG/igsg_6000-6100.pdf"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected R8N85A 48G Class 4 PoE 370W, four 1G SFP and USB-C console; one fixed AC supply, no OOB or dedicated VSF sockets." }),
+  profile("HPE Aruba", "CX 6100 family", "Switch", 1, "#27383a", [r(48, 1000, true), u(4), con("USB_C_CONSOLE")], {
+    ...verified("https://arubanetworking.hpe.com/techdocs/hardware/switches/6100/IGSG/igsg_6000-6100.pdf"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected JL675A 48G Class 4 PoE 370W, four 10G SFP+ and USB-C console; one fixed AC supply, no OOB or dedicated VSF sockets." }),
+  profile("HPE Aruba", "CX 6200 family", "Switch", 1, "#27383a", [r(48, 1000, true), u(4), mgmt(), con("USB_C_CONSOLE")], {
+    ...verified("https://arubanetworking.hpe.com/techdocs/Switches/Aruba_6200/5200-6885/index.html"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected JL727A 48G Class 4 PoE 370W, four 10G SFP+, OOB management and USB-C console; one fixed AC supply and three fixed rear fans." }),
+  profile("HPE Aruba", "CX 6300 family", "Switch", 1, "#27383a", [r(48, 1000, true), u(4, "SFP56_50G", 50000, "SFP56"), mgmt(), con("USB_C_CONSOLE")], {
+    ...verified("https://arubanetworking.hpe.com/techdocs/hardware/switches/6300/IGSG/igsg_6300.pdf"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected JL661A 48G Class 4 PoE, four 50G SFP56, OOB management and USB-C console; two JL086A 680W AC supplies and two JL669B fan trays installed." }),
   ...many("HPE Aruba", ["CX 6400 family", "CX 8400 family", "CX 10000 family"], "Switch", 4, "#27383a", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP_DD_400G", 400000, "QSFP-DD"), mgmt(2), con("USB_C_CONSOLE")]),
-  ...many("HPE Aruba", ["CX 8320 family", "CX 8325 family", "CX 8360 family"], "Switch", 1, "#27383a", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con("USB_C_CONSOLE")]),
-  ...many("HPE", ["ProLiant DL20", "ProLiant DL160", "ProLiant DL180", "ProLiant DL325", "ProLiant DL345", "ProLiant DL385", "ProLiant DL560", "ProLiant DL580", "ProLiant ML30", "ProLiant ML110", "ProLiant ML350"], "Server", 2, "#33393b", [t(4, "NIC"), mgmt(1, "iLO")]),
+  profile("HPE Aruba", "CX 8320 family", "Switch", 1, "#27383a", [u(48), u(6, "QSFP_PLUS_40G", 40000, "QSFP+"), mgmt(), con()], {
+    ...verified("https://arubanetworking.hpe.com/techdocs/hardware/switches/8320/IGSG/Aruba_8320_IGSG_en_us.pdf"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected JL479A: 48x10G SFP+, six40G QSFP+, front OOB/RJ45 console, dual JL480A400W AC and five JL481A front-to-back fan trays." }),
+  profile("HPE Aruba", "CX 8325 family", "Switch", 1, "#27383a", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con("USB_MICRO_CONSOLE", "USB CONSOLE"), con()], {
+    ...verified("https://arubanetworking.hpe.com/techdocs/hardware/switches/8325/IGSG/Aruba_8325_IGSG_en_us.pdf"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected JL624A48Y8C front-to-back bundle: front OOB, Micro-USB/RJ45 serial consoles, dual JL632A650W AC and six JL628A fans." }),
+  profile("HPE Aruba", "CX 8360 family", "Switch", 1, "#27383a", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con("USB_C_CONSOLE", "USB CONSOLE"), con()], {
+    ...verified("https://arubanetworking.hpe.com/techdocs/hardware/switches/8360/IGSG/Aruba_8360_IGSG.pdf"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected JL704C48Y6Cv2 front-to-back bundle: front OOB/USB-C, rear RJ45 serial console, dual JL601A850W AC and five JL714A fan trays." }),
+  profile("HPE", "ProLiant DL20", "Server", 1, "#33393b", [r(4, 1000, false, "NIC"), mgmt(1, "iLO"), con("Console", "SERIAL")], {
+    ...verified("https://www.hpe.com/us/en/collaterals/collateral.a50007009enw.html"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected Gen11 P65392-B21 4SFF direct SATA, four embedded 1Gb NICs, P65407-B21 dedicated iLO and DB9 serial kit, two 865438-B21 800W supplies requiring 200–240V AC; media, boot device and expansion cards absent." }),
+  profile("HPE", "ProLiant DL160", "Server", 1, "#33393b", [r(2, 1000, false, "NIC"), mgmt(1, "iLO")], {
+    ...verified("https://www.hpe.com/us/en/collaterals/collateral.a00021860enw.html"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected Gen10 878973-B21 8SFF SATA SmartCarriers, one CPU and primary x16/x8 riser, two embedded 1Gb NICs and iLO, two 865438-B21 800W supplies requiring 200–240V AC with 866442-B21; optional Media Module, serial and cards absent." }),
+  profile("HPE", "ProLiant DL180", "Server", 2, "#33393b", [r(2, 1000, false, "NIC"), mgmt(1, "iLO")], {
+    ...verified("https://www.hpe.com/us/en/collaterals/collateral.a00021862enw.html"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected Gen10 879517-B21 right 8SFF SATA SmartCarriers, one CPU and 878484-B21 primary riser, two embedded 1Gb NICs and iLO, two 865438-B21 800W supplies requiring 200–240V AC with 866442-B21; other bays and optional adapters covered." }),
+  profile("HPE", "ProLiant DL560", "Server", 2, "#33393b", [r(4, 1000, false, "NIC"), mgmt(1, "iLO"), con("Console", "SERIAL")], {
+    ...verified("https://support.hpe.com/hpesc/public/api/document/a00008181enw"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected Gen10 841730-B21, right 8SFF SATA cage, 665240-B21 four-port 1Gb FlexibleLOM, dedicated iLO and DB9 serial; eight covered PCIe positions and two 865414-B21 800W Platinum AC supplies." }),
+  ...many("HPE", ["ProLiant DL580", "ProLiant ML30", "ProLiant ML110", "ProLiant ML350"], "Server", 2, "#33393b", [t(4, "NIC"), mgmt(1, "iLO")]),
+  profile("HPE", "ProLiant DL325", "Server", 1, "#33393b", [t(2, "NIC"), mgmt(1, "iLO")], {
+    ...verified("https://www.hpe.com/us/en/collaterals/collateral.a50004297enw.html"), inventoryRevision: 1,
+    note: "Selected Gen11 P54199-B21 8SFF direct SATA configuration, P10097-B21 dual 10Gb BASE-T in OCP slot 21, rear iLO and two 800W supplies; optional media, serial and boot device absent." }),
+  profile("HPE", "ProLiant DL345", "Server", 2, "#33393b", [t(2, "NIC"), mgmt(1, "iLO")], {
+    ...verified("https://www.hpe.com/us/en/collaterals/collateral.a50004298enw.html"), inventoryRevision: 1,
+    note: "Selected Gen11 P54205-B21 right 8SFF direct SATA configuration, P10097-B21 dual 10Gb BASE-T in OCP slot 21, rear iLO and two 800W supplies; other drive boxes and expansion positions covered." }),
+  profile("HPE", "ProLiant DL385", "Server", 2, "#33393b", [t(2, "NIC"), mgmt(1, "iLO")], {
+    ...verified("https://www.hpe.com/us/en/collaterals/collateral.a50004300enw.html"), inventoryRevision: 1,
+    note: "Selected Gen11 P53921-B21 right 8SFF direct SATA configuration, one CPU, P10097-B21 dual 10Gb BASE-T in OCP slot 22, rear iLO and two 800W supplies; secondary riser and optional rear drives covered." }),
   profile("HPE", "ProLiant DL360", "Server", 1, "#33393b", [t(2, "NIC"), mgmt(1, "iLO")], {
     ...verified("https://www.hpe.com/us/en/collaterals/collateral.a50004306enw.html"), inventoryRevision: 1,
     note: "Selected Gen11 P52499-B21 8SFF SATA configuration, P10097-B21 dual 10Gb BASE-T in OCP slot 15, rear iLO and two 800W supplies; front USB-A maintenance ports are ancillary artwork." }),
@@ -90,7 +131,18 @@ const profiles = [
   profile("Dell", "PowerSwitch S5048", "Switch", 1, "#1d3d50", [g("access", 48, "SFP28_25G", 25000, "", false, labels(1, 48)), g("uplink", 6, "QSFP28_100G", 100000, "", false, labels(49, 6)), mgmt(), con(), con("USB_MICRO_CONSOLE", "MICRO-USB")], {
     ...verified("https://dl.dell.com/content/manual29957947-dell-powerswitch-s5048f-on-installation-guide-june-2023.pdf?language=en-us"), inventoryRevision: 1,
     note: "Selected S5048F-ON with 48 SFP28 cages, six separate QSFP28 cages, rear management and dual console sockets, four fans and two AC supplies." }),
-  ...many("Dell", ["PowerSwitch S5248", "PowerSwitch Z9264", "PowerSwitch Z9332"], "Switch", 1, "#1d3d50", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con()]),
+  profile("Dell", "PowerSwitch S5248", "Switch", 1, "#1d3d50", [g("access", 48, "SFP28_25G", 25000, "", false, labels(1, 48)),
+    g("uplink", 2, "QSFP_DD_200G", 200000, "", false, ["49/50", "51/52"]), g("uplink", 4, "QSFP28_100G", 100000, "", false, labels(53, 4)), mgmt(), con(), con("USB_MICRO_CONSOLE", "MICRO-USB")], {
+    ...verified("https://dl.dell.com/content/manual38150967-dell-powerswitch-s5200f-on-series-installation-guide-july-2023.pdf?language=en-us"), inventoryRevision: 1,
+    note: "Selected S5248F-ON with 48 SFP28, two physical 200G DD cages, four 100G QSFP28, rear management and dual console sockets, four radial fans and two AC supplies." }),
+  profile("Dell", "PowerSwitch Z9264", "Switch", 2, "#1d3d50", [g("access", 64, "QSFP28_100G", 100000, "", false, labels(1, 64)),
+    g("uplink", 2, "SFP_PLUS_10G", 10000, "", false, labels(65, 2)), mgmt(), con(), con("USB_MICRO_CONSOLE", "MICRO-USB")], {
+    ...verified("https://dl.dell.com/content/manual71606330-dell-emc-powerswitch-z9264f-on-installation-guide-march-2022.pdf?language=en-us"), inventoryRevision: 1,
+    note: "Selected 2U Z9264F-ON with 64 QSFP28, two SFP+, all front services, four radial fans and two stacked AC supplies; existing saved 1U allocations remain unchanged." }),
+  profile("Dell", "PowerSwitch Z9332", "Switch", 1, "#1d3d50", [g("access", 32, "QSFP_DD_400G", 400000, "", false, labels(1, 32)),
+    g("uplink", 2, "SFP_PLUS_10G", 10000, "", false, labels(33, 2)), mgmt(), con()], {
+    ...verified("https://dl.dell.com/content/manual52104333-dell-emc-powerswitch-z9332f-on-installation-guide-march-2022.pdf?language=en-us"), inventoryRevision: 1,
+    note: "Selected Z9332F-ON with 32 physical 400G DD cages, two SFP+, front management/serial, seven covered fan modules and two highline 200–240VAC supplies; no USB console or DC option." }),
   profile("Dell", "PowerEdge R350", "Server", 1, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con(), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
     ...verified("https://i.dell.com/sites/csdocuments/Product_Docs/en/Dell-EMC-PowerEdge-R350-Spec-sheet.pdf"), inventoryRevision: 1,
     note: "1U, two fixed 1GbE LOM, iDRAC, rear DB9 serial and front micro-USB direct management; optional add-in NICs are not installed." }),
@@ -140,7 +192,10 @@ const profiles = [
   profile("NETGEAR", "GS728T", "Switch", 1, "#30284a", [
     g("access", 24, "RJ45_1G", 1000, "", false, labels(1, 24)),
     g("uplink", 4, "SFP_1G", 1000, "SFP", false, labels(25, 4)),
-  ], { source: "https://www.netgear.com/business/wired/switches/smart/", note: "Representative GS728T-series connector inventory; exact hardware suffix is required for combo-port details." }),
+    g("uplink", 2, "SFP_1G", 1000, "COMBO", false, ["23F", "24F"]),
+  ], { inventoryRevision: 1, preserveInstalledPorts: true,
+    source: "https://www.downloads.netgear.com/files/GDC/GS728TPS/GS7xxTS_TPS_HIG_18Jan2012.pdf",
+    note: "Selected GS728TS non-PoE hardware: 24 copper and six SFP apertures, including the shared 23/24 combo pair; existing inventories are preserved." }),
   profile("NETGEAR", "GS748T", "Switch", 1, "#30284a", [
     g("access", 48, "RJ45_1G", 1000, "", false, labels(1, 48)),
     g("uplink", 4, "SFP_1G", 1000, "SFP", false, ["47F", "48F", "49", "50"]),
@@ -148,7 +203,10 @@ const profiles = [
   profile("NETGEAR", "GS752T", "Switch", 1, "#30284a", [
     g("access", 48, "RJ45_1G", 1000, "", false, labels(1, 48)),
     g("uplink", 4, "SFP_1G", 1000, "SFP", false, labels(49, 4)),
-  ], { source: "https://www.netgear.com/business/wired/switches/smart/", note: "Representative GS752T-series connector inventory; exact hardware suffix is required for uplink details." }),
+    g("uplink", 2, "SFP_1G", 1000, "COMBO", false, ["47F", "48F"]),
+  ], { inventoryRevision: 1, preserveInstalledPorts: true,
+    source: "https://www.downloads.netgear.com/files/GDC/GS728TPS/GS7xxTS_TPS_HIG_18Jan2012.pdf",
+    note: "Selected GS752TS non-PoE hardware: 48 copper and six SFP apertures, including the shared 47/48 combo pair; existing inventories are preserved." }),
 
   profile("TP-Link Omada", "SG2008P", "Switch", 1, "#24442d", [
     g("access", 4, "RJ45_1G", 1000, "", true, labels(1, 4)),
@@ -387,7 +445,9 @@ const profiles = [
     g("access", 1, "RJ45_1G", 1000, "DMZ", false, ["DMZ"]),
     g("uplink", 1, "SFP_1G", 1000, "DMZ", false, ["DMZ-SFP"]),
     g("management", 1, "USB_C_CONSOLE", 0, "CONSOLE", false, ["CONSOLE"]),
-  ], representative("https://www.checkpoint.com/downloads/products/1500-security-gateway-datasheet.pdf", "Quantum Spark 1590")),
+  ], { ...verified("https://sc1.checkpoint.com/documents/Appliances/GSG_V1/EN/Content/Topics-V1/Back-Panel.htm"),
+    preserveInstalledPorts: true,
+    note: "Selected Quantum Spark 1590 Wired (V-81), external 12V supply: all twelve original LAN, WAN, DMZ copper/SFP and USB-C console endpoints are on the rear; no wireless or DSL hardware." }),
   profile("Check Point", "Quantum 1600", "Firewall", 1, "#442839", [
     g("access", 16, "RJ45_1G", 1000, "LAN", false, labels(1, 16).map((label) => `LAN${label}`)),
     g("access", 1, "RJ45_1G", 1000, "WAN", false, ["WAN"]),
@@ -448,9 +508,21 @@ const profiles = [
   ...many("Vertiv", ["Liebert UPS family"], "Server", 2, "#31383a", [g("management", 1, "RJ45_1G", 1000, "UNITY"), g("management", 1, "Power", 0, "AC")]),
   profile("Generic Facility", "Rack PDU 16 outlet", "PatchPanel", 1, "#252b2d", [g("access", 16, "Power", 0, "OUTLET"), mgmt()]),
   profile("Generic KVM", "KVM-over-IP 16 port", "Switch", 1, "#252b2d", [g("access", 16, "Console", 0, "KVM"), mgmt()]),
-  ...many("Opengear", ["Console Manager family"], "Switch", 1, "#2f383b", [g("access", 48, "Console", 0, "SERIAL"), mgmt(2)]),
-  ...many("Lantronix", ["SLC Console Manager family"], "Switch", 1, "#2f383b", [g("access", 48, "Console", 0, "SERIAL"), mgmt(2)]),
-  ...many("Raritan", ["Dominion Serial family"], "Switch", 1, "#2f383b", [g("access", 48, "Console", 0, "SERIAL"), mgmt(2)]),
+  profile("Opengear", "Console Manager family", "Switch", 1, "#2f383b", [g("access", 48, "Console", 0, "SERIAL"), mgmt(2), con()], {
+    ...verified("https://ftp.opengear.com/download/documentation/quickstart/current/cm8100/QuickStartGuide-CM8100.pdf"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected CM8148 with 48 front serial ports, dual front 1Gb Ethernet, front local console, two USB hosts and dual rear AC; passive cooling, no 10G or cellular options." }),
+  profile("Lantronix", "SLC Console Manager family", "Switch", 1, "#2f383b", [g("access", 48, "Console", 0, "SERIAL"), mgmt(2), con()], {
+    ...verified("https://www.lantronix.com/wp-content/uploads/pdf/SLC8000_PB-CoBranded.pdf"), inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Selected SLC8000 SLC80481201S: 48 rear RJ45 serial ports, dual rear copper Ethernet, one front local console and single AC supply; no fiber networking or internal modem." }),
+  profile("Raritan", "Dominion Serial family", "Switch", 1, "#2f383b", [
+    g("access", 48, "Console", 0, "", false, labels(1, 48)),
+    g("management", 2, "RJ45_1G", 1000, "", false, ["LAN1", "LAN2"]),
+    g("management", 1, "Console", 0, "", false, ["TERMINAL"]),
+    g("management", 1, "USB_MINI_CONSOLE", 0, "", false, ["ADMIN"]),
+    g("management", 1, "POTS_RJ11", 0, "", false, ["MODEM"]),
+  ], { ...verified("https://www.raritan.com/assets/ram/resources/visio_stencils/raritan-dsx2-n.vss"),
+    inventoryRevision: 1, preserveInstalledPorts: true,
+    note: "Explicit DSX2-48M with dual 100–240 VAC supplies and internal POTS modem; 48 serial, two Gigabit LAN, local RJ45 and mini-B console. Four USB-A hosts and DVI-D are ancillary artwork. Saved inventories retain their original 50 endpoints and settings." }),
   profile("Cisco", "Catalyst 9800-L WLC", "Router", 1, "#263b4b", [r(4), u(2), mgmt(), con("USB_C_CONSOLE")]),
   profile("HPE Aruba", "Mobility Controller family", "Router", 1, "#27383a", [r(8), u(4), mgmt(), con("USB_C_CONSOLE")]),
   profile("Fortinet", "FortiWLC family", "Router", 1, "#dfe2df", [r(8), u(4), mgmt(), con()]),

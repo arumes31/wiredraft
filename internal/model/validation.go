@@ -879,6 +879,7 @@ var validPortTypes = []PortType{
 	PortTypeRJ45MGIG,
 	PortTypeRJ4510G,
 	PortTypeDSLRJ11,
+	PortTypePOTSRJ11,
 	PortTypeCoaxF,
 	PortTypeSFP1G,
 	PortTypeSFPPlus10G,

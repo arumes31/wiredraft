@@ -49,6 +49,12 @@ The Go `FaceplateSpec` preserves that optional field through save/load; absent
 or zero identifies the original catalog inventory. Catalog refresh does not
 rewrite a device across revisions.
 
+If a verified drawing reuses an already-correct inventory, set the catalog-only
+`preserveInstalledPorts: true` flag. Catalog refresh then leaves both complete
+and intentionally sparse saved inventories untouched, including default numeric
+labels with edited speeds or groups. This flag is not saved in `FaceplateSpec`
+and does not replace revision mappings when index meanings change.
+
 Provide an explicit mapping for each supported old revision:
 
 ```js
@@ -111,3 +117,10 @@ catalog devices covering every connector type, then reloads their inventories
 and removes the map. This catches frontend/backend type mismatches that a
 render-only check cannot detect. Add each new connector type to both the Go
 port validation and the catalog registration whitelist before using it.
+
+Telephone modem sockets use `POTS_RJ11`, separate from `DSL_RJ11`. New POTS
+endpoints start unconfigured, without PoE or Ethernet VLANs. Cable creation uses
+the shared `defaultCableProperties` helper to select `TELEPHONE` media and no
+VLANs when either endpoint is POTS; it does not rewrite either endpoint's saved
+settings. The persistence check also saves and reloads a telephone cable between
+two actual catalog modems.

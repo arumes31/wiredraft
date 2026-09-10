@@ -13,6 +13,7 @@ const verifiedAliasModels = new Map([
   ["XGS 126 / 136", ["XGS 126"]],
   ["XGS 2100 / 2300", ["XGS 2100"]],
   ["Quantum 6200 / 6600", ["Quantum 6200"]],
+  ["Quantum 1500", ["Quantum Spark 1590"]],
 ]);
 
 /** Create canonical inventory for a documented enterprise panel. */

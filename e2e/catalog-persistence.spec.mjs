@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { hardwareCatalog, instantiateProfile } from "../web/static/js/catalog.js";
+import { defaultCableProperties } from "../web/static/js/cable-defaults.js";
 
 /** Select actual catalog devices whose combined inventories cover every connector type. */
 function connectorCoverageDevices() {
@@ -42,11 +43,42 @@ test("catalog connector types preserve their inventory through device creation a
         .toEqual(device.ports.map(({ portIndex, type, speedMbps, label }) => ({ portIndex, type, speedMbps, label })));
       expect(new Set(saved.ports.map((port) => port.id)).size, device.model).toBe(device.ports.length);
       expect(saved.ports.every((port) => port.id && port.deviceId === saved.id), device.model).toBe(true);
+      for (const port of saved.ports.filter((entry) => entry.type === "POTS_RJ11")) {
+        expect({ mode: port.mode, speed: port.speedMbps, isPoe: port.isPoe, nativeVlan: port.nativeVlan, allowedVlans: port.allowedVlans })
+          .toEqual({ mode: "Unconfigured", speed: 0, isPoe: false, nativeVlan: 0, allowedVlans: [] });
+      }
     }
+    // Exercise telephone defaults through real create/save/reload endpoints, using
+    // the same helper as the app's cable action and two actual catalog modems.
+    const modemDevice = topology.devices.find((device) => device.ports.some((port) => port.type === "POTS_RJ11"));
+    expect(modemDevice, "the catalog coverage set must include the Raritan telephone modem").toBeTruthy();
+    const modemPort = modemDevice.ports.find((port) => port.type === "POTS_RJ11");
+    const originalModemPort = structuredClone(modemPort);
+    const peerInput = structuredClone(devices.find((device) => device.ports.some((port) => port.type === "POTS_RJ11")));
+    peerInput.name = "CATALOG POTS PEER";
+    const peerResponse = await request.post(`${path}/devices`, {
+      headers: { "If-Match": `"rev-${topology.revision}"` }, data: peerInput,
+    });
+    expect(peerResponse.status()).toBe(201);
+    topology = await peerResponse.json();
+    const peer = topology.devices.find((device) => device.name === peerInput.name);
+    const peerPort = peer.ports.find((port) => port.type === "POTS_RJ11");
+    const cable = { id: "", sourceDeviceId: modemDevice.id, sourcePortId: modemPort.id,
+      targetDeviceId: peer.id, targetPortId: peerPort.id, ...defaultCableProperties(modemPort, peerPort), notes: "" };
+    const cableResponse = await request.post(`${path}/links`, {
+      headers: { "If-Match": `"rev-${topology.revision}"` }, data: cable,
+    });
+    expect(cableResponse.status(), await cableResponse.text()).toBe(201);
+    topology = await cableResponse.json();
+    const savedCable = topology.links.find((link) => link.sourcePortId === modemPort.id && link.targetPortId === peerPort.id);
+    expect(savedCable).toMatchObject({ cableType: "TELEPHONE", primaryVlan: 0, vlanIds: [] });
+    expect(topology.devices.find((device) => device.id === modemDevice.id).ports.find((port) => port.id === modemPort.id))
+      .toEqual({ ...originalModemPort, status: "up" });
     const reloaded = await request.get(path);
     expect(reloaded.ok()).toBe(true);
     const persisted = await reloaded.json();
     expect(persisted.devices).toEqual(topology.devices);
+    expect(persisted.links).toEqual(topology.links);
     const types = [...new Set(devices.flatMap((device) => device.ports.map((port) => port.type)))].sort();
     await testInfo.attach("catalog-connector-persistence.json", {
       body: JSON.stringify({ models: devices.map((device) => `${device.faceplate.vendor} ${device.model}`), types }, null, 2),

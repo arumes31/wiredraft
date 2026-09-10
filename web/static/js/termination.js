@@ -1,5 +1,6 @@
 import { pointOnBezier, routeSegments } from "./cabling.js";
 
+/** Resolve physical socket artwork while keeping telephone and DSL media distinct. */
 export function connectorKind(type = "") {
   if (type === "OSFP_800G") return "osfp";
   if (type.startsWith("CFP")) return "cfp";
@@ -13,12 +14,14 @@ export function connectorKind(type = "") {
   if (type === "USB_C_CONSOLE") return "usb-c";
   if (type === "Stack") return "stack";
   if (type === "DSL_RJ11") return "dsl";
+  if (type === "POTS_RJ11") return "rj11";
   if (type === "COAX_F") return "coax";
   if (type === "Console") return "console";
   if (type === "Power") return "power";
   return "rj45";
 }
 
+/** Return each connector's default size before any dense-panel adjustment. */
 export function connectorSize(type = "") {
   const kind = connectorKind(type);
   if (kind === "osfp") return { width: 25, height: 16 };
@@ -33,6 +36,7 @@ export function connectorSize(type = "") {
   if (kind === "usb-c") return { width: 15, height: 7 };
   if (kind === "stack") return { width: 22, height: 16 };
   if (kind === "dsl") return { width: 14, height: 11 };
+  if (kind === "rj11") return { width: 14, height: 11 };
   if (kind === "coax") return { width: 15, height: 15 };
   if (kind === "console") return { width: 16, height: 12 };
   if (kind === "power") return { width: 18, height: 16 };

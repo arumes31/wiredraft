@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { enterGuestWorkspace } from "./auth-helper.mjs";
+import { enterGuestWorkspace, unlockEditor } from "./auth-helper.mjs";
 
 /** Read the SVG produced by the public export control. */
 async function downloadSVG(page) {
@@ -24,6 +24,7 @@ test("front and rear hardware views preserve unsaved records and export the sele
   await expect(page.locator("#connection-status")).toHaveAttribute("data-state", "online");
   await page.locator("#topology-select").selectOption(created.id);
   await expect(page.locator("#topology-name")).toHaveText(created.name);
+  await unlockEditor(page);
 
   await page.locator("#add-device-button").click();
   const dialog = page.locator("#device-dialog");

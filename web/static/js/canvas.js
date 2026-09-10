@@ -131,7 +131,9 @@ export class CanvasEngine {
     this.loop = this.loop.bind(this);
     this.graphicsProfileKey = "";
     this.onStateChange = ({ detail }) => {
-      const layoutChanged = ["topology", "rack-view", "device-view", "trace"].includes(detail?.kind);
+      const layoutChanged = ["topology", "layout", "rack-view", "device-view", "trace"].includes(detail?.kind);
+      const gestureSnapshot = this.drag?.snapshot || this.rackDrag?.snapshot;
+      if (gestureSnapshot && (gestureSnapshot.id !== this.state.topology?.id || gestureSnapshot.revision !== this.state.topology?.revision)) this.cancelInteraction(false);
       if (detail?.kind === "device-view") {
         this.cancelInteraction();
         this.hoveredPort = null;
@@ -178,7 +180,7 @@ export class CanvasEngine {
     this.canvas.addEventListener("pointerdown", (event) => this.pointerDown(event));
     this.canvas.addEventListener("pointermove", (event) => this.pointerMove(event));
     this.canvas.addEventListener("pointerup", (event) => this.pointerUp(event));
-    this.canvas.addEventListener("pointercancel", (event) => this.pointerUp(event));
+    this.canvas.addEventListener("pointercancel", () => this.cancelInteraction());
     this.canvas.addEventListener("pointerleave", () => {
       this.hoveredPort = null;
       this.hoveredLink = null;
@@ -1988,6 +1990,7 @@ export class CanvasEngine {
 
   /** Select the clicked entity and capture its current geometry before a drag begins. */
   pointerDown(event) {
+    this.state.editLock?.checkExpiry();
     this.invalidate();
     this.canvas.setPointerCapture(event.pointerId);
     const screen = this.eventPoint(event);
@@ -2009,6 +2012,7 @@ export class CanvasEngine {
       return;
     }
     if (this.activeTool && this.activeTool !== "select") {
+      if (!this.canEdit("all")) return;
       const type = this.activeTool.replace("annotation-", "");
       this.annotationDraft = { type, start: world, end: world };
       if (type === "text") this.callbacks.onAnnotationTextRequest?.(world);
@@ -2022,6 +2026,7 @@ export class CanvasEngine {
     const port = this.hitPort(world);
     if (port) {
       this.state.select("port", port.port.id);
+      if (!this.canEdit("cabling")) return;
 	  const isOccupied = isPortSideOccupied(this.state.topology, port.port.id, LinkEndpointSide.FRONT);
 	  if (isOccupied) return;
       this.mode = CableMode.DRAFTING_CABLE;
@@ -2033,7 +2038,7 @@ export class CanvasEngine {
       this.mode = CableMode.SELECTED_LINK;
       this.state.select("link", link.link.id);
       this.state.setTrace?.([link.link.id]);
-      if (!isRearPanelLink(link.link)) this.linkDrag = { sourceLinkID: link.link.id, start: world, targetLinkID: null, active: false };
+      if (this.canEdit("cabling") && !isRearPanelLink(link.link)) this.linkDrag = { sourceLinkID: link.link.id, start: world, targetLinkID: null, active: false };
       return;
     }
     const device = this.hitDevice(world);
@@ -2043,6 +2048,7 @@ export class CanvasEngine {
         this.selectedDevices.add(device.device.id);
       }
       this.state.select("device", device.device.id);
+      if (!this.canEdit("all")) return;
       this.drag = {
         start: world,
         startScreen: screen,
@@ -2069,7 +2075,7 @@ export class CanvasEngine {
     const rack = this.hitRack(world);
     if (rack) {
       this.state.select("rack", rack.rack.id);
-      if (world.y <= rack.y + RACK_HEADER_HEIGHT) {
+      if (this.canEdit("all") && world.y <= rack.y + RACK_HEADER_HEIGHT) {
         this.rackDrag = {
           start: world,
           startScreen: screen,
@@ -2094,6 +2100,7 @@ export class CanvasEngine {
 
   /** Update navigation, cabling or drag placement from the current pointer position. */
   pointerMove(event) {
+    this.checkEditGesture();
     this.invalidate();
     const screen = this.eventPoint(event);
     const world = this.screenToWorld(screen);
@@ -2195,6 +2202,7 @@ export class CanvasEngine {
   }
 
   pointerUp(event) {
+    this.checkEditGesture();
     this.invalidate();
     const wasDrag = this.drag;
     if (this.annotationDraft) {
@@ -2208,6 +2216,7 @@ export class CanvasEngine {
     } else if (this.rackDrag) {
       const rack = this.state.topology.racks.find((item) => item.id === this.state.selection?.id);
       if (this.rackDrag.active) {
+        this.state.editLock?.recordChange(this.rackDrag.snapshot, this.state.topology);
         this.state.history.push(this.rackDrag.snapshot);
         this.state.history = this.state.history.slice(-50);
         this.state.future = [];
@@ -2236,7 +2245,10 @@ export class CanvasEngine {
         for (const id of wasDrag.originals.keys()) {
           const device = this.state.topology.devices.find((item) => item.id === id);
           if (device && wasDrag.invalidIDs.has(id)) Object.assign(device, structuredClone(wasDrag.originals.get(id).device));
-          if (device) this.callbacks.onDeviceUpdate?.(structuredClone(device));
+          if (device) {
+            this.state.editLock?.recordChange(wasDrag.snapshot, this.state.topology);
+            this.callbacks.onDeviceUpdate?.(structuredClone(device));
+          }
         }
       }
       this.drag = null;
@@ -2289,17 +2301,42 @@ export class CanvasEngine {
 
   contextMenu(event) {
     event.preventDefault();
+    if (!this.canEdit("cabling")) return;
     const link = this.hitLink(this.screenToWorld(this.eventPoint(event)));
     if (link) this.callbacks.onLinkDelete?.(link.link);
   }
 
-  cancelInteraction() {
-    if (this.drag?.snapshot) this.state.setTopology(this.drag.snapshot);
-    if (this.rackDrag?.snapshot) this.state.setTopology(this.rackDrag.snapshot);
+  canEdit(capability) {
+    return !this.state.editLock || this.state.editLock.allows(capability);
+  }
+
+  checkEditGesture() {
+    this.state.editLock?.checkExpiry();
+    if (((this.drag || this.rackDrag || this.annotationDraft) && !this.canEdit("all")) ||
+        ((this.draft || this.linkDrag) && !this.canEdit("cabling"))) this.cancelInteraction();
+  }
+
+  cancelInteraction(restore = true) {
+    // Restore only previewed geometry; keep inspector drafts and unrelated data intact.
+    if (restore && this.drag) {
+      for (const [id, original] of this.drag.originals) {
+        const device = this.state.topology?.devices.find((item) => item.id === id);
+        if (!device) continue;
+        for (const key of ["positionX", "positionY", "rackId", "rackUnit", "rackFace"]) {
+          if (key in original.device) device[key] = original.device[key];
+          else delete device[key];
+        }
+      }
+    }
+    if (restore && this.rackDrag?.snapshot) {
+      const original = this.rackDrag.snapshot.racks.find((item) => item.id === this.state.selection?.id);
+      const rack = this.state.topology?.racks.find((item) => item.id === original?.id);
+      if (rack) { rack.positionX = original.positionX; rack.positionY = original.positionY; }
+    }
     this.draft = null; this.linkDrag = null; this.drag = null; this.rackDrag = null; this.rackDropPreview = null;
     this.pan = null; this.selectionBox = null; this.annotationDraft = null; this.mode = CableMode.IDLE;
     this.canvas.style.cursor = "default";
-    this.invalidate();
+    this.invalidate(true);
   }
 
   isEligibleTarget(source, target) {

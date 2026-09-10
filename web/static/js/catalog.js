@@ -26,7 +26,7 @@ const profiles = [
   p("HPE Aruba", "CX 6100 48G 4SFP+", "Switch", 1, "#27383a", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), { ...m(1), type: "USB_C_CONSOLE" }], { inventoryRevision: 1 }),
   p("HPE Aruba", "CX 6200F 24G 4SFP+", "Switch", 1, "#27383a", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), { ...m(1), type: "USB_C_CONSOLE" }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
   p("HPE Aruba", "CX 6200F 48G 4SFP+", "Switch", 1, "#27383a", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), { ...m(1), type: "USB_C_CONSOLE" }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
-  p("HPE Aruba", "CX 6300M 24-port Smart Rate", "Switch", 1, "#27383a", [r(24, "RJ45_10G", 10000, true), u(4, "SFP56_50G", 50000, "SFP56"), m(1)]),
+  { ...p("HPE Aruba", "CX 6300M 24-port Smart Rate", "Switch", 1, "#27383a", [r(24, "RJ45_10G", 10000, true), u(2, "SFP56_50G", 50000, "SFP56"), u(2, "SFP28_25G", 25000, "SFP28"), m(1), { ...m(1), type: "USB_C_CONSOLE", labels: ["USB CONSOLE"] }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }), preserveInstalledPorts: true, source: "https://arubanetworking.hpe.com/techdocs/hardware/switches/6300/IGSG/igsg_6300.pdf", note: "Selected R8S89A 24x10G Class 6 PoE, two 50G/two 25G uplinks, RJ45/USB-C consoles and OOB; two JL087A 1050W AC and two JL669B fan trays." },
   p("HPE Aruba", "CX 6300M 48G", "Switch", 1, "#27383a", [r(48, "RJ45_1G", 1000, true), u(4, "SFP56_50G", 50000, "SFP56"), { ...m(1), type: "USB_C_CONSOLE" }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
   p("HPE Aruba", "CX 8325-48Y8C", "Switch", 1, "#27383a", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP"), m(1), { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }, { ...m(1), type: "USB_MICRO_CONSOLE", labels: ["USB CONSOLE"] }], { inventoryRevision: 1 }),
 
@@ -221,6 +221,8 @@ export function upgradeInstalledPhysicalPorts(topology) {
     const profile = hardwareCatalog.find((candidate) =>
       candidate.vendor === device.faceplate?.vendor && candidate.model === device.model);
     if (!profile || (device.faceplate.inventoryRevision || 0) !== (profile.inventoryRevision || 0)) continue;
+    // A verified drawing can reuse an already-correct inventory without rewriting saved configuration.
+    if (profile.preserveInstalledPorts === true) continue;
     const expected = instantiateProfile(profile, device.name, { x: device.positionX, y: device.positionY }).ports;
     if (upgradeFortiGateSharedPorts(device, expected)) {
       changed = true;
@@ -304,9 +306,10 @@ export function registerProfiles(input) {
       (profile.family === undefined || (typeof profile.family === "string" && profile.family.trim().length >= 1 && profile.family.trim().length <= 60)) &&
       Number.isInteger(profile.units) && profile.units >= 1 && profile.units <= 12 && /^#[0-9a-f]{6}$/i.test(profile.color) &&
       (profile.inventoryRevision === undefined || (Number.isInteger(profile.inventoryRevision) && profile.inventoryRevision >= 0 && profile.inventoryRevision <= 0xffffffff)) &&
+      (profile.preserveInstalledPorts === undefined || typeof profile.preserveInstalledPorts === "boolean") &&
       Array.isArray(profile.groups) && profile.groups.every((group) => Number.isInteger(group.count) && group.count > 0 &&
         ["access", "uplink", "management"].includes(group.zone) &&
-        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
+        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "POTS_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
         Number.isFinite(group.speed) && group.speed >= 0 && group.speed <= 800000 &&
         (group.labels === undefined || (Array.isArray(group.labels) && group.labels.length === group.count && group.labels.every((label) => typeof label === "string" && label.trim()))) &&
         (group.positions === undefined || (Array.isArray(group.positions) && group.positions.length === group.count &&
@@ -336,7 +339,7 @@ export function instantiateProfile(profile, name, position) {
     ...layoutGroups(managementGroups, denseManagement ? .22 : .18, denseManagement ? .31 : .275, 2),
     ...layoutGroups(appendedGroups, .86, .94),
   ].map((port, index) => {
-    const passive = profile.category === "PatchPanel" || ["Console", "Power", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack"].includes(port.type);
+    const passive = profile.category === "PatchPanel" || ["Console", "Power", "POTS_RJ11", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack"].includes(port.type);
     return {
       id: "", deviceId: "", portIndex: index + 1, label: port.label, type: port.type,
       mode: passive ? "Unconfigured" : "Access", nativeVlan: passive ? 0 : 1,

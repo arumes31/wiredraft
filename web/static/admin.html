@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11181b">
+  <title>WireDraft · Administration</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/administration.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="admin-header">
+    <a class="brand" href="/" aria-label="WireDraft workspace"><img src="/favicon.svg" alt="" width="30" height="30"><strong>WIREDRAFT</strong></a>
+    <span class="header-context">Administration</span>
+    <a class="back-link" href="/">← Back to workspace</a>
+    <span id="session-name" class="session-name"></span>
+  </header>
+  <div class="admin-layout">
+    <aside class="admin-sidebar">
+      <p class="eyebrow">Access management</p>
+      <nav aria-label="Administration">
+        <a href="#users" id="users-nav" aria-current="page">Users <span id="users-total">—</span></a>
+        <a href="#organizations" id="organizations-nav">Organizations <span id="organizations-total">—</span></a>
+      </nav>
+      <p class="sidebar-note">Manage who can sign in and which organizations they can access.</p>
+    </aside>
+    <main id="main" tabindex="-1">
+      <div id="page-error" class="message error" role="alert" hidden></div>
+      <p id="page-status" class="message" role="status">Loading administration…</p>
+      <button id="retry-load" type="button" hidden>Try again</button>
+      <div id="administration-content" hidden>
+        <section id="users-view" aria-labelledby="users-title">
+          <header class="page-heading"><div><p class="eyebrow">Administration / Users</p><h1 id="users-title" tabindex="-1">Users</h1><p>See who has access. Manage accounts and permissions in one place.</p></div><button id="add-user" class="primary" type="button">+ Add user</button></header>
+          <form id="user-filters" class="filters" role="search" aria-label="Find users">
+            <label class="search-field">Search users<input name="query" type="search" placeholder="Name or email" autocomplete="off"></label>
+            <label>Organization<select name="organization" id="organization-filter"><option value="">All organizations</option></select></label>
+            <label>App role<select name="role"><option value="">All roles</option><option value="admin">Administrator</option><option value="user">Operator</option></select></label>
+            <label>Status<select name="status"><option value="">All statuses</option><option value="active">Active</option><option value="disabled">Disabled</option></select></label>
+            <label>Sign-in<select name="provider"><option value="">All methods</option><option value="local">Local + TOTP</option><option value="entra">Microsoft Entra</option></select></label>
+            <button id="clear-filters" type="button" class="quiet">Clear filters</button>
+          </form>
+          <p id="user-results" class="result-count" aria-live="polite"></p>
+          <div class="table-container"><table><caption class="sr-only">User accounts and effective organization access</caption><thead><tr><th scope="col">User</th><th scope="col">Sign-in</th><th scope="col">App role</th><th scope="col">Organization access</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody id="user-rows"></tbody></table></div>
+          <div id="users-empty" class="empty-state" hidden><h2>No users found</h2><p>Try another name or email, or clear the filters.</p></div>
+        </section>
+        <section id="organizations-view" aria-labelledby="organizations-title" hidden>
+          <header class="page-heading"><div><p class="eyebrow">Administration / Organizations</p><h1 id="organizations-title" tabindex="-1">Organizations</h1><p>Manage map boundaries and see everyone with access.</p></div><button id="add-organization" class="primary" type="button">+ Add organization</button></header>
+          <label class="organization-search">Search organizations<input id="organization-search" type="search" placeholder="Organization name" autocomplete="off"></label>
+          <p id="organization-results" class="result-count" aria-live="polite"></p>
+          <div class="table-container"><table><caption class="sr-only">Organizations, maps and users with access</caption><thead><tr><th scope="col">Organization</th><th scope="col">Maps</th><th scope="col">Users with access</th><th scope="col">Protection</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody id="organization-rows"></tbody></table></div>
+          <div id="organizations-empty" class="empty-state" hidden><h2>No organizations found</h2><p>Try another name or add an organization.</p></div>
+          <p class="table-note">Access counts include administrators and users with access to all organizations, including disabled accounts.</p>
+        </section>
+      </div>
+    </main>
+  </div>
+  <dialog id="user-editor" class="editor" aria-labelledby="user-editor-title">
+    <form id="user-form">
+      <header class="editor-heading"><div><p class="eyebrow">User account</p><h2 id="user-editor-title">Add user</h2></div><button type="button" data-dismiss="user-editor" class="close-button" aria-label="Close user editor">×</button></header>
+      <div class="editor-body">
+        <p id="user-error" class="message error" role="alert" hidden></p>
+        <p id="protected-user-note" class="message" hidden>This administrator is protected. Its account and access cannot be changed here.</p>
+        <fieldset id="user-fields">
+          <legend class="sr-only">Account settings</legend>
+          <section class="form-section"><h3>Account</h3>
+            <label>Username<input name="username" minlength="3" maxlength="80" autocomplete="off" required></label>
+            <label>Sign-in method<select name="authSource"><option value="local">Local + TOTP</option><option value="entra">Microsoft Entra</option></select></label>
+            <label id="password-field">Initial password<input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password"><small>At least 12 characters. TOTP is set up at first sign-in.</small></label>
+            <label id="entra-field" hidden>Microsoft user principal name<input name="externalLogin" type="email" maxlength="254" autocomplete="off" placeholder="operator@example.com"></label>
+          </section>
+          <section class="form-section"><h3>Role & organization access</h3>
+            <label>Application role<select name="role"><option value="user">Operator</option><option value="admin">Administrator</option></select></label>
+            <label class="check-label"><input name="allOrganizations" type="checkbox"><span>Access all organizations</span></label>
+            <p id="access-summary" class="help-text"></p>
+            <fieldset id="organization-grants"><legend>Assigned organizations</legend><label class="sr-only" for="grant-search">Search organization assignments</label><input id="grant-search" type="search" placeholder="Find an organization" autocomplete="off"><div id="organization-picker" class="organization-picker"></div><p id="grants-empty" class="help-text" hidden>No matching organizations.</p></fieldset>
+          </section>
+        </fieldset>
+        <section class="form-section"><h3>Sign-in & security</h3><p id="sign-in-note" class="help-text"></p><p id="session-warning" class="message" hidden>Saving access changes revokes this user’s active sessions.</p><div id="user-security-actions" class="security-actions" hidden><button id="toggle-user" class="danger" type="button">Disable account</button><button id="reset-identity" type="button" hidden>Reset Microsoft link</button></div></section>
+      </div>
+      <footer class="editor-footer"><button type="button" data-dismiss="user-editor">Cancel</button><button id="save-user" class="primary" type="submit">Create user</button></footer>
+    </form>
+  </dialog>
+  <dialog id="organization-editor" class="editor" aria-labelledby="organization-editor-title">
+    <form id="organization-form">
+      <header class="editor-heading"><div><p class="eyebrow">Organization</p><h2 id="organization-editor-title">Add organization</h2></div><button type="button" data-dismiss="organization-editor" class="close-button" aria-label="Close organization editor">×</button></header>
+      <div class="editor-body">
+        <p id="organization-error" class="message error" role="alert" hidden></p>
+        <label>Display name<input name="name" maxlength="120" required autocomplete="organization" placeholder="e.g. Vienna Operations"></label>
+        <p id="organization-protection" class="message" hidden></p>
+        <div id="organization-details" hidden><section class="form-section"><h3>Maps & access</h3><p id="organization-detail-counts" class="help-text"></p><button id="view-organization-users" type="button">View users with access</button></section><section class="form-section"><h3>Delete organization</h3><p id="delete-organization-note" class="help-text"></p><button id="delete-organization" class="danger" type="button">Delete organization</button></section></div>
+      </div>
+      <footer class="editor-footer"><button type="button" data-dismiss="organization-editor">Cancel</button><button id="save-organization" class="primary" type="submit">Create organization</button></footer>
+    </form>
+  </dialog>
+  <script type="module" src="/js/administration.js"></script>
+</body>
+</html>

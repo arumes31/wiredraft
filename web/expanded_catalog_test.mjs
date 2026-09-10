@@ -153,7 +153,7 @@ for (const [model, portCount, units] of [
   assert.equal(profile.portLayout.sourceScope, "model");
   assert.equal(profile.portLayout.positionFidelity, "schematic");
 }
-assert.equal(catalogDevice("Quantum 1500").profile.portLayout.sourceScope, "family");
+assert.equal(catalogDevice("Quantum 1500").profile.portLayout.sourceScope, "model");
 assert.equal(catalogDevice("Quantum 1500").device.ports.length, 12);
 assert.deepEqual(catalogDevice("Quantum 3600").device.ports.slice(-3).map((port) => [port.label, port.type]), [
   ["MGMT", "RJ45_1G"], ["CONSOLE", "Console"], ["USB-C", "USB_C_CONSOLE"],
@@ -203,7 +203,7 @@ assert.equal(registerProfiles([{
 }]), 1, "advanced connector types must be accepted by profile import");
 
 assert.equal(registerProfiles([{
-  vendor: "Lab", model: "Positioned ports", category: "Switch", units: 1, color: "#123456", fidelity: "exact",
+  vendor: "Lab", model: "Positioned ports", category: "Switch", units: 1, color: "#123456", fidelity: "exact", preserveInstalledPorts: true,
   groups: [{
     zone: "access", count: 2, type: "RJ45_1G", speed: 1000, poe: false, prefix: "",
     labels: ["1", "2"], positions: [{ x: .4, y: .4 }, { x: .4, y: .7 }],
@@ -216,5 +216,10 @@ assert.throws(() => registerProfiles([{
     positions: [{ x: .4, y: .4 }],
   }],
 }]), /Invalid hardware profile/, "position arrays must cover every connector in their group");
+assert.throws(() => registerProfiles([{
+  vendor: "Lab", model: "Invalid preservation flag", category: "Switch", units: 1, color: "#123456",
+  preserveInstalledPorts: "true",
+  groups: [{ zone: "access", count: 1, type: "RJ45_1G", speed: 1000 }],
+}]), /Invalid hardware profile/, "the catalog preservation flag must be a boolean");
 
 console.log(`expanded catalog checks passed: ${hardwareCatalog.length} profiles, ${types.size} connector types`);

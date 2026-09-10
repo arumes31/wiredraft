@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { enterGuestWorkspace } from "./auth-helper.mjs";
+import { enterGuestWorkspace, unlockEditor } from "./auth-helper.mjs";
 
 test("main workspace has no serious accessibility violations", async ({ page }) => {
 	await enterGuestWorkspace(page);
@@ -14,6 +14,7 @@ test("keyboard focus remains visible while a modal is open", async ({ page }) =>
 	await enterGuestWorkspace(page);
   await page.keyboard.press("Tab");
   await expect(page.locator(":focus-visible")).toBeVisible();
+  await unlockEditor(page);
   await page.locator("#add-patch-panel-button").click();
   const dialog = page.locator("#patch-panel-dialog");
   await expect(dialog).toBeVisible();

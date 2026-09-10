@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { enterGuestWorkspace } from "./auth-helper.mjs";
+import { enterGuestWorkspace, unlockEditor } from "./auth-helper.mjs";
 
 test("AP sockets stay readable and export consistently while free and mounted", async ({ page }, testInfo) => {
   const pageErrors = [];
@@ -122,6 +122,7 @@ test("installing APs, a server and a patch panel persists nonoverlapping positio
   await mapDialog.locator('button[value="create"]').click();
   await expect(mapDialog).not.toBeVisible();
   await expect(page.locator("#device-count")).toHaveText("0");
+  await unlockEditor(page);
   const topologyID = await page.locator("#topology-select").inputValue();
   const path = `/api/v1/topologies/${encodeURIComponent(topologyID)}`;
   try {

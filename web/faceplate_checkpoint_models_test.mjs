@@ -62,7 +62,7 @@ test("3600 and 3800 have six single-row Ethernet sockets, both console types and
     assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, 1);
   }
   assert.equal(buildCheckPointModelFaceplate({}), null);
-  assert.equal(buildCheckPointModelFaceplate(deviceFor("Quantum 1500")), null);
+  assert.equal(buildCheckPointModelFaceplate({ ...deviceFor("Quantum 1500"), model: "Quantum 1590 unlisted" }), null);
 });
 
 test("Check Point exact scenes retain renamed, reordered inventory and route hidden sockets without mutations", () => {

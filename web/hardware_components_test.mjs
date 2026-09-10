@@ -3,6 +3,632 @@ import test from "node:test";
 
 import { drawHardwareComponent, hardwareComponentSVG, hardwarePrimitives } from "./static/js/hardware-components.js";
 
+test("inverted modular sockets rotate existing details and reserve a tiny housing antialias margin", () => {
+  const box = { x: 10, y: 20, width: 18, height: 16 };
+  for (const kind of ["rj45", "console"]) {
+    const normal = hardwarePrimitives({ ...box, kind });
+    const inverted = hardwarePrimitives({ ...box, kind: `${kind}-inverted` });
+    assert.equal(inverted.length, normal.length);
+    for (const [index, part] of normal.entries()) {
+      const actual = inverted[index];
+      assert.equal(actual.kind, part.kind);
+      assert.equal(actual.fill, part.fill);
+      assert.equal(actual.stroke, part.stroke);
+      if (index === 0) {
+        const margin = actual.strokeWidth / 2 + .4;
+        assert.ok(actual.x - box.x >= margin && actual.y - box.y >= margin);
+        assert.ok(box.x + box.width - actual.x - actual.width >= margin && box.y + box.height - actual.y - actual.height >= margin);
+        continue;
+      }
+      if (part.kind === "rect") {
+        assert.ok(Math.abs(actual.x - (box.x * 2 + box.width - part.x - part.width)) < 1e-8);
+        assert.ok(Math.abs(actual.y - (box.y * 2 + box.height - part.y - part.height)) < 1e-8);
+        assert.equal(actual.width, part.width); assert.equal(actual.height, part.height);
+      } else if (part.kind === "line") {
+        assert.ok(Math.abs(actual.x1 - (box.x * 2 + box.width - part.x1)) < 1e-8);
+        assert.ok(Math.abs(actual.y1 - (box.y * 2 + box.height - part.y1)) < 1e-8);
+        assert.ok(Math.abs(actual.x2 - (box.x * 2 + box.width - part.x2)) < 1e-8);
+        assert.ok(Math.abs(actual.y2 - (box.y * 2 + box.height - part.y2)) < 1e-8);
+      }
+    }
+    assert.equal(inverted.filter((part) => part.fill === "#d7b76c").length, 8);
+  }
+});
+
+test("mounting slots are single empty capsules with an optional aperture fill", () => {
+  const box = { kind: "mounting-slot", x: 10, y: 20, width: 12, height: 5 };
+  const parts = hardwarePrimitives(box);
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].kind, "rect");
+  assert.ok(parts[0].width > parts[0].height * 2 && parts[0].rx >= parts[0].height / 2);
+  assert.equal(parts[0].fill, "#07151a");
+  assert.equal(hardwarePrimitives(box, { fill: "#ffffff" })[0].fill, "#ffffff");
+});
+
+test("caption leaders are bounded annotation lines with explicit diagonal direction and color", () => {
+  const box = { kind: "leader-line", x: 10, y: 20, width: 26, height: 14, color: "#543210" };
+  const down = hardwarePrimitives(box);
+  const up = hardwarePrimitives({ ...box, variant: "up-right" });
+  assert.equal(down.length, 1); assert.equal(up.length, 1);
+  assert.equal(down[0].kind, "line"); assert.equal(up[0].kind, "line");
+  assert.equal(down[0].stroke, box.color);
+  assert.ok(down[0].x1 < down[0].x2 && down[0].y1 < down[0].y2);
+  assert.ok(up[0].x1 < up[0].x2 && up[0].y1 > up[0].y2);
+  assert.equal(up[0].x1, down[0].x1); assert.equal(up[0].x2, down[0].x2);
+  assert.equal(up[0].y1, down[0].y2); assert.equal(up[0].y2, down[0].y1);
+  assert.ok(down[0].x1 > box.x && down[0].y1 > box.y && down[0].x2 < box.x + box.width && down[0].y2 < box.y + box.height);
+});
+
+test("subpixel orthogonal caption leaders retain visible thickness without stroke overflow", () => {
+  for (const [variant, width, height] of [["horizontal", 31.3, .28], ["vertical", .414, 25.664]]) {
+    const box = { kind: "leader-line", variant, x: 10, y: 20, width, height, color: "#c1d1d5" };
+    const parts = hardwarePrimitives(box);
+    assert.equal(parts.length, 1);
+    assert.equal(parts[0].kind, "rect");
+    assert.equal(parts[0].fill, box.color);
+    assert.equal(parts[0].stroke, undefined);
+    const thickness = variant === "horizontal" ? parts[0].height : parts[0].width;
+    assert.equal(thickness, Math.min(.4, width, height));
+    assert.ok(Math.abs(parts[0].x + parts[0].width / 2 - box.x - width / 2) < 1e-8);
+    assert.ok(Math.abs(parts[0].y + parts[0].height / 2 - box.y - height / 2) < 1e-8);
+  }
+});
+
+test("honeycomb ventilation has regular bounded hexagonal apertures without fan parts", () => {
+  const box = { kind: "vent", variant: "honeycomb", x: 10, y: 20, width: 52, height: 48 };
+  const parts = hardwarePrimitives(box);
+  assert.ok(parts.length > 20);
+  assert.ok(parts.every((part) => part.kind === "polygon" && part.points.length === 6));
+  for (const part of parts) {
+    assert.equal(part.fill, "#172125");
+    const lengths = part.points.map(([x, y], index) => {
+      const next = part.points[(index + 1) % 6];
+      assert.ok(x > box.x && x < box.x + box.width && y > box.y && y < box.y + box.height);
+      return Math.hypot(x - next[0], y - next[1]);
+    });
+    assert.ok(Math.max(...lengths) - Math.min(...lengths) < 1e-8);
+  }
+  assert.ok(hardwarePrimitives({ ...box, variant: "mesh" }).every((part) => part.kind === "rect"));
+});
+
+test("core Aruba fan trays distinguish low, central and vertical grips over honeycomb guards", () => {
+  for (const [variant, width] of [["aruba-8320", 85.2], ["aruba-8325", 70.8], ["aruba-8360", 68.8]]) {
+    const box = { kind: "fan", variant, x: 0, y: 0, width, height: 68.4, active: false };
+    const parts = hardwarePrimitives(box);
+    assert.ok(parts.filter((part) => part.kind === "polygon" && part.points.length === 6).length > 20);
+    assert.ok(!parts.some((part) => part.fill === "#42d98b"));
+    const grips = parts.filter((part) => part.kind === "rect" && part.fill === "#26343a");
+    const grip = grips.find((part) => variant === "aruba-8360" ? part.height > part.width * 4 : part.width > part.height * 4);
+    assert.ok(grip, `${variant} has its photographed pull direction`);
+    if (variant === "aruba-8320") {
+      assert.ok(grip.y > box.height * .70);
+      assert.ok(parts.some((part) => part.kind === "circle" && part.cx > width * .80 && part.cy < box.height * .25));
+    } else if (variant === "aruba-8325") {
+      assert.ok(grip.y > box.height * .40 && grip.y + grip.height < box.height * .66);
+    } else {
+      const latch = parts.find((part) => part.kind === "rect" && part.fill === "#bb2634");
+      assert.ok(latch && latch.x > grip.x + grip.width);
+    }
+  }
+});
+
+test("core Aruba AC supplies retain left-beveled right inlets and distinct handle and latch positions", () => {
+  for (const [variant, width] of [["aruba-8320-ac", 86.5], ["aruba-8325-ac", 85.2], ["aruba-8360-ac", 109.5]]) {
+    const box = { kind: "psu", variant, x: 0, y: 0, width, height: 68.4, active: false };
+    const parts = hardwarePrimitives(box);
+    const inlet = parts.find((part) => part.kind === "polygon" && part.fill === "#07151a");
+    assert.ok(inlet && Math.min(...inlet.points.map(([x]) => x)) > width * .45);
+    const blades = parts.filter((part) => part.kind === "rect" && part.fill === "#b9c3c4");
+    assert.equal(blades.length, 3);
+    assert.ok(blades.every((blade) => blade.width > blade.height));
+    assert.ok(blades[0].x < blades[1].x && blades[1].x === blades[2].x);
+    assert.ok(blades[1].y > blades[0].y && blades[0].y > blades[2].y);
+    const grip = parts.find((part) => part.kind === "rect" && part.fill === "#26343a");
+    const latch = parts.find((part) => part.kind === "rect" && part.fill === "#bb2634");
+    assert.ok(grip && latch);
+    if (variant === "aruba-8360-ac") assert.ok(grip.width > grip.height * 5 && grip.y < box.height * .15);
+    else assert.ok(grip.height > grip.width * 4);
+    if (variant === "aruba-8325-ac") assert.ok(latch.x + latch.width < grip.x);
+    else assert.ok(latch.y > box.height * .6 && latch.x > width * .7);
+    assert.ok(!parts.some((part) => part.fill === "#42d98b"));
+  }
+});
+
+test("core Aruba and pure honeycomb artwork share finite bounded Canvas and SVG geometry", () => {
+  for (const configuration of [
+    { kind: "vent", variant: "honeycomb", width: 52, height: 48 },
+    { kind: "rj45-inverted", width: 18, height: 16 },
+    { kind: "console-inverted", width: 18, height: 16 },
+    { kind: "mounting-slot", width: 13.8, height: 9 },
+    { kind: "leader-line", width: 26, height: 14 },
+    { kind: "leader-line", variant: "up-right", width: 26, height: 3 },
+    { kind: "leader-line", variant: "horizontal", width: 31.3, height: .28 },
+    { kind: "leader-line", variant: "vertical", width: .414, height: 25.664 },
+    { kind: "fan", variant: "aruba-8320", width: 85.2, height: 68.4 },
+    { kind: "fan", variant: "aruba-8325", width: 70.8, height: 68.4 },
+    { kind: "fan", variant: "aruba-8360", width: 68.8, height: 68.4 },
+    { kind: "psu", variant: "aruba-8320-ac", width: 86.5, height: 68.4 },
+    { kind: "psu", variant: "aruba-8325-ac", width: 85.2, height: 68.4 },
+    { kind: "psu", variant: "aruba-8360-ac", width: 109.5, height: 68.4 },
+  ]) for (const scale of [1, 2]) {
+    const box = { ...configuration, x: 10, y: 20, width: configuration.width * scale, height: configuration.height * scale };
+    const parts = hardwarePrimitives(box);
+    for (const part of parts) {
+      const bounds = primitiveBounds(part);
+      assert.ok([bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite));
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y && bounds.x + bounds.width <= box.x + box.width && bounds.y + bounds.height <= box.y + box.height);
+    }
+    const canvas = recordingContext(); drawHardwareComponent(canvas, box);
+    assert.deepEqual(canvas.shapes.map((part) => part.kind), parts.map((part) => part.kind));
+    for (const [index, part] of canvas.shapes.entries()) for (const key of Object.keys(part)) assert.deepEqual(part[key], parts[index][key]);
+    const vertices = [...hardwareComponentSVG(box).matchAll(/<polygon[^>]*points="([^"]+)"/g)].map((match) => match[1].split(" ").map((point) => point.split(",").map(Number)));
+    assert.deepEqual(vertices, parts.filter((part) => part.kind === "polygon").map((part) => part.points));
+  }
+});
+
+test("decorative panel accents retain explicit color and a bounded normalized taper", () => {
+  const box = { kind: "panel-accent", variant: "trapezoid", color: "#cf1739", x: 10, y: 20, width: 120, height: 35 };
+  for (const [taper, expected] of [[.2, .2], [0, 0], [-2, 0], [2, 1], [NaN, .08], [Infinity, .08]]) {
+    const parts = hardwarePrimitives({ ...box, taper });
+    assert.equal(parts.length, 1);
+    assert.equal(parts[0].kind, "polygon");
+    assert.equal(parts[0].fill, box.color);
+    assert.equal(parts[0].stroke, undefined);
+    assert.deepEqual(parts[0].points, [[10, 20], [10 + (1 - expected) * 120, 20], [130, 55], [10, 55]]);
+  }
+  assert.equal(hardwarePrimitives({ ...box, color: undefined })[0].fill, "#22a0ab");
+});
+
+test("telephone RJ11 preserves a stepped modular opening without guessing populated contacts", () => {
+  const box = { kind: "rj11", x: 10, y: 20, width: 18, height: 18 };
+  const parts = hardwarePrimitives(box, { fill: "#123456", stroke: "#654321", strokeWidth: 2 });
+  assert.equal(parts.length, 2);
+  assert.equal(parts[0].kind, "rect");
+  assert.equal(parts[1].kind, "polygon");
+  assert.equal(parts[1].fill, "#123456");
+  assert.equal(parts[0].stroke, "#654321");
+  assert.equal(parts[0].strokeWidth, 2);
+  assert.ok(parts[1].points.length >= 8);
+  assert.ok(!parts.some((part) => part.fill === "#d7b76c" || part.kind === "circle"));
+});
+
+test("small RJ11 housings reserve an antialias margin within their physical bounds", () => {
+  for (const [width, height] of [[18, 18], [14, 11]]) {
+    const box = { kind: "rj11", x: 10, y: 20, width, height };
+    const housing = hardwarePrimitives(box)[0];
+    const inset = housing.strokeWidth / 2 + .5;
+    assert.ok(housing.x - box.x >= inset && housing.y - box.y >= inset);
+    assert.ok(box.x + width - housing.x - housing.width >= inset && box.y + height - housing.y - housing.height >= inset);
+  }
+});
+
+test("square status lenses retain their specified color and inactive state without circular artwork", () => {
+  const box = { kind: "led", variant: "square", color: "#7c73cf", x: 10, y: 20, width: 5, height: 4 };
+  const parts = hardwarePrimitives(box);
+  assert.equal(parts.length, 2);
+  assert.ok(parts.every((part) => part.kind === "rect" && part.rx === 0));
+  assert.equal(parts[1].fill, box.color);
+  assert.equal(hardwarePrimitives({ ...box, active: false })[1].fill, "#515e62");
+  assert.equal(hardwarePrimitives({ ...box, variant: undefined })[0].kind, "circle");
+});
+
+test("Raritan DVI-D preserves its 24+1 digital sockets and two separate screw flanges", () => {
+  const box = { kind: "dvi-d", x: 10, y: 20, width: 40, height: 11 };
+  const parts = hardwarePrimitives(box);
+  const sockets = parts.filter((part) => part.kind === "rect" && part.fill === "#07151a");
+  assert.equal(sockets.length, 25);
+  const blade = sockets.find((part) => part.width > part.height * 4);
+  const contacts = sockets.filter((part) => part !== blade);
+  assert.ok(blade && contacts.every((part) => part.x + part.width < blade.x));
+  assert.equal(new Set(contacts.map((part) => part.y)).size, 3);
+  assert.equal(new Set(contacts.map((part) => part.x)).size, 8);
+  const screws = parts.filter((part) => part.kind === "polygon" && part.fill === "#708389");
+  assert.equal(screws.length, 2);
+  assert.ok(screws.every((part) => part.points.length === 6));
+  assert.ok(Math.max(...screws[0].points.map(([x]) => x)) < contacts[0].x);
+  assert.ok(Math.min(...screws[1].points.map(([x]) => x)) > blade.x + blade.width);
+});
+
+test("inverted and left-facing C14 variants rotate their bevels and blade groups together", () => {
+  const box = { kind: "power", x: 0, y: 0, width: 34, height: 26 };
+  const normal = hardwarePrimitives({ ...box, variant: "ac-c14" });
+  const inverted = hardwarePrimitives({ ...box, variant: "ac-c14-inverted" });
+  const sourceCavity = normal.find((part) => part.kind === "polygon");
+  const cavity = inverted.find((part) => part.kind === "polygon");
+  assert.ok(cavity);
+  for (let index = 0; index < cavity.points.length; index++) {
+    assert.ok(Math.abs(cavity.points[index][0] - (box.width - sourceCavity.points[index][0])) < 1e-8);
+    assert.ok(Math.abs(cavity.points[index][1] - (box.height - sourceCavity.points[index][1])) < 1e-8);
+  }
+  const blades = inverted.filter((part) => part.fill === "#b9c3c4");
+  assert.equal(blades.length, 3);
+  assert.ok(blades[0].y > blades[1].y && blades[1].y === blades[2].y);
+  const left = hardwarePrimitives({ ...box, variant: "ac-sideways-left", width: 36, height: 49 });
+  const leftBlades = left.filter((part) => part.fill === "#b9c3c4");
+  assert.equal(leftBlades.length, 3);
+  assert.ok(leftBlades.every((part) => part.width > part.height));
+  assert.ok(leftBlades[0].x < leftBlades[1].x && leftBlades[1].x === leftBlades[2].x);
+  assert.ok(leftBlades[1].y > leftBlades[0].y && leftBlades[0].y > leftBlades[2].y);
+});
+
+test("Raritan horizontal rocker keeps I at left and O at right without changing the vertical rocker", () => {
+  const parts = hardwarePrimitives({ kind: "button", variant: "rocker-horizontal", x: 10, y: 20, width: 29, height: 10 });
+  const off = parts.find((part) => part.kind === "circle");
+  const on = parts.find((part) => part.kind === "line");
+  assert.ok(off && on);
+  assert.equal(on.y1, on.y2);
+  assert.ok(Math.max(on.x1, on.x2) < off.cx - off.r);
+  assert.equal(on.y1, off.cy);
+  const ordinary = hardwarePrimitives({ kind: "button", variant: "rocker", x: 10, y: 20, width: 10, height: 29 });
+  assert.equal(ordinary.find((part) => part.kind === "line").x1, ordinary.find((part) => part.kind === "line").x2);
+});
+
+test("Raritan service connectors and directional power hardware share bounded Canvas/SVG coordinates", () => {
+  for (const configuration of [
+    { kind: "rj11", width: 18, height: 18 }, { kind: "dvi-d", width: 40, height: 11 },
+    { kind: "power", variant: "ac-c14-inverted", width: 34, height: 26 },
+    { kind: "power", variant: "ac-sideways-left", width: 36, height: 49 },
+    { kind: "button", variant: "rocker-horizontal", width: 29, height: 10 },
+    { kind: "panel-accent", variant: "trapezoid", color: "#cf1739", taper: .08, width: 120, height: 3 },
+    { kind: "led", variant: "square", color: "#7c73cf", width: 5, height: 4 },
+  ]) for (const scale of [1, 2]) {
+    const box = { ...configuration, x: 10, y: 20, width: configuration.width * scale, height: configuration.height * scale };
+    const parts = hardwarePrimitives(box);
+    for (const part of parts) {
+      const bounds = primitiveBounds(part);
+      assert.ok([bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite));
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y && bounds.x + bounds.width <= box.x + box.width && bounds.y + bounds.height <= box.y + box.height);
+    }
+    const canvas = recordingContext(); drawHardwareComponent(canvas, box);
+    assert.deepEqual(canvas.shapes.map((part) => part.kind), parts.map((part) => part.kind));
+    for (const [index, part] of canvas.shapes.entries()) for (const key of Object.keys(part)) assert.deepEqual(part[key], parts[index][key]);
+    const vertices = [...hardwareComponentSVG(box).matchAll(/<polygon[^>]*points="([^"]+)"/g)].map((match) => match[1].split(" ").map((point) => point.split(",").map(Number)));
+    assert.deepEqual(vertices, parts.filter((part) => part.kind === "polygon").map((part) => part.points));
+  }
+});
+
+test("HPE SmartCarrier retains tapered vents, central activity ring and right release in both orientations", () => {
+  const box = { kind: "drive-carrier", variant: "hpe-smart", x: 0, y: 0, width: 109, height: 21, active: false };
+  const parts = hardwarePrimitives(box);
+  const vents = parts.filter((part) => part.kind === "polygon" && part.fill === "#07151a");
+  assert.equal(vents.length, 14);
+  assert.ok(vents.every((part) => Math.max(...part.points.map(([x]) => x)) < box.width * .60));
+  const activity = parts.find((part) => part.kind === "circle" && part.r > box.height * .2);
+  const release = parts.find((part) => part.kind === "rect" && part.fill === "#78868b");
+  assert.ok(activity && release && activity.cx + activity.r < release.x);
+  assert.ok(release.x > box.width * .78);
+  assert.ok(!parts.some((part) => part.fill === "#42d98b"));
+  const vertical = hardwarePrimitives({ ...box, orientation: "vertical", width: box.height, height: box.width });
+  const rotatedVents = vertical.filter((part) => part.kind === "polygon" && part.fill === "#07151a");
+  for (let index = 0; index < vents.length; index++) for (let point = 0; point < vents[index].points.length; point++) {
+    const [x, y] = vents[index].points[point]; const [actualX, actualY] = rotatedVents[index].points[point];
+    assert.ok(Math.abs(actualX - (box.height - y)) < 1e-8 && Math.abs(actualY - x) < 1e-8);
+  }
+  const lowerRelease = vertical.find((part) => part.kind === "rect" && part.fill === "#78868b");
+  assert.ok(lowerRelease.y > box.width * .78);
+});
+
+test("DisplayPort retains its single lower-left chamfer and inset tongue without RJ45 contacts", () => {
+  const box = { kind: "displayport", x: 10, y: 20, width: 24, height: 10 };
+  const parts = hardwarePrimitives(box);
+  const shell = parts.find((part) => part.kind === "polygon");
+  const cavity = parts.find((part) => part.kind === "polygon" && part.fill === "#07151a");
+  assert.ok(shell && cavity && shell.points.length === 5 && cavity.points.length === 5);
+  assert.equal(shell.points[0][1], shell.points[1][1]);
+  assert.ok(shell.points[3][0] > shell.points[4][0] && shell.points[3][1] > shell.points[4][1]);
+  assert.equal(parts.filter((part) => part.kind === "rect").length, 1);
+  assert.ok(!parts.some((part) => part.fill === "#d7b76c" || part.kind === "circle"));
+});
+
+test("865438 Titanium supplies retain the folded black grip and occluded inlet with pink release", () => {
+  const box = { kind: "psu", variant: "hpe-flexslot-800-titanium", x: 10, y: 20, width: 100, height: 51, active: false };
+  const parts = hardwarePrimitives(box);
+  const rotor = parts.find((part) => part.kind === "circle" && part.fill === "#122327");
+  const inlet = parts.find((part) => part.kind === "polygon" && part.fill === "#07151a");
+  const latch = parts.find((part) => part.kind === "rect" && part.fill === "#c16b86");
+  const handle = parts.find((part) => part.kind === "polygon" && part.fill === "#26343a");
+  assert.ok(rotor && inlet && latch && handle);
+  const bounds = primitiveBounds(inlet);
+  assert.ok(rotor.cx + rotor.r < bounds.x);
+  assert.ok(latch.x < bounds.x + bounds.width && latch.x + latch.width > bounds.x);
+  assert.ok(parts.indexOf(latch) > parts.indexOf(inlet), "the source latch visibly occludes the inlet");
+  assert.ok(!parts.some((part) => part.fill === "#d0d6d8" || part.fill === "#42d98b"), "no invented visible blades or lit lamp");
+  assert.ok(!hardwarePrimitives({ ...box, variant: "hpe-flexslot-800" }).some((part) => part.fill === "#c16b86"));
+});
+
+test("HPE Gen10 carrier, DisplayPort and Titanium supply use bounded identical Canvas/SVG geometry", () => {
+  for (const configuration of [
+    { kind: "drive-carrier", variant: "hpe-smart", width: 109, height: 21 },
+    { kind: "drive-carrier", variant: "hpe-smart", orientation: "vertical", width: 21, height: 99 },
+    { kind: "displayport", width: 24, height: 10 },
+    { kind: "psu", variant: "hpe-flexslot-800-titanium", width: 100, height: 51 },
+  ]) for (const scale of [1, 2]) {
+    const box = { ...configuration, x: 10, y: 20, width: configuration.width * scale, height: configuration.height * scale };
+    const parts = hardwarePrimitives(box);
+    for (const part of parts) {
+      const bounds = primitiveBounds(part);
+      assert.ok([bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite));
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y && bounds.x + bounds.width <= box.x + box.width && bounds.y + bounds.height <= box.y + box.height);
+    }
+    const canvas = recordingContext(); drawHardwareComponent(canvas, box);
+    assert.deepEqual(canvas.shapes.map((part) => part.kind), parts.map((part) => part.kind));
+    for (const [index, part] of canvas.shapes.entries()) for (const key of Object.keys(part)) assert.deepEqual(part[key], parts[index][key]);
+    const vertices = [...hardwareComponentSVG(box).matchAll(/<polygon[^>]*points="([^"]+)"/g)].map((match) => match[1].split(" ").map((point) => point.split(",").map(Number)));
+    assert.deepEqual(vertices, parts.filter((part) => part.kind === "polygon").map((part) => part.points));
+  }
+});
+
+test("Aruba fixed fan grilles contain twelve radial apertures without a tray, rotor or hub", () => {
+  const box = { kind: "fan", variant: "aruba-fixed-radial", x: 10, y: 20, width: 58.995, height: 60.8 };
+  const parts = hardwarePrimitives(box);
+  assert.equal(parts.length, 12);
+  assert.ok(parts.every((part) => part.kind === "polygon" && part.points.length === 8));
+  const center = [box.x + box.width / 2, box.y + box.height / 2];
+  const radialLimits = parts.map((part) => part.points.map(([x, y]) => Math.hypot(x - center[0], y - center[1])));
+  for (const radii of radialLimits) {
+    assert.ok(Math.min(...radii) > Math.min(box.width, box.height) * .27);
+    assert.ok(Math.max(...radii) < Math.min(box.width, box.height) * .48);
+  }
+  assert.ok(Math.max(...radialLimits.flat()) - Math.min(...radialLimits.map((radii) => Math.max(...radii))) < 1e-8);
+});
+
+test("explicit C14 sockets rotate both keyed cavity and blades while preserving existing power artwork", () => {
+  for (const variant of ["ac-c14", "ac-sideways"]) {
+    const box = { kind: "power", variant, x: 10, y: 20, width: variant === "ac-c14" ? 39.33 : 36.0525, height: variant === "ac-c14" ? 34.96 : 48.64 };
+    const parts = hardwarePrimitives(box);
+    const cavity = parts.find((part) => part.kind === "polygon");
+    const blades = parts.filter((part) => part.fill === "#b9c3c4");
+    assert.ok(cavity && cavity.points.length === 6);
+    assert.equal(blades.length, 3);
+    if (variant === "ac-sideways") {
+      assert.ok(blades.every((part) => part.width > part.height));
+      assert.ok(blades[0].x > blades[1].x && blades[1].x === blades[2].x);
+      assert.ok(blades[1].y < blades[0].y && blades[0].y < blades[2].y);
+      assert.ok(cavity.points[0][0] > cavity.points[2][0], "the bevel rotates to the right side");
+    } else {
+      assert.ok(blades.every((part) => part.height > part.width));
+      assert.ok(blades[0].y < blades[1].y && blades[1].y === blades[2].y);
+      assert.ok(cavity.points[0][1] < cavity.points[2][1], "the bevel remains at the top");
+    }
+    assert.ok(!hardwarePrimitives({ ...box, variant: "ac" }).some((part) => part.kind === "polygon"));
+  }
+});
+
+test("Aruba fixed grilles and keyed AC sockets keep identical bounded Canvas/SVG coordinates", () => {
+  for (const configuration of [
+    { kind: "fan", variant: "aruba-fixed-radial", width: 58.995, height: 60.8 },
+    { kind: "power", variant: "ac-c14", width: 39.33, height: 34.96 },
+    { kind: "power", variant: "ac-sideways", width: 36.0525, height: 48.64 },
+  ]) for (const scale of [1, 2]) {
+    const box = { ...configuration, x: 10, y: 20, width: configuration.width * scale, height: configuration.height * scale };
+    const parts = hardwarePrimitives(box);
+    for (const part of parts) {
+      const bounds = primitiveBounds(part);
+      assert.ok([bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite));
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y && bounds.x + bounds.width <= box.x + box.width && bounds.y + bounds.height <= box.y + box.height);
+    }
+    const canvas = recordingContext(); drawHardwareComponent(canvas, box);
+    assert.deepEqual(canvas.shapes.map((part) => part.kind), parts.map((part) => part.kind));
+    for (const [index, part] of canvas.shapes.entries()) for (const key of Object.keys(part)) assert.deepEqual(part[key], parts[index][key]);
+    const vertices = [...hardwareComponentSVG(box).matchAll(/<polygon[^>]*points="([^"]+)"/g)].map((match) => match[1].split(" ").map((point) => point.split(",").map(Number)));
+    assert.deepEqual(vertices, parts.filter((part) => part.kind === "polygon").map((part) => part.points));
+  }
+});
+
+test("Lantronix SD, modem blank and fuse carrier render source-sized dark parts without invented fasteners", () => {
+  for (const configuration of [
+    { kind: "card-slot", variant: "plain", width: 40.71, height: 3.64 },
+    { kind: "module-bay", variant: "plain", width: 17.94, height: 19.6 },
+    { kind: "module-bay", variant: "fuse-carrier", width: 9.66, height: 21.7 },
+  ]) {
+    const box = { ...configuration, x: 10, y: 20 };
+    const parts = hardwarePrimitives(box);
+    assert.equal(parts.length, 1, `${configuration.variant} must be visible without extra screws or contacts`);
+    assert.equal(parts[0].kind, "rect"); assert.equal(parts[0].fill, "#07151a");
+    assert.equal(Boolean(parts[0].stroke), configuration.variant === "fuse-carrier");
+    const bounds = primitiveBounds(parts[0]);
+    assert.ok(bounds.x >= box.x && bounds.y >= box.y && bounds.x + bounds.width <= box.x + box.width && bounds.y + bounds.height <= box.y + box.height);
+    if (parts[0].stroke) assert.ok(bounds.x - box.x >= parts[0].strokeWidth / 2 + .5, "the narrow outline reserves its antialiasing fringe");
+    const canvas = recordingContext(); drawHardwareComponent(canvas, box);
+    assert.equal(canvas.shapes.length, 1);
+    for (const key of Object.keys(canvas.shapes[0])) assert.deepEqual(canvas.shapes[0][key], parts[0][key]);
+    assert.equal((hardwareComponentSVG(box).match(/<rect\b/g) || []).length, 1);
+  }
+  const ordinary = hardwarePrimitives({ kind: "module-bay", x: 0, y: 0, width: 60, height: 40 });
+  assert.equal(ordinary.filter((part) => part.kind === "circle").length, 2, "existing generic module hardware is unchanged");
+});
+
+test("Aruba dual trays retain two guarded fans, a shared central grip and diagonal end retainers", () => {
+  const box = { kind: "fan", variant: "aruba-dual-hex", x: 10, y: 20, width: 190.095, height: 66.976 };
+  const parts = hardwarePrimitives(box);
+  const fans = parts.filter((part) => part.kind === "circle" && part.fill === "#122327");
+  const mesh = parts.filter((part) => part.kind === "polygon");
+  assert.equal(fans.length, 2);
+  assert.equal(fans[0].cy, fans[1].cy);
+  assert.ok(fans[0].cx + fans[0].r < fans[1].cx - fans[1].r);
+  assert.ok(mesh.length >= 40 && mesh.every((part) => part.points.length === 6));
+  const grip = parts.find((part) => part.kind === "rect" && part.fill === "#c7cfd3");
+  assert.ok(grip && grip.height > grip.width * 4);
+  assert.ok(grip.x > fans[0].cx + fans[0].r && grip.x + grip.width < fans[1].cx - fans[1].r);
+  const retainers = parts.filter((part) => part.kind === "circle" && part.fill === "#65767d");
+  assert.equal(retainers.length, 2);
+  assert.ok(retainers[0].cx < fans[0].cx - fans[0].r && retainers[1].cx > fans[1].cx + fans[1].r);
+  assert.ok(retainers[0].cy < retainers[1].cy);
+  for (const cell of mesh) {
+    const lengths = cell.points.map((point, index) => Math.hypot(point[0] - cell.points[(index + 1) % 6][0], point[1] - cell.points[(index + 1) % 6][1]));
+    assert.ok(Math.max(...lengths) - Math.min(...lengths) < 1e-8, "honeycomb cells retain their physical hexagon aspect");
+  }
+  assert.ok(!parts.some((part) => part.fill === "#42d98b" || part.fill === "#d68c40"), "no unsourced live indicator or orange release latch");
+});
+
+test("Aruba dual-hex trays stay bounded with exact Canvas/SVG geometry at rack and compact widths", () => {
+  for (const [width, height] of [[190.095, 66.976], [126.73, 66.976], [380.19, 133.952]]) {
+    const box = { kind: "fan", variant: "aruba-dual-hex", x: 10, y: 20, width, height };
+    const parts = hardwarePrimitives(box);
+    for (const part of parts) {
+      const bounds = primitiveBounds(part);
+      assert.ok([bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite));
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y && bounds.x + bounds.width <= box.x + width && bounds.y + bounds.height <= box.y + height);
+    }
+    const canvas = recordingContext(); drawHardwareComponent(canvas, box);
+    assert.deepEqual(canvas.shapes.map((part) => part.kind), parts.map((part) => part.kind));
+    for (const [index, part] of canvas.shapes.entries()) for (const key of Object.keys(part)) assert.deepEqual(part[key], parts[index][key]);
+    const svg = hardwareComponentSVG(box);
+    const vertices = [...svg.matchAll(/<polygon[^>]*points="([^"]+)"/g)].map((match) => match[1].split(" ").map((point) => point.split(",").map(Number)));
+    assert.deepEqual(vertices, parts.filter((part) => part.kind === "polygon").map((part) => part.points));
+  }
+});
+
+test("blank LCD glass has no invented display text or illuminated telemetry", () => {
+  const box = { kind: "lcd", variant: "blank", x: 10, y: 20, width: 120, height: 28 };
+  const parts = hardwarePrimitives(box);
+  assert.equal(parts.length, 2);
+  assert.ok(parts.every((part) => part.kind === "rect"));
+  assert.equal(parts[1].fill, "#07151a");
+  assert.ok(!hardwareComponentSVG(box).includes("<text"));
+  assert.equal(hardwarePrimitives({ ...box, variant: undefined }).filter((part) => part.kind === "line").length, 3);
+});
+
+test("Lantronix five-way control retains four separate direction triangles and one center confirm button", () => {
+  const box = { kind: "button", variant: "five-way", x: 10, y: 20, width: 38, height: 40 };
+  const parts = hardwarePrimitives(box);
+  const triangles = parts.filter((part) => part.kind === "polygon");
+  const center = parts.filter((part) => part.kind === "circle");
+  assert.equal(triangles.length, 4);
+  assert.ok(triangles.every((part) => part.points.length === 3));
+  assert.equal(center.length, 1);
+  assert.equal(center[0].cx, box.x + box.width / 2);
+  assert.equal(center[0].cy, box.y + box.height / 2);
+  assert.ok(parts.every((part) => part.fill === "#f56b4f"));
+  for (const triangle of triangles) {
+    const bounds = primitiveBounds(triangle);
+    assert.ok(bounds.x + bounds.width < center[0].cx - center[0].r || bounds.x > center[0].cx + center[0].r ||
+      bounds.y + bounds.height < center[0].cy - center[0].r || bounds.y > center[0].cy + center[0].r);
+  }
+  assert.ok(!hardwarePrimitives({ ...box, variant: undefined }).some((part) => part.kind === "polygon"));
+});
+
+test("single-AC rocker keeps the photographed O above I inside its vertical black housing", () => {
+  const box = { kind: "button", variant: "rocker", x: 10, y: 20, width: 14, height: 25 };
+  const parts = hardwarePrimitives(box);
+  const off = parts.find((part) => part.kind === "circle");
+  const on = parts.find((part) => part.kind === "line" && part.x1 === part.x2);
+  assert.ok(off && on && off.cy + off.r < on.y1);
+  assert.equal(off.cx, on.x1);
+  assert.ok(parts.filter((part) => part.kind === "rect").every((part) => part.height > part.width));
+  assert.ok(!parts.some((part) => part.kind === "text" || part.fill === "#22a0ab"));
+});
+
+test("Lantronix controls retain bounded source-size geometry and identical Canvas/SVG shape coordinates", () => {
+  for (const configuration of [
+    { kind: "lcd", variant: "blank", width: 120, height: 28 },
+    { kind: "button", variant: "five-way", width: 38, height: 40 },
+    { kind: "button", variant: "rocker", width: 14, height: 25 },
+  ]) for (const scale of [1, 2]) {
+    const box = { ...configuration, x: 10, y: 20, width: configuration.width * scale, height: configuration.height * scale };
+    const parts = hardwarePrimitives(box);
+    for (const part of parts) {
+      const bounds = primitiveBounds(part);
+      assert.ok([bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite));
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y);
+      assert.ok(bounds.x + bounds.width <= box.x + box.width && bounds.y + bounds.height <= box.y + box.height);
+    }
+    const canvas = recordingContext();
+    drawHardwareComponent(canvas, box);
+    assert.deepEqual(canvas.shapes.map((part) => part.kind), parts.map((part) => part.kind));
+    for (const [index, part] of canvas.shapes.entries()) for (const key of Object.keys(part)) assert.deepEqual(part[key], parts[index][key]);
+    const svg = hardwareComponentSVG(box);
+    assert.equal((svg.match(/<(?:rect|circle|line|text|polygon)\b/g) || []).length, parts.length);
+    const vertices = [...svg.matchAll(/<polygon[^>]*points="([^"]+)"/g)].map((match) => match[1].split(" ").map((point) => point.split(",").map(Number)));
+    assert.deepEqual(vertices, parts.filter((part) => part.kind === "polygon").map((part) => part.points));
+  }
+});
+
+test("Z9332 fan covers retain two chamfered apertures and a horizontal pull grip without exposed rotors", () => {
+  const box = { kind: "fan", variant: "dell-z9332-covered", x: 0, y: 0, width: 73, height: 70 };
+  const parts = hardwarePrimitives(box);
+  const openings = parts.filter((part) => part.kind === "polygon" && part.fill === "#172125");
+  assert.equal(openings.length, 2);
+  assert.ok(openings.every((part) => part.points.length === 6));
+  const grip = parts.find((part) => part.kind === "rect" && part.fill === "#708389");
+  assert.ok(grip.width > grip.height * 4);
+  assert.ok(Math.max(...openings[0].points.map((point) => point[1])) <= grip.y);
+  assert.ok(Math.min(...openings[1].points.map((point) => point[1])) >= grip.y + grip.height);
+  assert.ok(!parts.some((part) => part.kind === "circle" || part.fill === "#122327"));
+});
+
+test("Dell radial trays expose circular rotors with a source-selected center grip and left release latch", () => {
+  const box = { kind: "fan", variant: "dell-radial-handle", x: 0, y: 0, width: 72, height: 74 };
+  const parts = hardwarePrimitives(box);
+  const rotor = parts.find((part) => part.kind === "circle" && part.fill === "#122327");
+  const grip = parts.find((part) => part.fill === "#bb2634");
+  const latch = parts.find((part) => part.fill === "#d68c40");
+  assert.ok(rotor && grip && latch);
+  assert.equal(grip.x + grip.width / 2, rotor.cx);
+  assert.ok(latch.x + latch.width < rotor.cx - rotor.r);
+  assert.equal(parts.filter((part) => part.kind === "line" && part.stroke === "#708389").length, 8);
+  assert.ok(!parts.some((part) => part.kind === "rect" && part.fill === "#a7b2b5" && part.width < 2));
+  const neutral = hardwarePrimitives({ ...box, gripColor: "#9daeb8" });
+  assert.deepEqual(neutral.map((part) => part.fill === "#9daeb8" ? { ...part, fill: "#bb2634" } : part), parts);
+});
+
+test("Dell sideways AC variants preserve three horizontal contacts and their distinct grille or rotor sides", () => {
+  for (const variant of ["ac-fan-right-sideways", "dell-z9332-ac"]) {
+    const box = { kind: "psu", variant, x: 0, y: 0, width: variant === "dell-z9332-ac" ? 96 : 145, height: 70 };
+    const parts = hardwarePrimitives(box);
+    const blades = parts.filter((part) => part.fill === "#d0d6d8");
+    assert.equal(blades.length, 3);
+    assert.ok(blades.every((part) => part.kind === "rect" && part.width > part.height));
+    assert.equal(blades[0].x, blades[1].x);
+    assert.ok(blades[0].y < blades[2].y && blades[2].y < blades[1].y && blades[2].x > blades[0].x);
+    const inlet = parts.find((part) => part.kind === "polygon" && part.fill === "#07151a");
+    assert.ok(inlet && inlet.points.length === 6);
+    const handle = parts.find((part) => part.fill === "#bb2634");
+    const rotor = parts.find((part) => part.kind === "circle" && part.fill === "#122327");
+    const bounds = primitiveBounds(inlet);
+    if (variant === "dell-z9332-ac") {
+      assert.ok(handle.x + handle.width < bounds.x);
+      assert.ok(!rotor);
+      assert.ok(parts.filter((part) => part.fill === "#172125").length >= 20);
+    } else {
+      assert.ok(bounds.x + bounds.width < handle.x && handle.x + handle.width < rotor.cx - rotor.r);
+    }
+  }
+});
+
+test("new Dell variants preserve bounded source-sized geometry and exact Canvas/SVG polygon vertices", () => {
+  for (const component of [
+    { kind: "fan", variant: "dell-z9332-covered", width: 67.62, height: 69.75 },
+    { kind: "fan", variant: "dell-radial-handle", width: 67.62, height: 69.75 },
+    { kind: "fan", variant: "dell-radial-handle", gripColor: "#9daeb8", width: 131.1, height: 129.72 },
+    { kind: "fan", variant: "dell-radial-handle", gripColor: "#9daeb8", width: 131.1, height: 59.22 },
+    { kind: "psu", variant: "dell-z9332-ac", width: 97.98, height: 71.25 },
+    { kind: "psu", variant: "ac-fan-right-sideways", width: 136.62, height: 69.75 },
+    { kind: "psu", variant: "ac-fan-right-sideways", width: 135.24, height: 64.17 },
+    { kind: "psu", variant: "ac-fan-right-sideways", width: 135.24, height: 29.295 },
+  ]) for (const scale of [1, 2]) {
+    const box = { ...component, x: 10, y: 20, width: component.width * scale, height: component.height * scale };
+    const parts = hardwarePrimitives(box);
+    for (const part of parts) {
+      const bounds = primitiveBounds(part);
+      assert.ok([bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite));
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y);
+      assert.ok(bounds.x + bounds.width <= box.x + box.width + 1e-8);
+      assert.ok(bounds.y + bounds.height <= box.y + box.height + 1e-8);
+    }
+    const canvas = recordingContext();
+    drawHardwareComponent(canvas, box);
+    assert.deepEqual(canvas.shapes.map((part) => part.kind), parts.map((part) => part.kind));
+    for (const [index, part] of canvas.shapes.entries()) for (const key of Object.keys(part)) {
+      assert.deepEqual(part[key], parts[index][key]);
+    }
+    const svg = hardwareComponentSVG(box);
+    assert.equal((svg.match(/<(?:rect|circle|line|text|polygon)\b/g) || []).length, parts.length);
+    const vertices = [...svg.matchAll(/<polygon[^>]*points="([^"]+)"/g)].map((match) => match[1].split(" ").map((point) => point.split(",").map(Number)));
+    assert.deepEqual(vertices, parts.filter((part) => part.kind === "polygon").map((part) => part.points));
+  }
+});
+
 test("GE104 C14 inlet rotates its flange, cavity and three blades together without stretching rectangular consumers", () => {
   for (const [width, height] of [[52.992, 52.992], [35.328, 52.992], [106, 106]]) {
     const box = { kind: "power", variant: "c14-diagonal", x: 10, y: 20, width, height };

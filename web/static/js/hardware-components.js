@@ -19,7 +19,38 @@ export function hardwarePrimitives(component, palette = {}) {
     addDiagonalC14(art, component, colors);
     return art.parts;
   }
-  if (kind === "chassis") {
+  if (kind === "power" && ["ac-c14", "ac-c14-inverted", "ac-sideways", "ac-sideways-left"].includes(component.variant)) {
+    addKeyedC14Socket(art, component, colors);
+  } else if (kind === "rj45-inverted" || kind === "console-inverted") {
+    const face = orientedArt(orientedArt(art, true), true);
+    addSocket(face, kind === "rj45-inverted" ? "rj45" : "console", colors, component.variant, component.width < component.height);
+    const housing = art.parts[0];
+    // Keep tiny rotated housings inside their pixel bounds without changing any existing socket artwork.
+    const inset = Math.min(Math.min(component.width, component.height) * .10, housing.strokeWidth / 2 + .5);
+    const horizontalInset = Math.max(component.width * .025, inset);
+    const verticalInset = Math.max(component.height * .035, inset);
+    housing.x = component.x + horizontalInset; housing.y = component.y + verticalInset;
+    housing.width = component.width - horizontalInset * 2; housing.height = component.height - verticalInset * 2;
+  } else if (kind === "mounting-slot") {
+    art.rect(.08, .16, .84, .68, colors.fill ?? "#07151a", colors.stroke ?? colors.ink, .5);
+  } else if (kind === "leader-line") {
+    const thickness = Math.min(.4, component.width, component.height);
+    const color = component.color ?? colors.ink;
+    if (component.variant === "horizontal") {
+      art.rect(0, .5 - thickness / component.height / 2, 1, thickness / component.height, color, undefined, 0);
+    } else if (component.variant === "vertical") {
+      art.rect(.5 - thickness / component.width / 2, 0, thickness / component.width, 1, color, undefined, 0);
+    } else {
+      const upwards = component.variant === "up-right";
+      const insetX = Math.min(.45, Math.max(.10, (thickness / 2 + .75) / component.width));
+      const insetY = Math.min(.45, Math.max(.10, (thickness / 2 + .75) / component.height));
+      art.line(insetX, upwards ? 1 - insetY : insetY, 1 - insetX, upwards ? insetY : 1 - insetY, color);
+      art.parts[0].strokeWidth = thickness;
+    }
+  } else if (kind === "panel-accent") {
+    const taper = Number.isFinite(component.taper) ? Math.max(0, Math.min(1, component.taper)) : .08;
+    art.polygon([[0, 0], [1 - taper, 0], [1, 1], [0, 1]], component.color ?? colors.accent);
+  } else if (kind === "chassis") {
     art.rect(.01, .025, .98, .95, colors.surface, colors.ink, .04);
     art.line(.025, .06, .975, .06, "#ffffff", .45);
   } else if (kind === "ring") {
@@ -46,6 +77,9 @@ export function hardwarePrimitives(component, palette = {}) {
     }
   } else if (kind === "lcd" && component.variant === "seven-segment") {
     addSevenSegmentDisplay(art, component, colors);
+  } else if (kind === "lcd" && component.variant === "blank") {
+    art.rect(.015, .03, .97, .94, "#17262d", colors.ink, .035);
+    art.rect(.04, .10, .92, .80, "#07151a", "#465a62", .02);
   } else if (kind === "lcd") {
     art.rect(.01, .015, .98, .97, "#17262d", colors.ink, .08);
     art.rect(.12, .1, .76, .76, "#123a53", "#607d8b", .025);
@@ -62,6 +96,18 @@ export function hardwarePrimitives(component, palette = {}) {
   } else if (kind === "button" && component.variant === "oval") {
     art.rect(.03, .12, .94, .76, colors.surfaceDark, colors.ink, .45);
     art.rect(.11, .23, .78, .54, "#23383f", "#a5b2b6", .35);
+  } else if (kind === "button" && component.variant === "five-way") {
+    for (const points of [
+      [[.5, .05], [.36, .25], [.64, .25]], [[.5, .95], [.36, .75], [.64, .75]],
+      [[.05, .5], [.25, .36], [.25, .64]], [[.95, .5], [.75, .36], [.75, .64]],
+    ]) art.polygon(points, "#f56b4f", "#ba4d3a");
+    art.circle(.5, .5, .16, "#f56b4f", "#ba4d3a");
+  } else if (kind === "button" && ["rocker", "rocker-horizontal"].includes(component.variant)) {
+    const face = orientedArt(art, component.variant === "rocker-horizontal");
+    face.rect(.08, .025, .84, .95, "#07151a", "#708389", .08);
+    face.rect(.19, .10, .62, .80, "#17262d", "#465a62", .05);
+    face.circle(.5, .34, .085, undefined, "#a7b2b5");
+    face.line(.5, .64, .5, .79, "#a7b2b5");
   } else if (kind === "button") {
     art.circle(.5, .5, .45, colors.surfaceDark, colors.ink);
     art.circle(.5, .5, .31, "#23383f", "#a5b2b6");
@@ -69,6 +115,14 @@ export function hardwarePrimitives(component, palette = {}) {
   } else if (kind === "service-jack") {
     art.circle(.5, .5, .45, colors.surfaceDark, colors.ink);
     art.circle(.5, .5, .32, "#07151a");
+  } else if (kind === "displayport") {
+    art.polygon([[.035, .09], [.965, .09], [.965, .91], [.15, .91], [.035, .68]], "#a7b2b5", colors.ink);
+    art.polygon([[.10, .24], [.90, .24], [.90, .75], [.20, .75], [.10, .56]], "#07151a", "#65767d");
+    art.rect(.21, .39, .60, .14, "#515e62", undefined, .005);
+  } else if (kind === "led" && component.variant === "square") {
+    art.rect(.07, .07, .86, .86, colors.ink, undefined, 0);
+    art.rect(.18, .18, .64, .64, component.active === false ? colors.surfaceDark : component.color ?? colors.accent,
+      undefined, 0);
   } else if (kind === "led" && component.variant === "bar") {
     art.rect(.04, .04, .92, .92, colors.surfaceDark, colors.ink, .12);
     art.rect(.2, .12, .6, .76, component.active === false ? colors.surfaceDark : component.color ?? colors.accent,
@@ -80,7 +134,12 @@ export function hardwarePrimitives(component, palette = {}) {
   } else if (kind === "vent") {
     addVent(art, component, colors);
   } else if (kind === "fan") {
-    if (component.variant === "dell-dual-horizontal") addDellDualFan(art, component, colors);
+    if (component.variant === "aruba-fixed-radial") addArubaFixedGrille(art, component, colors);
+    else if (component.variant === "aruba-dual-hex") addArubaDualHexFan(art, component, colors);
+    else if (["aruba-8320", "aruba-8325", "aruba-8360"].includes(component.variant)) addArubaCoreFan(art, component, colors);
+    else if (component.variant === "dell-z9332-covered") addDellCoveredFan(art, colors);
+    else if (component.variant === "dell-radial-handle") addDellRadialFan(art, component, colors);
+    else if (component.variant === "dell-dual-horizontal") addDellDualFan(art, component, colors);
     else if (component.variant === "dell-single-handle") addDellSingleFan(art, component, colors);
     else if (component.variant === "mesh-handle") addMeshHandleFan(art, component, colors);
     else if (component.variant === "mesh-dual") addMeshDualFan(art, component, colors);
@@ -91,7 +150,8 @@ export function hardwarePrimitives(component, palette = {}) {
   } else if (kind === "din-bracket") {
     if (component.variant === "fsr108f") addRugged108Bracket(art);
   } else if (kind === "card-slot") {
-    if (component.variant === "micro-sd-recess") {
+    if (component.variant === "plain") art.rect(.015, .10, .97, .80, "#07151a", undefined, .04);
+    else if (component.variant === "micro-sd-recess") {
       art.rect(.015, .025, .97, .95, "#bac6cd", "#9daeb8", .19);
       art.rect(.06, .085, .88, .86, "#aebac5", undefined, .17);
       art.rect(.27, .36, .46, .055, "#102227", undefined, .01);
@@ -108,6 +168,9 @@ export function hardwarePrimitives(component, palette = {}) {
     } else addHandle(art, colors);
   } else if (kind === "psu") {
     addPowerSupply(art, component, colors);
+  } else if (kind === "module-bay" && ["plain", "fuse-carrier"].includes(component.variant)) {
+    const outlined = component.variant === "fuse-carrier";
+    art.rect(outlined ? .09 : .04, .05, outlined ? .82 : .92, .90, "#07151a", outlined ? "#708389" : undefined, .025);
   } else if (kind === "module-bay") {
     art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .02);
     art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .025);
@@ -122,6 +185,181 @@ export function hardwarePrimitives(component, palette = {}) {
   }
   if (component.label) art.label(component.label, .5, .87, 8);
   return art.parts;
+}
+
+/** Fill a bounded grille with regular physical hexagons shared by panel holes and fan guards. */
+function addHexGrille(art, component, area, fill, stroke) {
+  const width = area.width * component.width;
+  const height = area.height * component.height;
+  const radius = Math.min(width / 14, height / 12);
+  if (!(radius > 0)) return;
+  const step = Math.sqrt(3) * radius;
+  for (let column = 0, x = radius; column < 64 && x <= width - radius; column++, x += radius * 1.7) {
+    for (let row = 0, y = radius + column % 2 * step / 2; row < 64 && y <= height - radius; row++, y += step * 1.1) {
+      art.polygon(Array.from({ length: 6 }, (_, index) => {
+        const angle = index * Math.PI / 3;
+        return [area.x + (x + Math.cos(angle) * radius * .88) / component.width,
+          area.y + (y + Math.sin(angle) * radius * .88) / component.height];
+      }), fill, stroke);
+    }
+  }
+}
+
+/** Trace the three core-switch tray guards with their individually documented grips and releases. */
+function addArubaCoreFan(art, component, colors) {
+  const lowGrip = component.variant === "aruba-8320";
+  const verticalGrip = component.variant === "aruba-8360";
+  art.rect(.025, .035, .95, .93, lowGrip ? "#657075" : "#a7b2b5", colors.ink, .025);
+  const guard = lowGrip ? { x: .07, y: .075, width: .65, height: .84 } : { x: .10, y: .075, width: .78, height: .84 };
+  addHexGrille(art, component, guard, "#172125");
+  if (lowGrip) {
+    art.rect(.065, .755, .67, .105, "#26343a", "#708389", .045);
+    art.rect(.075, .755, .65, .060, "#bb2634", undefined, .035);
+    art.circle(.87, .20, .065, "#d0d6d8", "#708389");
+    art.line(.838, .20, .902, .20, "#515e62");
+    art.line(.87, .16, .87, .24, "#515e62");
+    art.circle(.825, .68, .018, component.active === false ? colors.surfaceDark : "#42d98b");
+  } else if (verticalGrip) {
+    art.rect(.48, .075, .115, .82, "#26343a", "#708389", .055);
+    art.line(.503, .12, .503, .85, "#65767d");
+    art.rect(.835, .40, .13, .205, "#d0d6d8", "#708389", .005);
+    art.rect(.785, .345, .075, .38, "#bb2634", "#708389", .028);
+    art.circle(.135, .88, .024, component.active === false ? colors.surfaceDark : "#42d98b", "#708389");
+  } else {
+    art.rect(.075, .465, .85, .135, "#26343a", "#708389", .035);
+    for (const left of [.12, .57]) {
+      art.rect(left, .455, .29, .065, "#a7b2b5", "#708389", .015);
+      art.rect(left, .555, .29, .04, "#a7b2b5", "#708389", .015);
+    }
+    art.rect(.435, .43, .12, .19, "#a7b2b5", "#708389", .01);
+    art.circle(.058, .78, .018, component.active === false ? colors.surfaceDark : "#42d98b");
+  }
+}
+
+/** Draw a source-positioned left-beveled C14 aperture with its earth blade at left center. */
+function addCoreC14Inlet(art, area) {
+  const { x, y, width, height } = area;
+  art.rect(x - .02, y - .035, width + .04, height + .07, "#a7b2b5", "#708389", .035);
+  art.polygon([[x + width * .25, y], [x + width, y], [x + width, y + height],
+    [x + width * .25, y + height], [x, y + height * .78], [x, y + height * .22]], "#07151a", "#708389");
+  for (const [cx, cy] of [[.31, .5], [.65, .77], [.65, .23]]) {
+    art.rect(x + width * (cx - .105), y + height * (cy - .025), width * .21, height * .05, "#b9c3c4", undefined, .003);
+  }
+}
+
+/** Trace the 8320/8325 guarded supplies and the 8360 exposed fan without sharing their handle positions. */
+function addArubaCoreSupply(art, component, colors) {
+  const type = component.variant;
+  const exposed = type === "aruba-8360-ac";
+  if (exposed) {
+    const radius = Math.min(component.width * .245, component.height * .39);
+    const scale = Math.min(component.width, component.height);
+    art.circle(.30, .53, radius / scale, "#122327", "#a7b2b5");
+    for (const ring of [.95, .77]) art.circle(.30, .53, radius * ring / scale, undefined, "#d0d6d8");
+    for (const sign of [-1, 1]) {
+      art.line(.30 - radius * .67 / component.width, .53 + sign * radius * .67 / component.height,
+        .30 + radius * .67 / component.width, .53 - sign * radius * .67 / component.height, "#d0d6d8");
+    }
+    art.circle(.30, .53, radius * .46 / scale, "#a7b2b5", "#708389");
+    for (const x of [.07, .535]) {
+      art.circle(x, .875, .042, "#a7b2b5", "#708389");
+      art.line(x - .018, .875, x + .018, .875, "#515e62");
+    }
+    art.rect(.045, .075, .525, .10, "#26343a", "#708389", .035);
+    art.line(.075, .10, .535, .10, "#a7b2b5");
+    addCoreC14Inlet(art, { x: .635, y: .21, width: .265, height: .57 });
+    art.rect(.917, .62, .045, .30, "#bb2634", "#708389", .025);
+    art.circle(.94, .245, .030, component.active === false ? colors.surfaceDark : "#42d98b", "#708389");
+  } else {
+    const compact = type === "aruba-8325-ac";
+    const guardWidth = compact ? .30 : .49;
+    art.rect(.06, .12, guardWidth, .75, "#172125", "#708389", .015);
+    for (let column = 0; column <= 3; column++) art.rect(.06 + column * guardWidth / 3, .12, .018, .75, "#d0d6d8", undefined, 0);
+    for (let row = 0; row <= 4; row++) art.rect(.06, .12 + row * .1875, guardWidth, .018, "#d0d6d8", undefined, 0);
+    addCoreC14Inlet(art, compact ? { x: .535, y: .25, width: .355, height: .57 }
+      : { x: .615, y: .17, width: .295, height: .61 });
+    const handle = compact ? .385 : .37;
+    art.rect(handle, .095, .095, .81, "#26343a", "#708389", .04);
+    art.line(handle + .02, .15, handle + .02, .84, "#65767d");
+    if (compact) {
+      art.rect(.075, .15, .060, .41, "#bb2634", "#708389", .014);
+      art.circle(.265, .13, .032, component.active === false ? colors.surfaceDark : "#42d98b", "#708389");
+    } else {
+      art.rect(.755, .855, .155, .085, "#bb2634", "#708389", .018);
+      for (const x of [.79, .83, .87]) art.line(x, .87, x, .925, "#d0d6d8");
+      art.circle(.54, .875, .025, component.active === false ? colors.surfaceDark : "#42d98b", "#708389");
+    }
+  }
+}
+
+/** Keep the twelve clipped radial apertures circular without drawing an exposed fan or removable tray. */
+function addArubaFixedGrille(art, component, colors) {
+  const scale = Math.min(component.width, component.height);
+  const profile = [[-.045, .28], [.045, .28], [.065, .30], [.11, .44],
+    [.09, .46], [-.09, .46], [-.11, .44], [-.065, .30]];
+  for (let index = 0; index < 12; index++) {
+    const angle = -Math.PI / 2 + Math.PI / 12 + index * Math.PI / 6;
+    art.polygon(profile.map(([tangent, radius]) => [
+      .5 + (radius * Math.cos(angle) - tangent * Math.sin(angle)) * scale / component.width,
+      .5 + (radius * Math.sin(angle) + tangent * Math.cos(angle)) * scale / component.height,
+    ]), "#172125", colors.ink);
+  }
+}
+
+/** Rotate a C14 cavity and its three blades together for each explicitly selected orientation. */
+function addKeyedC14Socket(art, component, colors) {
+  const sideways = component.variant === "ac-sideways" || component.variant === "ac-sideways-left";
+  const points = [[.24, .13], [.76, .13], [.88, .30], [.88, .84], [.12, .84], [.12, .30]];
+  art.rect(.05, .035, .90, .93, "#a7b2b5", colors.ink, .055);
+  art.polygon(points.map(([x, y]) => c14Point(x, y, component.variant)), "#07151a", "#708389");
+  for (const [cx, cy] of [[.5, .38], [.34, .65], [.66, .65]]) {
+    const [x, y] = c14Point(cx, cy, component.variant);
+    if (sideways) art.rect(x - .085, y - .023, .17, .046, "#b9c3c4", undefined, .004);
+    else art.rect(x - .023, y - .085, .046, .17, "#b9c3c4", undefined, .004);
+  }
+}
+
+/** Keep cavity vertices and electrical contacts on the same quarter-turn transform. */
+function c14Point(x, y, variant) {
+  if (variant === "ac-sideways") return [1 - y, x];
+  if (variant === "ac-sideways-left") return [y, 1 - x];
+  if (variant === "ac-c14-inverted") return [1 - x, 1 - y];
+  return [x, y];
+}
+
+/** Trace one Aruba tray with two honeycomb guards, its central pull loop and diagonal end retainers. */
+function addArubaDualHexFan(art, component, colors) {
+  const scale = Math.min(component.width, component.height);
+  const radius = Math.min(component.width * .145, component.height * .365);
+  const cellRadius = Math.min(component.width * .026, component.height * .083);
+  art.rect(.01, .025, .98, .95, "#a7b2b5", colors.ink, .015);
+  for (const left of [.12, .60]) {
+    art.rect(left, .10, .31, .80, "#8d9ba3", "#708389", .015);
+    art.circle(left + .155, .5, radius / scale, "#122327", "#708389");
+    art.circle(left + .155, .5, .095, "#515e62", "#708389");
+    for (let column = 0, cx = left * component.width + cellRadius; cx <= (left + .31) * component.width - cellRadius; column++, cx += cellRadius * 1.5) {
+      for (let cy = .10 * component.height + cellRadius + column % 2 * Math.sqrt(3) * cellRadius / 2;
+        cy <= .90 * component.height - cellRadius; cy += Math.sqrt(3) * cellRadius) {
+        const points = Array.from({ length: 6 }, (_, index) => {
+          const angle = index * Math.PI / 3;
+          return [(cx + Math.cos(angle) * cellRadius) / component.width, (cy + Math.sin(angle) * cellRadius) / component.height];
+        });
+        art.polygon(points, undefined, "#c7cfd3");
+      }
+    }
+  }
+  art.rect(.445, .055, .055, .89, "#c7cfd3", "#708389", .035);
+  art.line(.458, .10, .458, .90, "#e0e5e6");
+  art.rect(.53, .035, .050, .93, "#515e62", colors.ink, .01);
+  for (const cy of [.14, .84]) {
+    art.circle(.555, cy, .047, "#172125", "#a7b2b5");
+    art.circle(.555, cy, .022, undefined, "#a7b2b5");
+  }
+  for (const [cx, cy] of [[.055, .25], [.965, .80]]) {
+    art.circle(cx, cy, .055, "#65767d", "#d0d6d8");
+    art.line(cx - .018, cy, cx + .018, cy, "#d0d6d8");
+    art.line(cx, cy - .04, cx, cy + .04, "#d0d6d8");
+  }
 }
 
 /** Trace the GE104 inlet at a fixed physical angle within either square or narrow allocations. */
@@ -161,6 +399,42 @@ function addSevenSegmentDisplay(art, component, colors) {
     for (const top of [.13 + ty * 1.3, .465 + ty * 1.3]) {
       for (const x of [left, left + width - tx]) art.rect(x, top, tx, .335 - ty * 1.6, "#708389", undefined, .005);
     }
+  }
+}
+
+/** Trace the Z9332 fan tray's opaque paired apertures and broad horizontal pull grip. */
+function addDellCoveredFan(art, colors) {
+  art.rect(.02, .025, .96, .95, colors.surfaceDark, colors.ink, .025);
+  art.polygon([[.10, .365], [.10, .235], [.235, .095], [.80, .095], [.92, .235], [.92, .365]], "#172125", colors.ink);
+  art.polygon([[.10, .645], [.92, .645], [.92, .77], [.80, .915], [.235, .915], [.10, .77]], "#172125", colors.ink);
+  art.rect(.065, .405, .89, .195, "#708389", colors.ink, .015);
+  art.line(.10, .435, .92, .435, "#a7b2b5");
+  art.rect(.065, .09, .07, .045, "#172125", undefined, .015);
+}
+
+/** Draw the exposed circular guard and center grip used on separately documented Dell trays. */
+function addDellRadialFan(art, component, colors) {
+  const scale = Math.min(component.width, component.height);
+  const radius = Math.min(component.width * .365, component.height * .43);
+  art.rect(.02, .025, .96, .95, colors.surfaceDark, colors.ink, .035);
+  addDellRotor(art, component, .55, .5, radius, colors);
+  art.rect(.51, .08, .08, .84, "#a7b2b5", colors.ink, .025);
+  art.rect(.48, .36, .14, .28, component.gripColor ?? "#bb2634", "#708389", .008);
+  art.rect(.045, .35, .06, .30, "#d68c40", "#a7b2b5", .008);
+  for (const x of [.06, .94]) for (const y of [.07, .93]) {
+    art.circle(x, y, Math.min(scale * .023, component.width * .022) / scale, colors.surfaceDark, "#a7b2b5");
+  }
+}
+
+/** Preserve circular rotor geometry when its enclosing tray has a different aspect ratio. */
+function addDellRotor(art, component, cx, cy, radius, colors) {
+  const scale = Math.min(component.width, component.height);
+  art.circle(cx, cy, radius / scale, "#122327", "#708389");
+  art.circle(cx, cy, radius * .34 / scale, colors.surfaceDark);
+  for (let index = 0; index < 8; index++) {
+    const angle = index * Math.PI / 4;
+    art.line(cx + Math.cos(angle) * radius * .34 / component.width, cy + Math.sin(angle) * radius * .34 / component.height,
+      cx + Math.cos(angle + .14) * radius * .96 / component.width, cy + Math.sin(angle + .14) * radius * .96 / component.height, "#708389");
   }
 }
 
@@ -311,6 +585,16 @@ function addPluggableTerminal(art, component, colors) {
 function addSocket(art, kind, colors, variant, portrait, columns) {
   const fill = colors.fill ?? "#07151a";
   const stroke = colors.stroke ?? "#708389";
+  if (kind === "rj11") {
+    art.rect(.075, .075, .85, .85, "#c8ccad", stroke, .025);
+    art.polygon([[.12, .20], [.88, .20], [.88, .66], [.68, .66], [.68, .79],
+      [.56, .79], [.56, .90], [.44, .90], [.44, .79], [.32, .79], [.32, .66], [.12, .66]], fill);
+    return;
+  }
+  if (kind === "dvi-d") {
+    addDVIDConnector(art, colors);
+    return;
+  }
   if (kind === "vga" || kind === "db9") {
     addDSubConnector(orientedArt(art, portrait), kind, colors);
     return;
@@ -429,7 +713,24 @@ function orientedArt(art, portrait) {
     circle(x, y, ...appearance) { art.circle(1 - y, x, ...appearance); },
     /** Rotate both line endpoints through the same transform. */
     line(x1, y1, x2, y2, ...appearance) { art.line(1 - y1, x1, 1 - y2, x2, ...appearance); },
+    /** Rotate polygon vertices through the same transform as the surrounding carrier. */
+    polygon(points, ...appearance) { art.polygon(points.map(([x, y]) => [1 - y, x]), ...appearance); },
   };
+}
+
+/** Trace the stencil's DVI-D24+1 contact field and its separate hexagonal retaining flanges. */
+function addDVIDConnector(art, colors) {
+  art.rect(.16, .10, .68, .80, "#a7b2b5", colors.ink, .12);
+  art.rect(.18, .15, .64, .70, "#d9dcc5", "#708389", .09);
+  for (let row = 0; row < 3; row++) for (let column = 0; column < 8; column++) {
+    art.rect(.205 + column * .055, .235 + row * .19, .032, .13, "#07151a", undefined, 0);
+  }
+  art.rect(.69, .485, .105, .035, "#07151a", undefined, 0);
+  for (const x of [.065, .935]) {
+    art.polygon([[x, .28], [x + .047, .38], [x + .047, .62], [x, .72],
+      [x - .047, .62], [x - .047, .38]], "#708389", "#a7b2b5");
+    art.circle(x, .50, .13, "#a7b2b5", "#65767d");
+  }
 }
 
 /** Draw VGA's blue three-row socket or a male DB9 serial connector within a retained D-shell. */
@@ -563,6 +864,10 @@ function addEndHandleFan(art, component, colors) {
 
 /** Distinguish a front drive's release/status strip and grille from the compact rear BOSS pull tray. */
 function addDriveCarrier(art, component, colors) {
+  if (component.variant === "hpe-smart") {
+    addHPESmartCarrier(orientedArt(art, component.orientation === "vertical"), component, colors);
+    return;
+  }
   if (component.variant === "hpe-basic") {
     addHPEBasicCarrier(orientedArt(art, component.orientation === "vertical"), component, colors);
     return;
@@ -587,6 +892,26 @@ function addDriveCarrier(art, component, colors) {
     face.rect(.37 + column * .060, .23 + row * .185, .045, .14, "#07151a", undefined, .012);
   }
   face.rect(.85, .32, .095, .35, "#39484d", colors.ink, .015);
+}
+
+/** Trace Gen10 SmartCarrier vents, its activity ring and separate right-side release. */
+function addHPESmartCarrier(art, component, colors) {
+  art.rect(.012, .045, .976, .91, "#26343a", colors.ink, .025);
+  art.rect(.027, .085, .735, .83, "#a7b2b5", "#65767d", .015);
+  for (const lower of [false, true]) for (let column = 0; column < 7; column++) {
+    const x = .19 + column * .054;
+    const points = [[x, .14], [x + .05, .14], [x + .043, .28], [x + .007, .28]];
+    art.polygon(lower ? points.map(([left, top]) => [left, 1 - top]) : points, "#07151a", "#65767d");
+  }
+  art.polygon([[.055, .13], [.13, .13], [.18, .31], [.565, .31], [.60, .18],
+    [.60, .82], [.565, .69], [.18, .69], [.13, .87], [.055, .87]], "#a7b2b5", "#65767d");
+  art.circle(.635, .50, .245, component.active === false ? "#708389" : "#42d98b", "#65767d");
+  art.circle(.635, .50, .167, "#a7b2b5", "#65767d");
+  for (const y of [.44, .50, .56]) art.line(.623, y, .647, y, "#465a62");
+  art.rect(.775, .12, .198, .76, "#485960", "#a7b2b5", .025);
+  art.rect(.80, .20, .14, .60, "#78868b", colors.ink, .035);
+  art.circle(.87, .50, .15, "#a7b2b5", "#465a62");
+  art.line(.85, .50, .89, .50, "#465a62");
 }
 
 /** Trace the HPE Basic Carrier's tapered vents, central handle, end release and paired lamps. */
@@ -615,6 +940,10 @@ function addHPEBasicCarrier(art, component, colors) {
 
 /** Fill a bounded grille with its repeated openings, heatsink fins, or single slit. */
 function addVent(art, component, colors) {
+  if (component.variant === "honeycomb") {
+    addHexGrille(art, component, { x: .025, y: .035, width: .95, height: .93 }, "#172125");
+    return;
+  }
   if (component.variant === "radial") {
     for (const radius of [.24, .40]) for (let index = 0; index < 8; index++) {
       const angle = index * Math.PI / 4;
@@ -688,12 +1017,24 @@ function addHandle(art, colors) {
 function addPowerSupply(art, component, colors) {
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
+  if (["aruba-8320-ac", "aruba-8325-ac", "aruba-8360-ac"].includes(component.variant)) {
+    addArubaCoreSupply(art, component, colors);
+    return;
+  }
+  if (component.variant === "ac-fan-right-sideways" || component.variant === "dell-z9332-ac") {
+    addDellSidewaysSupply(art, component, colors);
+    return;
+  }
   if (component.variant === "pa-1400-ac") {
     addPA1400Supply(art, component, colors);
     return;
   }
   if (component.variant === "hpe-flexslot-800") {
     addHPEFlexSlotSupply(art, component, colors);
+    return;
+  }
+  if (component.variant === "hpe-flexslot-800-titanium") {
+    addHPETitaniumSupply(art, component, colors);
     return;
   }
   if (["ac-c16-portrait", "dc-keyed2-portrait", "ac-saf-d-grid", "ac-c16-horizontal"].includes(component.variant)) {
@@ -745,6 +1086,60 @@ function addPowerSupply(art, component, colors) {
   art.rect(.83 + handleOffset, .28, .035, .44, colors.surface, colors.ink, .02);
   art.circle(.94, .22, .035, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
   if (component.variant !== "fixed") art.rect(.78 + handleOffset, .73, .08, .1, colors.accent, colors.ink, .02);
+}
+
+/** Trace 865438-B21's photographed fold-down grip and the release lever obscuring its right inlet. */
+function addHPETitaniumSupply(art, component, colors) {
+  const physicalRadius = Math.min(component.width * .265, component.height * .37);
+  const radiusX = physicalRadius / component.width;
+  const radiusY = physicalRadius / component.height;
+  art.circle(.34, .46, physicalRadius / Math.min(component.width, component.height), "#122327", "#a7b2b5");
+  for (let index = 0; index < 8; index++) {
+    const angle = index * Math.PI / 4;
+    art.line(.34 + Math.cos(angle) * radiusX * .34, .46 + Math.sin(angle) * radiusY * .34,
+      .34 + Math.cos(angle + .28) * radiusX * .94, .46 + Math.sin(angle + .28) * radiusY * .94, "#708389");
+  }
+  art.circle(.34, .46, .19, "#7d6877", "#a7b2b5");
+  for (const x of [.09, .59]) for (const y of [.13, .77]) {
+    art.circle(x, y, .045, "#a7b2b5", colors.ink);
+    art.line(x - .02, y, x + .02, y, "#465a62");
+  }
+  art.rect(.675, .31, .285, .57, "#26343a", "#a7b2b5", .035);
+  art.polygon([[.73, .37], [.91, .37], [.94, .46], [.94, .79], [.88, .83], [.72, .83], [.70, .76], [.70, .46]], "#07151a", "#65767d");
+  art.polygon([[.07, .49], [.12, .49], [.12, .81], [.57, .81], [.57, .49], [.63, .49],
+    [.63, .88], [.58, .93], [.12, .93], [.07, .87]], "#26343a", "#515e62");
+  art.rect(.275, .79, .13, .15, "#172125", undefined, .025);
+  art.circle(.715, .185, .035, component.active === false ? "#315246" : "#42d98b", colors.ink);
+  art.polygon([[.86, .12], [.96, .12], [.96, .31], [.92, .35], [.92, .72], [.88, .77],
+    [.86, .49], [.75, .49], [.75, .38], [.86, .33]], "#b9c3c4", "#65767d");
+  art.rect(.735, .50, .15, .29, "#c16b86", "#965368", .025);
+  art.polygon([[.765, .56], [.84, .56], [.84, .69]], "#965368", "#965368");
+}
+
+/** Trace the two documented Dell C14 arrangements without exposing a rotor behind the Z9332 grille. */
+function addDellSidewaysSupply(art, component, colors) {
+  const covered = component.variant === "dell-z9332-ac";
+  const left = covered ? .665 : .105;
+  const width = covered ? .27 : .275;
+  const top = .19;
+  const height = .62;
+  if (covered) {
+    for (let row = 0; row < 8; row++) for (let column = 0; column < 6; column++) {
+      art.rect(.065 + column * .069, .12 + row * .093, .048, .071, "#172125", undefined, 0);
+    }
+  } else {
+    addDellRotor(art, component, .735, .5, Math.min(component.width * .205, component.height * .40), colors);
+  }
+  art.rect(left - .023, top - .055, width + .046, height + .11, "#e0e5e6", colors.ink, .055);
+  art.polygon([[left, top], [left + width * .74, top], [left + width, top + height * .22],
+    [left + width, top + height * .78], [left + width * .74, top + height], [left, top + height]], "#07151a", "#708389");
+  for (const [x, y] of [[.27, .24], [.27, .76], [.67, .5]]) {
+    art.rect(left + width * (x - .105), top + height * (y - .025), width * .21, height * .05, "#d0d6d8", undefined, .003);
+  }
+  const handleX = covered ? .555 : .425;
+  art.rect(handleX, .12, .06, .76, "#a7b2b5", colors.ink, .025);
+  art.rect(handleX - .01, .37, .08, .30, "#bb2634", "#708389", .008);
+  art.rect(covered ? .945 : .065, covered ? .71 : .35, .032, covered ? .23 : .30, "#d68c40", "#a7b2b5", .006);
 }
 
 /** Trace the PA-1400 supply's broad C14 inlet, upright pull grip, paired lamps and toothed latch. */

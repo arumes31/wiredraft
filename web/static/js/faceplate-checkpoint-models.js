@@ -11,6 +11,7 @@ const models = new Set(["Quantum 1600", "Quantum 1800", "Quantum 3600", "Quantum
 
 /** Build only Check Point models whose individual front and rear panels are documented. */
 export function buildCheckPointModelFaceplate(device) {
+  if (device?.faceplate?.vendor === "Check Point" && device.model === "Quantum 1500") return wired1590Profile(device);
   if (device?.faceplate?.vendor === "Check Point" && device.model === "Quantum 6200 / 6600") return combined6200Profile(device);
   if (device?.faceplate?.vendor !== "Check Point" || !models.has(device.model)) return null;
   if (device.model === "Quantum 1600" || device.model === "Quantum 1800") return sparkProfile(device);
@@ -25,6 +26,67 @@ export function buildCheckPointModelFaceplate(device) {
     catalogDiscrepancies: [], defaultFace: "front",
     chassis: { x: .255, y: .08, width: .49, height: .84 }, faces: desktopPanels(device.ports),
   };
+}
+
+/** Select the documented wired1590 while retaining the alias's already-correct twelve-port inventory. */
+function wired1590Profile(device) {
+  const base = "https://sc1.checkpoint.com/documents/Appliances/GSG_V1/EN/Content/";
+  const configuration = "Quantum Spark 1590 Wired (V-81), with external 12V/3.3A 40W supply, no wireless/DSL hardware and empty DMZ SFP cage.";
+  return { id: "checkpoint-1590-wired", family: "Quantum Spark 1590", sku: "Quantum Spark 1590 Wired (V-81)",
+    fidelity: "model", panelFidelity: { front: "model", rear: "model" }, inventoryRevision: 0, inventoryComplete: true,
+    defaultFace: "rear", source: `${base}Topics-V1/Back-Panel.htm`,
+    sourcePage: "1570/1590 Getting Started Guide, Wired front and back illustrations; 1500 datasheet page 5",
+    note: configuration,
+    evidence: { models: ["Quantum Spark 1590"], catalogAlias: device.model, selectedModel: "Quantum Spark 1590",
+      scope: "model", reviewed: "2026-09-10", configuration,
+      front: `${base}Resources/Images/Topics-V1/V1_front_new_wired.jpg`,
+      rear: `${base}Resources/Images/Topics-V1/V1_Back_Wired_17Jul.jpg`,
+      frontGuide: `${base}Topics-V1/Front-Panel.htm`, rearGuide: `${base}Topics-V1/Back-Panel.htm`,
+      sides: `${base}Topics-V1/Side-Panels.htm`,
+      supplemental: "https://www.checkpoint.com/downloads/products/1500-security-gateway-datasheet.pdf#page=5" },
+    limitations: [configuration,
+      "The Quantum1500 catalog alias selects wired1590; 1530/1550 and wireless, LTE or DSL variants require different panels.",
+      "The DMZ copper and SFP sockets are alternative media for one interface. Both physical sockets are cableable in the diagram; simultaneous use is not validated.",
+      "The 210 × 42 mm native front/rear aspect uses a compact 1U allocation. The side MicroSD and anti-theft slot are outside these projections; USB3 storage and DC power remain ancillary artwork.",
+      "The front brand and status symbols are simplified; indicator states are illustrative, not live telemetry. The shared front illustration includes the WiFi marking, which is inactive on this wired selection."],
+    catalogDiscrepancies: ["The existing twelve-port inventory already matches this selected wired1590. Revision0 IDs, groups, default and custom labels, speeds, VLANs and rack allocation remain unchanged."],
+    chassis: { x: .27, y: .10, width: .46, height: .7935 },
+    faces: { front: { ports: [], components: [
+      { ...part("text", .07, .24, .16, .28, "∞"), fontSize: 16, ink: "#d83e76" },
+      { ...part("text", .39, .27, .29, .24, "Check Point"), fontSize: 8 },
+      ...["wifi", "management", "internet", "power"].map((role, index) => ({
+        ...part("led", .762 + index * .067, .64, .016, .08), role, color: "#45a9e6", active: false })),
+    ] }, rear: wired1590Rear(device) },
+  };
+}
+
+/** Place one rear socket and a bounded printed caption without deriving identity from an editable label. */
+function wired1590Socket(device, index, x, y, width, height, physicalLabel, captionY) {
+  const port = device.ports.find((candidate) => candidate.portIndex === index);
+  if (!port) throw new Error(`Spark1590 canonical connector ${index} is missing`);
+  return { ...socket(port, x, y, width, height), physicalLabel,
+    descriptionAnchor: { x, y: captionY, fontSize: 5.5, boxHeight: 7 } };
+}
+
+/** Trace the wired-only rear with even-numbered upper LANs and the separate low DMZ/WAN/service row. */
+function wired1590Rear(device) {
+  const ports = Array.from({ length: 8 }, (_, offset) => {
+    const index = offset + 1;
+    return wired1590Socket(device, index, .175 + Math.floor(offset / 2) * .075, index % 2 ? .65 : .29,
+      .064, .255, index === 2 ? "2/SYNC" : String(index), index % 2 ? .9 : .09);
+  });
+  ports.push(wired1590Socket(device, 9, .650, .65, .064, .255, "WAN", .40),
+    wired1590Socket(device, 10, .575, .65, .064, .255, "DMZ", .40),
+    wired1590Socket(device, 11, .490, .68, .071, .225, "DMZ", .90),
+    wired1590Socket(device, 12, .868, .73, .043, .085, "CONSOLE", .925));
+  return { ports, components: [
+    { ...part("screw", .045, .59, .026, .13), role: "ground" },
+    { ...part("button", .098, .585, .012, .065, undefined, "reset"), role: "reset" },
+    { ...part("button", .098, .685, .012, .065, undefined, "reset"), role: "factory-default" },
+    { ...part("usb", .757, .44, .025, .30), role: "usb-storage" },
+    { ...part("power", .936, .535, .043, .23, undefined, "dc-barrel"), role: "dc12v" },
+    ...[.472, .501].map((x) => ({ ...part("led", x, .43, .012, .06), role: "dmz-link", active: false })),
+  ] };
 }
 
 /** Select 6200 Base and preserve the alias's stable Mgmt/Sync roles despite its historical Console type. */

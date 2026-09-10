@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { enterGuestWorkspace } from "./auth-helper.mjs";
+import { enterGuestWorkspace, unlockEditor } from "./auth-helper.mjs";
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -20,6 +20,7 @@ test("rack faceplates remain visually stable", async ({ page }) => {
 
 test("modal visual system remains stable", async ({ page }) => {
 	await enterGuestWorkspace(page);
+  await unlockEditor(page);
   await page.locator("#add-patch-panel-button").click();
   await expect(page.locator("#patch-panel-dialog")).toHaveScreenshot("patch-panel-dialog.png", {
     animations: "disabled",

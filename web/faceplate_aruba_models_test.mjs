@@ -35,7 +35,7 @@ test("Aruba exact profiles retain model-specific evidence and separate all front
     assert.equal(resolveArubaFaceplate(device), profile, "immutable model geometry is cached");
   }
   assert.equal(resolveArubaFaceplate({}), null);
-  assert.equal(resolveArubaFaceplate(deviceFor("CX 6300M 24-port Smart Rate")), null, "ambiguous hardware variants remain pending");
+  assert.equal(resolveArubaFaceplate(deviceFor("CX 6400 family")), null, "untraced modular chassis remain pending");
 });
 
 test("6100 and 6200F use opposite optical banks and their documented service connectors", () => {
@@ -59,13 +59,13 @@ test("8325 has three-row SFP28 numbering, two-row QSFP28, six fans and both cons
   assert.ok(ports[3].x > ports[2].x);
   assert.deepEqual(ports.slice(0, 6).map((slot) => slot.physicalLabel), ["1", "2", "3", "4", "5", "6"]);
   assert.equal(new Set(ports.slice(48, 56).map((slot) => slot.y)).size, 2);
-  assert.equal(ports[56].connectorKind, "rj45");
+  assert.equal(ports[56].connectorKind, "console");
   assert.equal(ports[58].connectorKind, "usb-micro");
   assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, 6);
   assert.equal(profile.faces.rear.components.filter((part) => part.kind === "psu").length, 2);
 });
 
-test("6300M JL661A separates its four rear fans in two trays from dual AC supplies", () => {
+test("6300M JL661A has two JL669B dual-fan trays and two JL086A AC supplies", () => {
   const device = deviceFor("CX 6300M 48G");
   const profile = resolveArubaFaceplate(device);
   assert.equal(profile.sku, "JL661A");
@@ -75,11 +75,63 @@ test("6300M JL661A separates its four rear fans in two trays from dual AC suppli
   assert.ok(device.ports.slice(0, 48).every((port) => port.type === "RJ45_1G" && port.isPoe));
   assert.ok(profile.faces.front.ports.slice(48, 52).every((port) => port.type === "SFP56_50G" && port.x > .85));
   const rear = profile.faces.rear.components;
-  assert.equal(rear.filter((part) => part.kind === "fan").length, 4);
-  assert.equal(rear.filter((part) => part.kind === "module-bay").length, 2);
+  assert.equal(rear.filter((part) => part.kind === "fan" && part.variant === "aruba-dual-hex").length, 2);
+  assert.equal(rear.filter((part) => part.kind === "module-bay").length, 0);
   assert.equal(rear.filter((part) => part.kind === "psu").length, 2);
   assert.ok(rear.filter((part) => part.kind === "fan").every((part) => part.x + part.width < .62));
   assert.match(profile.limitations.join(" "), /two fan trays/);
+  assert.match(profile.limitations.join(" "), /JL086A.*680W/);
+  assert.match(profile.limitations.join(" "), /JL669B/);
+});
+
+test("identical selected Aruba SKUs share physical artwork without sharing catalog port indices", () => {
+  for (const [exact, alias, serviceIndices] of [
+    ["CX 6300M 48G", "CX 6300 family", { CONSOLE: [53, 54], MGMT: [54, 53] }],
+    ["CX 8325-48Y8C", "CX 8325 family", { CONSOLE: [57, 59], MGMT: [58, 57], "USB CONSOLE": [59, 58] }],
+  ]) {
+    const profiles = [exact, alias].map((model) => resolveArubaFaceplate(deviceFor(model)));
+    assert.equal(profiles[0].sku, profiles[1].sku);
+    for (const face of ["front", "rear"]) {
+      assert.deepEqual(profiles[0].faces[face].components, profiles[1].faces[face].components, `${exact} ${face} hardware`);
+      const geometry = profiles.map((profile) => Object.fromEntries(profile.faces[face].ports.map((slot) => [slot.physicalLabel,
+        { x: slot.x, y: slot.y, width: slot.width, height: slot.height, connectorKind: slot.connectorKind, descriptionAnchor: slot.descriptionAnchor }])));
+      assert.deepEqual(geometry[0], geometry[1], `${exact} ${face} physical sockets`);
+    }
+    for (const [label, indices] of Object.entries(serviceIndices)) {
+      assert.deepEqual(profiles.map((profile) => profile.faces.front.ports.find((slot) => slot.physicalLabel === label).portIndex), indices);
+    }
+    if (profiles[0].sku === "JL624A") {
+      assert.equal(profiles[0].faces.rear.components.filter((part) => part.variant === "aruba-8325").length, 6);
+      assert.equal(profiles[0].faces.rear.components.filter((part) => part.variant === "aruba-8325-ac").length, 2);
+      assert.equal(profiles[0].faces.front.ports.find((slot) => slot.physicalLabel === "MGMT").connectorKind, "rj45-inverted");
+    }
+  }
+});
+
+test("exact JL661A and JL624A drawings never reset saved current settings with generated captions", () => {
+  for (const model of ["CX 6300M 48G", "CX 8325-48Y8C"]) {
+    for (const sparse of [false, true]) {
+      const device = deviceFor(model);
+      if (sparse) device.ports = device.ports.filter((port) => port.portIndex !== 17);
+      device.ports.reverse();
+      for (const port of device.ports) {
+        port.speedMbps = 100; port.isPoe = !port.isPoe; port.group = "Saved group";
+        port.nativeVlan = 17; port.allowedVlans = [17, 91];
+      }
+      const before = structuredClone(device);
+      assert.equal(upgradeInstalledPhysicalPorts({ devices: [device] }), false, model);
+      for (const width of [460, 690]) {
+        const scene = buildFaceplateScene(device, { x: 0, y: 0, width, height: 100 });
+        assert.equal(scene.ports.length, device.ports.length);
+        assert.equal(scene.unmappedPorts.length, 0);
+      }
+      assert.deepEqual(device, before, `${model}: stored types, speeds, captions and endpoint identities survive`);
+      device.faceplate.inventoryRevision = 99;
+      const unknown = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 });
+      assert.equal(unknown.ports.length, 0);
+      assert.equal(unknown.unmappedPorts.length, device.ports.length);
+    }
+  }
 });
 
 test("historical Aruba console types and renamed endpoint identities survive the catalog corrections", () => {

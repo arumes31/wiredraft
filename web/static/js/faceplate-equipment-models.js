@@ -7,6 +7,9 @@ import { resolveDellServerFaceplate } from "./faceplate-dell-server-models.js";
 import { resolveHPEServerFaceplate } from "./faceplate-hpe-server-models.js";
 import { resolveTeltonikaFaceplate } from "./faceplate-teltonika-models.js";
 import { resolveAdtranFaceplate } from "./faceplate-adtran-models.js";
+import { resolveLantronixFaceplate } from "./faceplate-lantronix-models.js";
+import { resolveOpengearFaceplate } from "./faceplate-opengear-models.js";
+import { resolveRaritanFaceplate } from "./faceplate-raritan-models.js";
 
 // Panel roles follow the cited hardware guides. Family and configurable layouts
 // preserve the catalog's representative inventory rather than asserting SKU dimensions.
@@ -72,6 +75,12 @@ const networkDiscrepancies = {
 
 /** Resolve known equipment panels, or an explicitly configured Static server's current inventory. */
 export function resolveEquipmentFaceplate(device) {
+  const raritan = resolveRaritanFaceplate(device);
+  if (raritan) return raritan;
+  const opengear = resolveOpengearFaceplate(device);
+  if (opengear) return opengear;
+  const lantronix = resolveLantronixFaceplate(device);
+  if (lantronix) return lantronix;
   const adtran = resolveAdtranFaceplate(device);
   if (adtran) return adtran;
   const hpeServer = resolveHPEServerFaceplate(device);

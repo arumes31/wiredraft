@@ -78,6 +78,7 @@ const (
 	PortTypeRJ45MGIG    PortType = "RJ45_MGIG"
 	PortTypeRJ4510G     PortType = "RJ45_10G"
 	PortTypeDSLRJ11     PortType = "DSL_RJ11"
+	PortTypePOTSRJ11    PortType = "POTS_RJ11"
 	PortTypeCoaxF       PortType = "COAX_F"
 	PortTypeSFP1G       PortType = "SFP_1G"
 	PortTypeSFPPlus10G  PortType = "SFP_PLUS_10G"

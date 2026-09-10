@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { enterGuestWorkspace } from "./auth-helper.mjs";
+import { enterGuestWorkspace, unlockEditor } from "./auth-helper.mjs";
 
 const onePixelPNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -19,6 +19,7 @@ test("uploads, previews, edits, enlarges, and deletes a protected device photo",
   await mapDialog.getByText("STARTER TOPOLOGY").click();
   await mapDialog.locator('button[value="create"]').click();
   await expect(mapDialog).not.toBeVisible();
+  await unlockEditor(page);
 
   await page.locator('[data-tree-type="device"]').first().click();
   const photoSection = page.locator(".inspector-photos");

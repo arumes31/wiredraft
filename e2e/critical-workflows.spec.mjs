@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { enterGuestWorkspace } from "./auth-helper.mjs";
+import { enterGuestWorkspace, unlockEditor } from "./auth-helper.mjs";
 
 test.beforeEach(async ({ page, request }) => {
 	await enterGuestWorkspace(page, request);
   await expect(page.locator("#connection-status")).toHaveAttribute("data-state", "online", { timeout: 15_000 });
   await expect(page.locator("#diagram-canvas")).toBeVisible();
+  await unlockEditor(page);
 });
 
 test("loads a topology and opens primary editing tools", async ({ page }) => {
@@ -83,6 +84,7 @@ test("creates, switches, and remembers another network map", async ({ page, requ
   expect(created.location).toBe(location);
   await expect(page.locator("#topology-count")).toHaveText(`${before.length + 1} MAPS`);
 
+  await unlockEditor(page);
   await page.locator("#edit-topology-button").click();
   await expect(dialog.locator("#map-template-field")).toBeHidden();
   await expect(dialog.locator('[name="organization"]')).toHaveValue("Guest");
@@ -122,6 +124,7 @@ test("Panel Map explains why zero or one installed panel is insufficient", async
   await expect(page.locator("#connection-status")).toHaveAttribute("data-state", "online");
   await page.locator("#topology-select").selectOption(topology.id);
   await expect(page.locator("#topology-name")).toHaveText(topology.name);
+  await unlockEditor(page);
 
   const panelMap = page.locator("#patch-panel-map-button");
   await expect(panelMap).toHaveText("PANEL MAP");
