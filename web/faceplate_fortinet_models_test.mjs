@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { hardwareCatalog, instantiateProfile, upgradeInstalledPhysicalPorts } from "./static/js/catalog.js";
 import { resolveFortinetFaceplate } from "./static/js/faceplate-fortinet-models.js";
 import { buildFaceplateScene } from "./static/js/faceplate-scene.js";
+import { hardwarePrimitives } from "./static/js/hardware-components.js";
 
 /** Instantiate a catalog device with canonical inventory for panel assertions. */
 function deviceFor(model) {
@@ -336,7 +337,7 @@ function verifyLegacyE(model, groups, indexMap) {
   }));
   const before = structuredClone(saved);
   assert.equal(upgradeInstalledPhysicalPorts({ devices: [saved] }), false);
-  const bounds = { ...testBounds, height: fresh.units * 100 };
+  const bounds = { ...testBounds, height: fresh.faceplate.unitsU * 100 };
   const expected = buildFaceplateScene(fresh, bounds);
   const actual = buildFaceplateScene(saved, bounds);
   assert.equal(actual.ports.length, Object.keys(indexMap).length);
@@ -345,6 +346,7 @@ function verifyLegacyE(model, groups, indexMap) {
   for (const port of actual.ports) {
     const corresponding = expected.ports.find((item) => item.port.portIndex === indexMap[port.port.portIndex]);
     assert.ok(corresponding, `${model} legacy index ${port.port.portIndex}`);
+    assert.ok([port.centerX, port.centerY, corresponding.centerX, corresponding.centerY].every(Number.isFinite));
     assert.equal(port.centerX, corresponding.centerX);
     assert.equal(port.centerY, corresponding.centerY);
   }
@@ -385,3 +387,53 @@ for (const model of ["2000E", "2500E"]) {
 }
 verifyLegacyE("400E-Bypass", [["RJ45_1G", 18], ["SFP_1G", 16], ["Console", 1]],
   { ...Object.fromEntries(Array.from({ length: 18 }, (_, index) => [index + 1, index + 1])), 35: 35 });
+
+for (const [model, count, fans, supplies] of [["800D", 37, 5, 1], ["800D-DC", 37, 5, 1], ["900D", 38, 0, 2], ["1000D", 38, 0, 2],
+  ["3000D", 19, 3, 2], ["3000D-DC", 19, 3, 2], ["3100D", 35, 3, 2], ["3100D-DC", 35, 3, 2],
+  ["3200D", 51, 3, 2], ["3200D-DC", 51, 3, 2], ["3700D", 36, 3, 2], ["3700D-DC", 36, 3, 2]]) {
+  const device = deviceFor(`FortiGate ${model}`);
+  const profile = resolveFortinetFaceplate(device);
+  assert.equal(profile.fidelity, "model", model);
+  assert.equal(profile.inventoryComplete, true);
+  assert.equal(device.ports.length, count);
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "fan").length, fans);
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "psu").length, supplies);
+  if (model.endsWith("-DC")) assert.ok(profile.faces.rear.components.filter((item) => item.kind === "psu").every((item) =>
+    item.variant === (model.startsWith("800") ? "dc-recessed3-inlet-right" : model.startsWith("3700") ? "dc-terminal2" : "dc-keyed3-inlet-right")));
+}
+for (const model of ["900D", "1000D", "3700D", "3700D-DC"]) {
+  const profile = resolveFortinetFaceplate(deviceFor(`FortiGate ${model}`));
+  assert.equal(profile.faces.front.ports.filter((port) => port.type === "USB_MINI_CONSOLE").length, 1);
+}
+const front800D = resolveFortinetFaceplate(deviceFor("FortiGate 800D")).faces.front.ports;
+assert.deepEqual(front800D.filter((port) => /^WAN/.test(port.physicalLabel || "")).map((port) => port.portIndex), [25, 26],
+  "new WAN endpoints do not displace the existing twenty-four copper identities");
+for (const label of ["1", "2"]) {
+  const wan = front800D.find((port) => port.physicalLabel === `WAN${label}`);
+  const data = front800D.find((port) => port.physicalLabel === label);
+  assert.equal(wan.x, data.x, "each WAN socket sits above its same-numbered bypass partner");
+  assert.ok(wan.y < data.y);
+}
+verifyLegacyE("800D", [["RJ45_1G", 24], ["SFP_1G", 8], ["SFP_PLUS_10G", 2], ["Console", 1]],
+  Object.fromEntries(Array.from({ length: 35 }, (_, index) => [index + 1, index < 24 ? index + 1 : index + 3])));
+for (const model of ["900D", "1000D"]) verifyLegacyE(model,
+  [["RJ45_1G", 18], ["SFP_1G", 16], ["SFP_PLUS_10G", 2], ["Console", 1]],
+  Object.fromEntries(Array.from({ length: 37 }, (_, index) => [index + 1, index + 1])));
+verifyLegacyE("3100D-DC", [["RJ45_1G", 2], ["SFP_PLUS_10G", 48], ["Console", 1]],
+  { ...Object.fromEntries(Array.from({ length: 34 }, (_, index) => [index + 1, index + 1])), 51: 35 });
+verifyLegacyE("3700D-DC", [["RJ45_1G", 2], ["SFP_PLUS_10G", 28], ["QSFP_PLUS_40G", 4], ["Console", 2]],
+  Object.fromEntries(Array.from({ length: 36 }, (_, index) => [index + 1, index + 1])));
+
+for (const model of ["3300E", "3960E", "2000E", "400E-Bypass", "800D", "3000D", "3700D"]) {
+  const device = deviceFor(`FortiGate ${model}`);
+  const rear = resolveFortinetFaceplate(device).faces.rear;
+  const studs = rear.components.filter((item) => item.kind === "screw");
+  assert.equal(studs.length, 2, `${model} has two exposed chassis earthing studs`);
+  assert.equal(rear.components.some((item) => item.kind === "terminal"), false, "metal earth studs are not green terminal blocks");
+  for (const stud of studs) {
+    const art = hardwarePrimitives({ ...stud, x: stud.x * 1000, y: stud.y * device.faceplate.unitsU * 100,
+      width: stud.width * 1000, height: stud.height * device.faceplate.unitsU * 100 });
+    assert.equal(art.filter((item) => item.kind === "circle" && item.r > 0).length, 2, "each stud has visible metal head and contact");
+    assert.equal(art.filter((item) => item.kind === "line").length, 2);
+  }
+}

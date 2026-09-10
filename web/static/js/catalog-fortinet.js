@@ -28,6 +28,7 @@ const qsfp200 = (count, prefix = "QSFP56") => group("uplink", count, "QSFP56_200
 const qsfp400 = (count, prefix = "QSFP-DD") => group("uplink", count, "QSFP_DD_400G", 400000, prefix);
 const consolePort = (count = 1) => group("management", count, "Console", 0, "CONSOLE");
 const usbMicroConsole = () => group("management", 1, "USB_MICRO_CONSOLE", 0, "CONSOLE");
+const usbMiniConsole = () => group("management", 1, "USB_MINI_CONSOLE", 0, "USB-MGMT");
 const managementRJ45 = (count, prefix = "MGMT") => group("management", count, "RJ45_1G", 1000, prefix);
 const dsl = (count = 1) => group("access", count, "DSL_RJ11", 1000, "DSL");
 
@@ -132,9 +133,21 @@ add(["FortiGate 400E-Bypass"], "Firewall", 1, [ge(34), consolePort()], {
 add(["FortiGate 400F", "FortiGate 401F"], "Firewall", 1, [ge(18), sfp(8), sfpp(8), consolePort()], { lifecycle: "supported", source: FORTIGATE_MATRIX });
 add(["FortiGate 500E", "FortiGate 501E", "FortiGate 600E", "FortiGate 601E"], "Firewall", 1, [ge(10), sfp(8), sfpp(2), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
 add(["FortiGate 600F", "FortiGate 601F"], "Firewall", 1, [ge(18), sfp(8), sfpp(4), sfp28(4), consolePort()], { lifecycle: "supported", source: FORTIGATE_MATRIX });
-add(["FortiGate 800D"], "Firewall", 1, [ge(24), sfp(8), sfpp(2), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
-add(["FortiGate 900D"], "Firewall", 1, [ge(18), sfp(16), sfpp(2), consolePort()], { lifecycle: "legacy", fidelity: "family", source: FORTIGATE_MATRIX });
-add(["FortiGate 1000D"], "Firewall", 2, [ge(18), sfp(16), sfpp(2), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
+add(["FortiGate 800D"], "Firewall", 1, [ge(26), sfp(8), sfpp(2), consolePort()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/90a1371d-1a0b-11e9-9685-f8bc1258b856/FortiGate-800D-Supplement.pdf",
+  note: "PDF page 3 shows twenty-two data, two WAN and two management copper sockets. New WAN indices preserve older copper endpoint identities.",
+});
+add(["FortiGate 900D"], "Firewall", 1, [ge(18), sfp(16), sfpp(2), consolePort(), usbMiniConsole()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/cb4ad175-1a0b-11e9-9685-f8bc1258b856/FortiGate-900D-Supplement.pdf",
+  note: "PDF page 3 documents a separate USB mini-B management socket, appended without shifting older endpoint indices.",
+});
+add(["FortiGate 1000D"], "Firewall", 2, [ge(18), sfp(16), sfpp(2), consolePort(), usbMiniConsole()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/ae004e1f-1a0a-11e9-9685-f8bc1258b856/FortiGate-1000D-Supplement.pdf",
+  note: "PDF page 3 illustrates the mini-B USB management socket separately from the RJ45 console and two USB-A server sockets; the new endpoint is appended.",
+});
 add(["FortiGate 1100E", "FortiGate 1101E"], "Firewall", 2, [ge(18), sfp(8), sfpp(4), sfp28(4), qsfp40(2), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
 add(["FortiGate 2200E", "FortiGate 2201E"], "Firewall", 2, [ge(14), sfp28(20), qsfp40(4), consolePort()], {
   lifecycle: "legacy", source: "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/fortigate-2200e-series.pdf",
@@ -150,7 +163,12 @@ add(["FortiGate 2500E"], "Firewall", 2, [ge(34), sfpp(10), group("uplink", 2, "F
   note: "PDF page 7 distinguishes ten pluggable SFP+ slots from two fixed LC bypass optics; thirty-two copper data, two management and one console complete the inventory.",
 });
 add(["FortiGate 3000D"], "Firewall", 2, [ge(2), sfpp(16), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
-add(["FortiGate 3100D", "FortiGate 3200D"], "Firewall", 2, [ge(2), sfpp(48), consolePort()], { lifecycle: "legacy", fidelity: "family", source: FORTIGATE_MATRIX });
+add(["FortiGate 3100D"], "Firewall", 2, [ge(2), sfpp(32), consolePort()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/c33905b5-1a0a-11e9-9685-f8bc1258b856/FortiGate-3100D-QSG-Supplement.pdf",
+  note: "PDF page 3 identifies thirty-two SFP+ slots. Former surplus optical endpoints remain unmapped; the saved console is explicitly mapped.",
+});
+add(["FortiGate 3200D"], "Firewall", 2, [ge(2), sfpp(48), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
 add(["FortiGate 3300E", "FortiGate 3301E"], "Firewall", 2, [ge(14), tenT(4), sfp28(16), qsfp40(4), consolePort()], {
   lifecycle: "legacy", inventoryRevision: 1,
   source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/6816e10f-df0f-11e9-8977-00505692583a/FortiGate-3300E-QSG.pdf",
@@ -166,7 +184,11 @@ add(["FortiGate 3600E", "FortiGate 3600E-DC", "FortiGate 3601E"], "Firewall", 2,
   source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/91f40509-299d-11e9-94bf-00505692583a/FortiGate-3600E-Series-ACDC-Supplement.pdf",
   note: "PDF page 3 identifies thirty data plus two HA SFP28 and six QSFP28 sockets. Explicit revision mappings retain older optical and console endpoint identities.",
 });
-add(["FortiGate 3700D"], "Firewall", 3, [ge(2), sfpp(28), qsfp40(4), consolePort(2)], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
+add(["FortiGate 3700D"], "Firewall", 3, [ge(2), sfpp(28), qsfp40(4), consolePort(), usbMiniConsole()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/a8cceba0-1a0a-11e9-9685-f8bc1258b856/FG-3700D-Supplement.pdf",
+  note: "PDF page 3 distinguishes one RJ45 console from one USB mini-B management socket. Revision 1 retains the original endpoint indices.",
+});
 add(["FortiGate 3960E"], "Firewall", 3, [ge(2), sfpp(16), qsfp100(6), consolePort()], {
   lifecycle: "legacy", inventoryRevision: 1,
   source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/e7c49731-1a12-11e9-9685-f8bc1258b856/FortiGate-3960E-3980E-ACDC-QSG-Supplement.pdf",

@@ -73,6 +73,8 @@ function fitPortDescriptions(ports, bounds, chassis) {
   const rows = new Map();
   for (const port of ports) {
     const label = portDescriptionPlacement(port, bounds);
+    // Some service columns reserve caption space beyond their adjacent storage/display hardware.
+    if (port.descriptionAnchor) Object.assign(label, port.descriptionAnchor, { side: "anchored" });
     label.boxMaxWidth = Math.max(4, Math.min(label.x - chassis.x, chassis.x + chassis.width - label.x) * 2 - 2);
     port.labelPlacement = label;
     const row = Math.floor(label.y / 11);
@@ -153,6 +155,10 @@ export function buildFaceplateScene(device, bounds, { face } = {}) {
       width: slot.width ? slot.width * chassis.width : size.width,
       height: slot.height ? slot.height * chassis.height : size.height,
     }), physicalFace, connectorKind: slot.connectorKind,
+    ...(slot.descriptionAnchor ? { descriptionAnchor: {
+      x: chassis.x + slot.descriptionAnchor.x * chassis.width,
+      y: chassis.y + slot.descriptionAnchor.y * chassis.height,
+    } } : {}),
     displayLabel: slot.physicalLabel && port.label === (legacyLayout?.portLabels?.[port.portIndex] ?? slot.label)
       ? slot.physicalLabel : port.label });
   }

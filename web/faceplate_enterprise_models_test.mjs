@@ -40,7 +40,8 @@ for (const catalog of profiles) {
   }
   for (const [face, panel] of Object.entries(profile.faces)) {
     const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: device.faceplate.unitsU * 100 }, { face });
-    assert.ok(scene.ports.every((port) => port.height <= 23.0001),
+    // StackWise cavities can span the chassis height; Ethernet/service sockets retain their compact dimensions.
+    assert.ok(scene.ports.every((port) => port.port.type === "Stack" || port.height <= 23.0001),
       `${device.model}: actual socket height must stay bounded after scaling its chassis and title strip`);
     assert.ok(panel.components.length, `${device.model} ${face} requires authored panel components`);
     const boxes = panel.ports.map((slot) => ({ ...slot, x: slot.x - slot.width / 2, y: slot.y - slot.height / 2 }));

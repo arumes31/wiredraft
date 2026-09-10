@@ -221,6 +221,23 @@ test("keyed four-pin power and recessed controls do not resemble network sockets
   assert.equal(new Set(verticalTerminal.filter((part) => part.kind === "circle").map((part) => part.cy)).size, 4);
 });
 
+test("StackPower housings expose paired shelves and a keyed latch without inventing a pin count", () => {
+  const component = { x: 0, y: 0, width: 36, height: 27, kind: "power", variant: "stack-power" };
+  const parts = hardwarePrimitives(component);
+  const shelves = parts.filter((part) => part.kind === "rect" && part.fill === "#a7b2b5");
+  assert.equal(shelves.length, 2);
+  assert.equal(shelves[0].x, shelves[1].x);
+  assert.ok(shelves[0].y < shelves[1].y);
+  assert.ok(shelves.every((part) => part.width > part.height * 3));
+  assert.ok(parts.some((part) => part.kind === "rect" && part.y < component.height * .05), "the upper latch remains visible");
+  assert.equal(parts.filter((part) => part.fill === "#b9c3c4").length, 0, "unresolved individual contacts are not invented");
+  assert.notDeepEqual(parts, hardwarePrimitives({ ...component, variant: "dc-multipin" }), "the opened stack-power socket cannot look like an empty cover");
+  const canvas = recordingContext();
+  drawHardwareComponent(canvas, component);
+  assert.equal(canvas.shapes.length, parts.length);
+  assert.equal((hardwareComponentSVG(component).match(/<(?:rect|circle|line|text)\b/g) || []).length, parts.length);
+});
+
 test("right-inlet power supplies and grounding studs retain their actual physical roles", () => {
   const bounds = { x: 0, y: 0, width: 100, height: 50 };
   const power = hardwarePrimitives({ ...bounds, kind: "psu", variant: "ac-inlet-right" });
@@ -243,6 +260,33 @@ test("DC supplies distinguish a keyed pair from screw terminals and their separa
   assert.equal(screws.filter((part) => part.cy > 50).length, 2);
   assert.equal(screws.filter((part) => part.cy < 50).length, 1);
   assert.equal(terminal.filter((part) => part.fill === "#d7b76c").length, 0);
+});
+
+test("three-contact DC supplies distinguish retained metal and recessed keyed right inlets", () => {
+  const bounds = { x: 0, y: 0, width: 120, height: 80, kind: "psu" };
+  const metal = hardwarePrimitives({ ...bounds, variant: "dc-keyed3-inlet-right" });
+  const recessed = hardwarePrimitives({ ...bounds, variant: "dc-recessed3-inlet-right" });
+  for (const parts of [metal, recessed]) {
+    const contacts = parts.filter((part) => part.kind === "circle" && part.fill === "#b9c3c4");
+    assert.equal(contacts.length, 3, "the supply connector has exactly three round contacts");
+    assert.equal(new Set(contacts.map((part) => part.cx)).size, 1, "contacts form one vertical column");
+    assert.ok(contacts.every((part) => part.cx > bounds.width * .6));
+    assert.ok(contacts[0].cy < contacts[1].cy && contacts[1].cy < contacts[2].cy);
+    const handle = parts.find((part) => part.kind === "rect" && part.fill === "#a7b2b5");
+    assert.ok(handle && handle.height > handle.width * 2 && handle.x + handle.width < contacts[0].cx,
+      "the vertical pull handle sits left of the inlet");
+  }
+  const metalContacts = metal.filter((part) => part.kind === "circle" && part.fill === "#b9c3c4");
+  assert.ok(metalContacts[1].r > metalContacts[0].r && metalContacts[1].r > metalContacts[2].r);
+  const recessedContacts = recessed.filter((part) => part.kind === "circle" && part.fill === "#b9c3c4");
+  assert.equal(new Set(recessedContacts.map((part) => part.r)).size, 1);
+  const retainers = metal.filter((part) => part.kind === "circle" && part.fill === "#708389");
+  assert.equal(retainers.length, 2, "the metal inlet retains its two mounting fasteners");
+  assert.ok(retainers[0].cy < metalContacts[0].cy && retainers[1].cy > metalContacts[2].cy);
+  assert.equal(recessed.filter((part) => part.kind === "circle" && part.fill === "#708389").length, 0);
+  for (const variant of ["dc-keyed3-inlet-right", "dc-recessed3-inlet-right"]) {
+    assert.ok(!hardwarePrimitives({ ...bounds, variant, active: false }).some((part) => part.fill === "#42d98b"));
+  }
 });
 
 test("fan-right AC supplies place their inlet opposite the circular fan", () => {
@@ -286,6 +330,8 @@ test("vertical AC and DC supplies retain an upper inlet and a horizontal pull ba
 test("new PSU orientations stay bounded and render identical geometry through both adapters", () => {
   const configurations = [
     { variant: "ac-fan-right", width: 100, height: 50 },
+    ...["dc-keyed3-inlet-right", "dc-recessed3-inlet-right"].flatMap((variant) =>
+      [[100, 50], [60, 80], [20, 10]].map(([width, height]) => ({ variant, width, height }))),
     ...["ac", "dc-terminal2"].flatMap((variant) => [[30, 70], [80, 120], [10, 20]].map(([width, height]) =>
       ({ variant, orientation: "vertical", width, height }))),
   ];

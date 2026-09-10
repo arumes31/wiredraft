@@ -123,10 +123,19 @@ function primitiveBuilder(component, colors) {
 function addSocket(art, kind, colors, variant, portrait, columns) {
   const fill = colors.fill ?? "#07151a";
   const stroke = colors.stroke ?? "#708389";
-  if (kind === "power" && variant === "dc-multipin") {
+  if (kind === "power" && (variant === "dc-multipin" || variant === "stack-power")) {
     art.rect(.02, .12, .96, .84, colors.surfaceDark, stroke, .05);
     art.rect(.11, .27, .78, .53, fill, "#a7b2b5", .05);
     art.rect(.42, .015, .16, .14, colors.surfaceDark, stroke, .015);
+    if (variant === "stack-power") {
+      // The guide resolves the paired shelves and key, but not individual contact pins.
+      for (const top of [.31, .62]) {
+        art.rect(.17, top, .66, .11, "#a7b2b5", undefined, .012);
+        art.rect(.24, top + .025, .48, .06, fill, undefined, .005);
+      }
+      art.rect(.68, .42, .16, .20, colors.surfaceDark, stroke, .01);
+      return;
+    }
     if (Number.isInteger(columns) && columns > 0 && columns <= 24) {
       for (let column = 0; column < columns; column++) for (const top of [.39, .6]) {
         art.rect(.145 + column * .7 / columns, top, .35 / columns, .055, "#b9c3c4", undefined, .005);
@@ -285,6 +294,10 @@ function addHandle(art, colors) {
 function addPowerSupply(art, component, colors) {
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
+  if (component.variant === "dc-keyed3-inlet-right" || component.variant === "dc-recessed3-inlet-right") {
+    addThreeContactDCSupply(art, component, colors);
+    return;
+  }
   if (component.orientation === "vertical" && (component.variant === "ac" || component.variant === "dc-terminal2")) {
     addVerticalPowerSupply(art, component, colors);
     return;
@@ -310,6 +323,41 @@ function addPowerSupply(art, component, colors) {
   art.rect(.83 + handleOffset, .28, .035, .44, colors.surface, colors.ink, .02);
   art.circle(.94, .22, .035, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
   if (component.variant !== "fixed") art.rect(.78 + handleOffset, .73, .08, .1, colors.accent, colors.ink, .02);
+}
+
+/** Draw three-contact DC modules with a retained metal inlet or a recessed keyed opening. */
+function addThreeContactDCSupply(art, component, colors) {
+  const recessed = component.variant === "dc-recessed3-inlet-right";
+  for (let row = 0; row < 6; row++) {
+    for (let column = 0; column < (recessed ? 6 : 4); column++) {
+      art.rect(.075 + column * .082, .16 + row * .115, .055, .078, colors.surfaceDark, undefined, .012);
+    }
+  }
+  art.rect(recessed ? .25 : .40, .12, .07, .76, "#a7b2b5", colors.ink, .035);
+  art.line(recessed ? .27 : .42, .18, recessed ? .27 : .42, .82, "#d9dfe1");
+  if (recessed) {
+    art.rect(.65, .25, .20, .57, "#0d1c21", colors.ink, .005);
+    art.rect(.675, .32, .145, .42, "#708389", undefined, .01);
+    art.rect(.675, .56, .028, .10, "#0d1c21", undefined, 0);
+  } else {
+    art.rect(.625, .11, .22, .78, colors.surfaceDark, colors.ink, .02);
+    for (const y of [.16, .84]) {
+      art.circle(.735, y, .04, "#708389", colors.ink);
+      art.line(.72, y, .75, y, "#d9dfe1");
+    }
+    art.rect(.65, .245, .17, .51, "#a7b2b5", colors.ink, .055);
+    art.rect(.68, .29, .10, .42, "#0d1c21", undefined, .03);
+    art.line(.68, .32, .70, .29, "#708389");
+    art.line(.68, .68, .70, .71, "#708389");
+    art.rect(.88, .53, .06, .35, "#a4662d", colors.ink, .012);
+  }
+  for (const [index, y] of (recessed ? [.41, .52, .63] : [.35, .50, .65]).entries()) {
+    const radius = recessed ? .027 : index === 1 ? .048 : .033;
+    art.circle(recessed ? .745 : .73, y, radius, "#b9c3c4", colors.ink);
+    art.circle(recessed ? .745 : .73, y, radius * .42, "#0d1c21");
+  }
+  art.circle(recessed ? .58 : .12, recessed ? .18 : .13, .027,
+    component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
 }
 
 /** Mirror the inlet, fan grille, and status light for horizontal AC supply variants. */

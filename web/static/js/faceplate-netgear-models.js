@@ -4,6 +4,7 @@ const guides = {
   m4300: "https://www.downloads.netgear.com/files/GDC/M4300/M4300_HIG_EN.pdf",
   m4250: "https://www.downloads.netgear.com/files/GDC/M4250/M4250_HIG_EN.pdf",
   gs110: "https://www.downloads.netgear.com/files/GDC/GS110T/GS110T_HIG_25Oct11.pdf",
+  gs108: "https://www.downloads.netgear.com/files/GDC/GS108Tv3/GS108Tv3_GS110TPv3_HIG_EN.pdf",
   gsv6: "https://www.downloads.netgear.com/files/GDC/GS748Tv6/GS724Tv6_GS748Tv6_HIG_EN.pdf",
 };
 const definitions = {
@@ -11,6 +12,7 @@ const definitions = {
   "M4300-52G": { sku: "GSM4352S", series: "m4300", copper: 48, frontPage: 26, rearPage: 28 },
   "M4250-26G4F-PoE+": { sku: "GSM4230P", series: "m4250", frontPage: 23, rearPage: 24 },
   GS110T: { sku: "GS110T (2011 hardware guide)", series: "gs110", copper: 8, frontPage: 11, rearPage: 12 },
+  GS108T: { sku: "GS108Tv3", series: "gs108", copper: 8, frontPage: 13, rearPage: 13 },
   GS724T: { sku: "GS724Tv6", series: "gsv6", copper: 24, frontPage: 11, rearPage: 13 },
   GS748T: { sku: "GS748Tv6", series: "gsv6", copper: 48, frontPage: 11, rearPage: 14 },
 };
@@ -23,6 +25,10 @@ export function resolveNetgearFaceplate(device) {
   if (!canonical) return null;
   if (!cache.has(device.model)) {
     const definition = definitions[device.model];
+    if (definition.series === "gs108") {
+      cache.set(device.model, gs108Profile(canonical, definition));
+      return cache.get(device.model);
+    }
     if (definition.series.startsWith("gs")) {
       cache.set(device.model, gsProfile(canonical, definition));
       return cache.get(device.model);
@@ -121,6 +127,29 @@ function m4250Panels(ports) {
     part("button", .031, .765, .008, .065), part("text", .595, .02, .035, .075, "25/26")];
   for (const y of [.395, .50, .605]) components.push(part("led", .017, y, .005, .035));
   return { front: { ports: [], components: front }, rear: { ports: rear, components } };
+}
+
+/** Trace the GS108Tv3's two four-socket banks and rear power without treating its PoE input as an output. */
+function gs108Profile(canonical, definition) {
+  const source = guides.gs108;
+  return {
+    id: "netgear-gs108t-v3", sku: definition.sku, defaultFace: "front", fidelity: "model",
+    panelFidelity: { front: "model", rear: "model" }, source, sourcePage: "Front and rear page 13",
+    evidence: { models: [canonical.catalog.model, definition.sku], front: `${source}#page=13`, rear: `${source}#page=13` },
+    note: "The GS108Tv3 front and rear are traced from Figures 1 and 2 of the manufacturer's hardware guide.",
+    limitations: ["This drawing selects hardware revision v3; earlier GS108T revisions can differ.",
+      "Port 1 can receive PoE power as a powered device. None of the eight Ethernet ports supplies PoE power.",
+      "The switch is fanless. Top, bottom and side details are outside the front/rear projection."],
+    chassis: { x: .28, y: .16, width: .44, height: .68 },
+    faces: {
+      front: { ports: canonical.device.ports.map((port, index) =>
+        socket(port, .230 + index * .098 + (index >= 4 ? .009 : 0), .462, .086, .43)),
+      components: [part("text", .02, .03, .14, .10, "NETGEAR"),
+        part("led", .043, .555, .015, .07), part("button", .111, .54, .020, .11, undefined, "reset")] },
+      rear: { ports: [], components: [part("power", .815, .26, .054, .43, undefined, "dc-barrel"),
+        { ...part("vent", .260, .20, .050, .08, undefined, "slit"), role: "security-lock" }] },
+    },
+  };
 }
 
 /** State the exact GS hardware revision and retain physical combo connectors as separate inventory endpoints. */

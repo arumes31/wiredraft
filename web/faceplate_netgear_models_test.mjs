@@ -50,6 +50,35 @@ test("GS110T has a compact single row, separate optical sockets and rear DC powe
   assert.deepEqual(device, before);
 });
 
+test("GS108T v3 keeps eight non-PSE copper sockets in one row and its separate rear barrel inlet", () => {
+  const { device, profile } = fixture("GS108T");
+  assert.equal(profile?.sku, "GS108Tv3");
+  assert.equal(profile.fidelity, "model");
+  assert.deepEqual(profile.panelFidelity, { front: "model", rear: "model" });
+  assert.match(profile.evidence.front, /GS108Tv3_GS110TPv3_HIG_EN.pdf#page=13$/);
+  assert.equal(profile.evidence.rear, profile.evidence.front);
+  assert.equal(profile.faces.front.ports.length, 8);
+  assert.equal(new Set(profile.faces.front.ports.map((port) => port.y)).size, 1);
+  assert.deepEqual(profile.faces.front.ports.map((port) => port.portIndex), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.ok(device.ports.every((port) => port.type === "RJ45_1G" && !port.isPoe));
+  assert.ok(profile.limitations.some((note) => /Port 1.*receive.*PoE/.test(note)));
+  assert.equal(profile.faces.rear.ports.length, 0);
+  const power = profile.faces.rear.components.filter((part) => part.kind === "power");
+  assert.equal(power.length, 1);
+  assert.equal(power[0].variant, "dc-barrel");
+  assert.ok(power[0].x > .8);
+  assert.ok(profile.chassis.width < .5);
+  assert.ok(!Object.values(profile.faces).some((face) => face.components.some((part) => part.kind === "fan")));
+  device.ports.reverse();
+  device.ports.forEach((port) => { port.id = `saved-${port.portIndex}`; port.label = `Room ${port.portIndex}`; });
+  const snapshot = structuredClone(device);
+  const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 });
+  assert.equal(scene.ports.length, 8);
+  assert.equal(scene.unmappedPorts.length, 0);
+  assert.ok(scene.ports.every((port) => port.displayLabel === port.port.label));
+  assert.deepEqual(device, snapshot);
+});
+
 test("GS724T v6 and GS748T v6 retain distinct copper banks, optical arrangements and rear power positions", () => {
   const small = fixture("GS724T").profile;
   const large = fixture("GS748T").profile;

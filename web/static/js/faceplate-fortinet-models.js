@@ -81,6 +81,13 @@ const GUIDES = {
   "2500E-ds": "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/FortiGate_2500E.pdf",
   "2000E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/30f0af8a-91f2-11f1-8c5a-8e4c95ff11ac/FortiGate-2000E-2500E-QSG.pdf",
   "400E-Bypass": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/92ffc448-af44-11eb-b70b-00505692583a/FortiGate-400E-BYPASS-QSG-Supplement.pdf",
+  "800D": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/90a1371d-1a0b-11e9-9685-f8bc1258b856/FortiGate-800D-Supplement.pdf",
+  "900D": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/cb4ad175-1a0b-11e9-9685-f8bc1258b856/FortiGate-900D-Supplement.pdf",
+  "1000D": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/ae004e1f-1a0a-11e9-9685-f8bc1258b856/FortiGate-1000D-Supplement.pdf",
+  "3000D": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/c0a5598b-1a0a-11e9-9685-f8bc1258b856/FortiGate-3000D-QSG-Supplement.pdf",
+  "3100D": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/c33905b5-1a0a-11e9-9685-f8bc1258b856/FortiGate-3100D-QSG-Supplement.pdf",
+  "3200D": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b2956e69-1a0a-11e9-9685-f8bc1258b856/FortiGate-3200D-Supplement.pdf",
+  "3700D": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/a8cceba0-1a0a-11e9-9685-f8bc1258b856/FG-3700D-Supplement.pdf",
 };
 
 /** Resolve Fortinet catalog panels without treating unverified variants as exact hardware. */
@@ -205,6 +212,10 @@ function buildFortinetProfile({ catalog, device }) {
   else if (/^FortiGate 39[68]0E(?:-DC)?$/.test(model)) add39603980E(profile, device);
   else if (/^FortiGate (?:2000E|2500E)$/.test(model)) add20002500E(profile, device);
   else if (model === "FortiGate 400E-Bypass") add400EBypass(profile, device);
+  else if (/^FortiGate 800D(?:-DC)?$/.test(model)) add800D(profile, device);
+  else if (/^FortiGate (?:900D|1000D)$/.test(model)) add9001000D(profile, device);
+  else if (/^FortiGate 3[012]00D(?:-DC)?$/.test(model)) add300031003200D(profile, device);
+  else if (/^FortiGate 3700D(?:-DC)?$/.test(model)) add3700D(profile, device);
   if (/^FortiGate (?:180[01]F(?:-DC)?|350[01]F)$/.test(model)) profile.legacyLayouts = [{ inventoryRevision: 0,
     portIndexMap: Object.fromEntries(device.ports.map((port) => [port.portIndex, port.portIndex])) }];
   if (/^FortiGate 300[01](?:G|F(?:-(?:ACDC|DC))?)$/.test(model)) profile.legacyLayouts = [{ inventoryRevision: 0,
@@ -213,6 +224,7 @@ function buildFortinetProfile({ catalog, device }) {
     portIndexMap: Object.fromEntries(device.ports.filter((port) => ![21, 22].includes(port.portIndex))
       .map((port) => [port.portIndex > 22 ? port.portIndex - 2 : port.portIndex, port.portIndex])) }];
   addLegacyEMapping(profile, device);
+  addLegacyDMapping(profile, device);
   const units = Math.max(1, Number(catalog.units) || 1);
   for (const face of Object.values(profile.faces)) {
     for (const port of face.ports) port.height = Math.min(port.height, .24 / units);
@@ -1701,7 +1713,7 @@ function legacyLargeERear(dc, ground = true) {
     ...[.018, .888].map((x, index) => ({ ...element("psu", x, .035, .096, .67, `PWR${index + 1}`, dc ? "dc-terminal2" : "ac"),
       orientation: "vertical" })),
     ...[.132, .323, .514, .705].map((x, index) => element("fan", x, .15, .178, .80, `FAN${index + 1}`, "fixed")),
-    ...(ground ? [element("terminal", .048, .842, .060, .085, undefined, "pins:2")] : []),
+    ...(ground ? [.048, .088].map((x) => element("screw", x, .842, .020, .085)) : []),
   ];
 }
 
@@ -1795,7 +1807,7 @@ function add39603980E(profile, device) {
     ]),
     ...[.076, .341, .607].map((y, index) => ({ ...element("psu", .892, y, .098, .257, `PWR${index + 1}`, dc ? "dc-terminal2" : "ac"),
       orientation: "vertical" })),
-    element("terminal", .905, .911, .070, .054, undefined, "pins:2"),
+    ...[.905, .955].map((x) => element("screw", x, .911, .020, .054)),
   ];
   profile.limitations.push("Inventory revision 1 replaces the former family port mix with the illustrated sixteen SFP+ and model-specific QSFP28 count. Surplus saved endpoints remain unmapped; surviving endpoints retain explicit index and media compatibility mappings.");
 }
@@ -1857,7 +1869,7 @@ function add20002500E(profile, device) {
   profile.faces.rear.components = [
     ...[.055, .279, .506].map((x, index) => element("fan", x, .163, .183, .78, `FAN${index * 2 + 1}/${index * 2 + 2}`, "fixed")),
     ...[.716, .848].map((x, index) => element("psu", x, .454, .128, .459, `PWR${index + 1}`, "ac")),
-    element("terminal", .014, .620, .023, .325, undefined, "pins:2"),
+    ...[.620, .860].map((y) => element("screw", .014, y, .023, .085)),
   ];
   profile.limitations.push("Three rear grille openings cover six tandem fans; only the exposed openings are drawn. Inventory revision 1 corrects the former family mix without assigning surplus saved optical endpoints to new copper sockets.");
 }
@@ -1883,9 +1895,178 @@ function add400EBypass(profile, device) {
     ...Array.from({ length: 8 }, (_, index) => element("vent", .201 + index * .0948, .21, .010, .57, undefined, "perforated")),
     element("vent", .957, .21, .021, .57, undefined, "perforated"),
   ];
-  profile.faces.rear.components = [element("terminal", .046, .120, .026, .68, undefined, "pins:2"),
+  profile.faces.rear.components = [...[.120, .600].map((y) => element("screw", .046, y, .026, .20)),
     ...[.090, .186, .283, .379].map((x, index) => element("fan", x, .080, .088, .84, `FAN${index + 1}`, "fixed")),
     element("psu", .698, .030, .121, .94, "PWR2", "ac"), element("psu", .838, .030, .121, .94, "PWR1", "ac"),
   ];
   profile.limitations.push("Inventory revision 1 replaces the former optical entries with the documented copper bypass pairs. Existing optical saved endpoints remain unmapped.");
+}
+
+/** Draw the 800D's separately numbered WAN bypass partners and its standard single populated power bay. */
+function add800D(profile, device) {
+  const dc = device.model.endsWith("-DC");
+  inspected(profile, "800D", "3 front, AC rear and DC rear");
+  notePhysicalLabels(profile);
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (port.type === "Console") return namedSlot(port, "CONSOLE", .238, .540, .033, .25);
+    const y = index % 2 ? .565 : .285;
+    if (index < 2) return namedSlot(port, `MGMT${index + 1}`, .316, y, .032, .25);
+    if (index < 4) return namedSlot(port, String(index - 1), .369 + (index - 2) * .049, .565, .032, .25);
+    if (index < 24) {
+      const column = Math.floor((index - 4) / 2);
+      return namedSlot(port, String(index - 1), .469 + column * .0328 + (column >= 4 ? .014 : 0), y, .030, .25);
+    }
+    if (index < 26) return namedSlot(port, `WAN${index - 23}`, .369 + (index - 24) * .049, .285, .032, .25);
+    return namedSlot(port, String(index - 3), .831 + Math.floor((index - 26) / 2) * .0332, y, .030, .25);
+  });
+  profile.faces.front.components = [element("text", .020, .130, .135, .14, "800D"),
+    element("usb", .173, .363, .031, .10, undefined, "a"), element("usb", .173, .550, .031, .10, undefined, "a"),
+    ...["STATUS", "ALARM", "HA", "POWER"].flatMap((label, index) => [
+      element("led", .264, .245 + index * .118, .004, .04),
+      element("text", .271, .240 + index * .118, .026, .053, label),
+    ]),
+  ];
+  profile.faces.rear.components = [
+    ...[.013, .110, .207, .305, .403].map((x, index) => element("fan", x, .070, .088, .85, `FAN${index + 1}`, "fixed")),
+    ...[.567, .617].map((x) => element("screw", x, .530, .023, .23)),
+    element("psu", .708, .040, .119, .90, "PWR1", dc ? "dc-recessed3-inlet-right" : "ac-inlet-right"),
+    element("module-bay", .850, .045, .121, .90, "PWR2 OPTIONAL", "blank"),
+  ];
+  profile.limitations.push("The standard illustrated rear has one supply and one optional blank bay. Revision 1 adds WAN1/WAN2 after the existing copper identities; each WAN socket is above its data1/data2 bypass partner.");
+}
+
+/** Trace the distinct one- and two-unit mixed-media D fronts and their perforated rear panels. */
+function add9001000D(profile, device) {
+  const tall = device.model === "FortiGate 1000D";
+  inspected(profile, tall ? "1000D" : "900D", "3 front and rear");
+  notePhysicalLabels(profile);
+  const rowY = tall ? [.656, .801] : [.378, .635];
+  const height = tall ? .12 : .24;
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (port.type === "Console") return namedSlot(port, "CONSOLE", tall ? .194 : .205, tall ? .790 : .635, .032, height);
+    if (port.type === "USB_MINI_CONSOLE") return namedSlot(port, "USB MGMT", tall ? .090 : .102, tall ? .865 : .748, .021, tall ? .050 : .085);
+    const y = rowY[index % 2];
+    if (index < 2) return namedSlot(port, `MGMT${index + 1}`, tall ? .247 : .257, y, .032, height);
+    if (index < 18) {
+      const offset = index - 2;
+      return namedSlot(port, String(offset < 8 ? offset + 9 : offset + 17),
+        (offset < 8 ? tall ? .449 : .453 : tall ? .834 : .824) + Math.floor(offset % 8 / 2) * .033, y, .031, height);
+    }
+    if (index < 34) {
+      const offset = index - 18;
+      return namedSlot(port, String(offset < 8 ? offset + 1 : offset + 9),
+        (offset < 8 ? .301 : .681) + Math.floor(offset % 8 / 2) * .033, y, .031, height);
+    }
+    return namedSlot(port, index === 34 ? "B" : "A", .615, y, .031, height);
+  });
+  profile.faces.front.components = tall ? [
+    element("text", .019, .070, .135, .12, "1000D"),
+    element("vent", .172, .048, .807, .405, undefined, "perforated"),
+    element("vent", .020, .295, .153, .158, undefined, "perforated"),
+    element("usb", .124, .716, .032, .069, undefined, "a"), element("usb", .124, .814, .032, .069, undefined, "a"),
+    ...["STATUS", "ALARM", "HA", "POWER"].flatMap((label, index) => [
+      element("led", .056, .665 + index * .061, .005, .029),
+      element("text", .028, .659 + index * .061, .025, .036, label),
+    ]),
+  ] : [element("text", .020, .110, .111, .15, "900D"),
+    element("usb", .134, .432, .032, .10, undefined, "a"), element("usb", .134, .620, .032, .10, undefined, "a"),
+    ...["STATUS", "ALARM", "HA", "POWER"].flatMap((label, index) => [
+      element("led", .042 + Math.floor(index / 2) * .027, .608 + index % 2 * .115, .004, .04),
+      element("text", .048 + Math.floor(index / 2) * .027, .604 + index % 2 * .115, .015, .055, label),
+    ]),
+  ];
+  profile.faces.rear.components = [
+    ...(tall ? [.074, .275, .475].map((x) => element("vent", x, .142, .182, .79, undefined, "perforated"))
+      : [.060, .293].map((x) => element("vent", x, .218, .211, .64, undefined, "perforated"))),
+    ...[.727, .849].map((x, index) => element("psu", x, tall ? .550 : .052, .117, tall ? .43 : .89, `PWR${index + 1}`, "ac-inlet-right")),
+  ];
+  profile.limitations.push("The rear drawings expose perforated vent fields, without separately visible fan modules. Revision 1 appends the separate USB management endpoint without changing older identities.");
+  if (tall) profile.limitations.push("The guide calls the USB management interface USB B; its enlarged drawing shows the five-contact mini-B receptacle.");
+}
+
+/** Trace each 3000D/3100D/3200D optical-bank arrangement and the independently pictured AC/DC supply connectors. */
+function add300031003200D(profile, device) {
+  const model = device.model.replace("FortiGate ", "").replace(/-DC$/, "");
+  const dc = device.model.endsWith("-DC");
+  const wide = model === "3200D";
+  inspected(profile, model, wide ? "5 front; 6 AC and DC rears" : "3 front; 4 AC and DC rears");
+  notePhysicalLabels(profile);
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (port.type === "Console") return namedSlot(port, "CONSOLE", wide ? .094 : .080, .702, .032, .12);
+    const y = index % 2 ? .810 : .665;
+    if (index < 2) return namedSlot(port, `MGMT${index + 1}`, wide ? .142 : .127, y, .032, .12);
+    const column = Math.floor((index - 2) / 2);
+    return namedSlot(port, String(index - 1), (wide ? .188 : .446) + column * .0331 + Math.floor(column / 8) * .010,
+      y, .030, .12);
+  });
+  profile.faces.front.components = [element("text", .018, .072, .137, .115, model),
+    element("vent", .173, .049, .807, .405, undefined, "perforated"),
+    element("vent", .021, .289, .152, .166, undefined, "perforated"),
+    element("usb", wide ? .079 : .065, .815, .030, .055, undefined, "a"),
+    ...["STATUS", "ALARM", "HA", "POWER"].flatMap((label, index) => [
+      element("led", .026, .650 + index * .061, .004, .023),
+      element("text", .004, .643 + index * .061, .019, .032, label),
+    ]),
+    ...(!wide ? [element("vent", .173, .578, .245, .286, undefined, "perforated")] : []),
+    ...(model === "3000D" ? [element("vent", .709, .578, .271, .286, undefined, "perforated")] : []),
+  ];
+  profile.faces.rear.components = [
+    ...[.025, .156].map((x, index) => element("psu", x, .500, .128, .480, `PWR${index + 1}`, dc ? "dc-keyed3-inlet-right" : "ac-inlet-right")),
+    ...[.314, .545, .776].map((x, index) => element("fan", x, .173, .182, .78, `FAN${index * 2 + 1}/${index * 2 + 2}`, "fixed")),
+    ...[.645, .875].map((y) => element("screw", .966, y, .022, .09)),
+  ];
+  profile.limitations.push("Three exposed rear grille openings cover tandem fan pairs; the supplies are separately drawn for AC and DC variants.");
+  if (wide && !dc) profile.limitations.push("The publisher clips the AC rear figure at both edges on PDF page 6. Its underlying vector outline was inspected to verify the complete power bays and chassis grounding studs.");
+  if (model === "3100D") profile.limitations.push("Revision 1 corrects forty-eight catalog SFP+ endpoints to the documented thirty-two. Surplus saved endpoints remain unmapped, and the console keeps an explicit old-index mapping.");
+}
+
+/** Trace the 3700D's left QSFP row, right SFP banks and opposite-end vertical supplies. */
+function add3700D(profile, device) {
+  const dc = device.model.endsWith("-DC");
+  inspected(profile, "3700D", "3 front, AC rear and DC rear; 4 connector details");
+  notePhysicalLabels(profile);
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (port.type === "Console") return namedSlot(port, "CONSOLE", .116, .783, .032, .080);
+    if (port.type === "USB_MINI_CONSOLE") return { ...namedSlot(port, "USB MGMT", .040, .885, .020, .040),
+      connectorKind: "usb-mini", compatibleTypes: ["Console"] };
+    if (index < 2) return namedSlot(port, `MGMT${index + 1}`, .164, index % 2 ? .859 : .769, .031, .080);
+    if (index < 30) {
+      const column = Math.floor((index - 2) / 2);
+      return namedSlot(port, String(index + 3), .495 + column * .0338 + (column >= 6 ? .015 : 0),
+        index % 2 ? .859 : .769, .030, .080);
+    }
+    return namedSlot(port, String(index - 29), .216 + (index - 30) * .055, .870, .043, .075);
+  });
+  profile.faces.front.components = [element("vent", .020, .055, .963, .493, undefined, "perforated"),
+    element("text", .021, .610, .140, .07, "3700D"), element("usb", .101, .865, .029, .042, undefined, "a"),
+    ...["STATUS", "ALARM", "HA", "POWER"].flatMap((label, index) => [
+      element("led", .080, .743 + index * .038, .004, .017),
+      element("text", .052, .739 + index * .038, .024, .027, label),
+    ]),
+  ];
+  profile.faces.rear.components = [
+    ...[.006, .903].map((x, index) => ({ ...element("psu", x, .434, .091, .419, `PWR${index + 1}`, dc ? "dc-terminal2" : "ac"),
+      orientation: "vertical" })),
+    element("handle", .101, .120, .017, .81), element("handle", .882, .120, .017, .81),
+    ...[.160, .389, .618].map((x, index) => element("fan", x, .257, .202, .63, `FAN${index * 2 + 1}/${index * 2 + 2}`, "fixed")),
+    ...[.650, .758].map((y) => element("screw", .852, y, .019, .052)),
+  ];
+  profile.limitations.push("Revision 1 identifies the former second console entry as the illustrated USB mini-B management socket while preserving its saved index. Three grille openings cover six tandem fans.");
+}
+
+/** Preserve D-series saved identities when correcting missing WAN/USB sockets or surplus optical inventory. */
+function addLegacyDMapping(profile, device) {
+  const model = device.model;
+  let portIndexMap;
+  if (/^FortiGate 800D(?:-DC)?$/.test(model)) {
+    portIndexMap = Object.fromEntries(device.ports.filter((port) => ![25, 26].includes(port.portIndex))
+      .map((port) => [port.portIndex > 26 ? port.portIndex - 2 : port.portIndex, port.portIndex]));
+  } else if (/^FortiGate (?:900D|1000D)$/.test(model)) {
+    portIndexMap = Object.fromEntries(device.ports.filter((port) => port.type !== "USB_MINI_CONSOLE").map((port) => [port.portIndex, port.portIndex]));
+  } else if (/^FortiGate 3100D(?:-DC)?$/.test(model)) {
+    portIndexMap = Object.fromEntries(device.ports.map((port) => [port.type === "Console" ? 51 : port.portIndex, port.portIndex]));
+  } else if (/^FortiGate 3700D(?:-DC)?$/.test(model)) {
+    portIndexMap = Object.fromEntries(device.ports.map((port) => [port.portIndex, port.portIndex]));
+  }
+  if (portIndexMap) profile.legacyLayouts = [{ inventoryRevision: 0, portIndexMap }];
 }

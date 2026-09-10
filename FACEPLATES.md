@@ -78,6 +78,10 @@ manufacturing measurements. Application identity and connections on hidden
 panels occupy a title strip outside the physical body. Round or square access
 point chassis retain their aspect ratio. Port labels have bounded space shared
 by Canvas and SVG; exported widths remain constrained across font substitution.
+An individual slot can reserve a caption with `descriptionAnchor: { x, y }` in
+normalized chassis coordinates when nearby service hardware blocks the default
+placement. Keep the complete caption plate inside the device bounds and verify its
+clearance in both renderers; the anchor never changes the socket or cable position.
 Unmounted round and square access points receive enough display height to keep
 their sockets readable. Rack occupancy still uses the saved physical rack units.
 New hardware is placed below existing devices in its canvas column; saved device
