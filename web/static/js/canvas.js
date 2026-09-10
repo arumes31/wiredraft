@@ -9,6 +9,9 @@ import {
 } from "./canvas-navigation.js";
 import { commentPreviewLines } from "./plan-comments.js";
 import { resolveFaceplateTemplate } from "./faceplate.js";
+import { buildFaceplateScene } from "./faceplate-scene.js";
+import { resolveModelFaceplate } from "./faceplate-models.js";
+import { drawHardwareComponent } from "./hardware-components.js";
 import { groupAccent, linkGroupPortBadges, peerLinkIDs, summarizeLinkGroup } from "./link-group-display.js";
 import { linkVLANPalette, vlanBandPattern } from "./link-vlan-colors.js";
 import { layoutEndpointBadges, linkEndpointBadges } from "./link-end-labels.js";
@@ -17,7 +20,7 @@ import {
 } from "./patch-panels.js";
 import { cableLabelVisibility, curveLabelCandidates, placeCableLabels, pointerBubblePlacement, radialCandidates } from "./label-layout.js";
 import { findPort } from "./state.js";
-import { connectorKind, faceplateConnectorSize, portDescriptionPlacement, portLinkLEDColor } from "./termination.js";
+import { connectorKind, portDescriptionPlacement, portLinkLEDColor } from "./termination.js";
 import { switchSystemAccent, switchSystemForDevice } from "./switch-systems.js";
 import { firewallClusterAccent, firewallClusterForDevice, firewallClusterRole } from "./firewall-clusters.js";
 import {
@@ -51,6 +54,7 @@ export function deviceHoverFrameInterval(profile, hoveredDevice) {
 }
 
 export class CanvasEngine {
+  /** Connect canvas interaction and rendering to the current application state. */
   constructor(canvas, state, callbacks = {}, options = {}) {
     this.canvas = canvas;
     this.state = state;
@@ -72,6 +76,7 @@ export class CanvasEngine {
     this.routingPortBoxByID = new Map();
     this.rackPortalMarkers = [];
     this.portBoxesByDevice = new Map();
+    this.faceplateSceneByDevice = new Map();
     this.linkIDsByPort = new Map();
     this.linkIDsByDevice = new Map();
     this.linksByPort = new Map();
@@ -126,7 +131,12 @@ export class CanvasEngine {
     this.loop = this.loop.bind(this);
     this.graphicsProfileKey = "";
     this.onStateChange = ({ detail }) => {
-      const layoutChanged = ["topology", "rack-view", "trace"].includes(detail?.kind);
+      const layoutChanged = ["topology", "rack-view", "device-view", "trace"].includes(detail?.kind);
+      if (detail?.kind === "device-view") {
+        this.cancelInteraction();
+        this.hoveredPort = null;
+        this.hoveredLink = null;
+      }
       if (detail?.kind === "analysis") this.rebuildSTPPortStateCache();
       this.invalidate(layoutChanged);
       if (!layoutChanged) return;
@@ -435,6 +445,7 @@ export class CanvasEngine {
     ctx.restore();
   }
 
+  /** Register shared physical sockets and hidden-panel routing anchors. */
   addVisibleDevice(device, rack, position) {
     const height = Math.max(UNIT_HEIGHT, (device.faceplate.unitsU || 1) * UNIT_HEIGHT);
     const deviceBox = { device, rack, x: position.x, y: position.y, width: DEVICE_WIDTH, height };
@@ -442,35 +453,21 @@ export class CanvasEngine {
     this.routingDeviceBoxes.push(deviceBox);
     this.deviceBoxByID.set(device.id, deviceBox);
     this.deviceTiles.insert(deviceBox);
-    const devicePortBoxes = [];
-    const rows = Math.max(1, Math.min(4, device.faceplate.rows || 1));
-    const columns = Math.ceil(device.ports.length / rows);
-    const startX = position.x + 170;
-    const available = 475;
-    const stepX = columns > 1 ? Math.min(31, available / (columns - 1)) : 0;
-    const groupWidth = stepX * Math.max(0, columns - 1);
-    const baseX = startX + Math.max(0, (available - groupWidth) / 2);
-    const stepY = rows === 1 ? 0 : 29;
-    const baseY = position.y + height / 2 - (stepY * (rows - 1)) / 2;
-    device.ports.forEach((port, index) => {
-      const row = index % rows;
-      const column = Math.floor(index / rows);
-      const hasFaceplatePosition = port.faceplateX > 0 && port.faceplateY > 0;
-      const centerX = hasFaceplatePosition ? position.x + port.faceplateX * DEVICE_WIDTH : baseX + column * stepX;
-      const centerY = hasFaceplatePosition ? position.y + port.faceplateY * height : baseY + row * stepY;
-      const connector = faceplateConnectorSize(port, device);
-      const portBox = {
-        port, device,
-        x: centerX - connector.width / 2, y: centerY - connector.height / 2,
-        width: connector.width, height: connector.height, centerX, centerY,
-      };
-      this.portBoxes.push(portBox);
-      this.routingPortBoxes.push(portBox);
-      devicePortBoxes.push(portBox);
-      this.portBoxByID.set(port.id, portBox);
-      this.routingPortBoxByID.set(port.id, portBox);
+    const defaultFace = resolveModelFaceplate(device)?.defaultFace || "front";
+    const scene = buildFaceplateScene(device, deviceBox, {
+      face: this.state.deviceFaceplateFace?.(device.id, defaultFace) || defaultFace,
     });
-    this.portBoxesByDevice.set(device.id, devicePortBoxes);
+    this.faceplateSceneByDevice ||= new Map();
+    this.faceplateSceneByDevice.set(device.id, scene);
+    for (const portBox of scene.ports) {
+      this.portBoxes.push(portBox);
+      this.portBoxByID.set(portBox.port.id, portBox);
+    }
+    for (const portBox of [...scene.ports, ...scene.hiddenPorts]) {
+      this.routingPortBoxes.push(portBox);
+      this.routingPortBoxByID.set(portBox.port.id, portBox);
+    }
+    this.portBoxesByDevice.set(device.id, scene.ports);
   }
 
   addPortalDevice(device, rack, marker) {
@@ -492,6 +489,7 @@ export class CanvasEngine {
     });
   }
 
+  /** Rebuild visible geometry and routing proxies after topology or view changes. */
   layoutScene() {
     if (!this.sceneDirty) return;
     const previousGeometry = captureRoutingGeometry(this.routingDeviceBoxes, this.rackBoxes, this.routingPortBoxes);
@@ -509,6 +507,7 @@ export class CanvasEngine {
     this.portBoxByID = new Map();
     this.routingPortBoxByID = new Map();
     this.portBoxesByDevice = new Map();
+    this.faceplateSceneByDevice = new Map();
     this.rackPortalMarkers = [];
     this.linkIDsByPort = new Map();
     this.linkIDsByDevice = new Map();
@@ -787,6 +786,7 @@ export class CanvasEngine {
     ctx.restore();
   }
 
+  /** Label hidden rail and hardware-panel endpoints above their cable routes. */
   drawRackPortals(ctx) {
     for (const marker of this.rackPortalMarkers) {
       ctx.save();
@@ -799,6 +799,15 @@ export class CanvasEngine {
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(`${marker.face.toUpperCase()} · ${marker.linkIDs.size} LINK${marker.linkIDs.size === 1 ? "" : "S"}`,
         marker.x + marker.width / 2, marker.y + marker.height / 2);
+      ctx.restore();
+    }
+    for (const scene of this.faceplateSceneByDevice?.values() || []) {
+      if (!scene.portal) continue;
+      const marker = scene.portal;
+      ctx.save();
+      ctx.fillStyle = "#102126"; ctx.strokeStyle = "#7d999e"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(marker.x, marker.y, marker.width, marker.height, 4); ctx.fill(); ctx.stroke();
+      drawHardwareComponent(ctx, { kind: "text", ...marker, fontSize: 6 }, { ink: "#dce8e9" });
       ctx.restore();
     }
   }
@@ -1407,6 +1416,7 @@ export class CanvasEngine {
     ctx.restore();
   }
 
+  /** Draw physical model components beneath the application overlays. */
   drawDevice(ctx, device, time) {
     const box = this.deviceBoxByID?.get(device.id) || this.deviceBoxes.find((candidate) => candidate.device.id === device.id);
     if (!box) return;
@@ -1421,12 +1431,14 @@ export class CanvasEngine {
     const logicalPeer = systemPeer || clusterPeer;
     const logicalPeerAccent = systemPeer ? switchSystemAccent(system.mode) : clusterPeer ? firewallClusterAccent(cluster, device.id) : "#52666b";
     const template = resolveFaceplateTemplate(device);
+    const scene = this.faceplateSceneByDevice?.get(device.id);
+    const chassis = scene?.profile ? scene.chassis : box;
     const profile = this.activeGraphicsProfile || QUALITY_FALLBACK;
     ctx.save();
     if (profile.shadows) {
       ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 16; ctx.shadowOffsetY = 7;
     }
-    const gradient = ctx.createLinearGradient(box.x, box.y, box.x, box.y + box.height);
+    const gradient = ctx.createLinearGradient(chassis.x, chassis.y, chassis.x, chassis.y + chassis.height);
     gradient.addColorStop(0, lighten(template.surface, 16));
     gradient.addColorStop(.13, template.surface);
     gradient.addColorStop(.86, template.surfaceDark);
@@ -1435,12 +1447,16 @@ export class CanvasEngine {
     ctx.strokeStyle = selected || multiSelected ? "#66eddd" : logicalPeer ? logicalPeerAccent : "#52666b";
     ctx.lineWidth = selected || multiSelected ? 2.5 : logicalPeer ? 2 : 1;
     if (logicalPeer) ctx.setLineDash([7, 4]);
-    ctx.beginPath(); ctx.roundRect(box.x, box.y, box.width, box.height, 8); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(chassis.x, chassis.y, chassis.width, chassis.height, 8); ctx.fill(); ctx.stroke();
     ctx.setLineDash([]);
     ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-    this.drawRackEars(ctx, box);
-    this.drawDeviceIdentity(ctx, device, box, template);
-    this.drawFaceplateDetails(ctx, device, box, template);
+    if (scene?.profile) {
+      for (const component of scene.components) drawHardwareComponent(ctx, component, template);
+    } else {
+      this.drawRackEars(ctx, box);
+      this.drawDeviceIdentity(ctx, device, box, template);
+      this.drawFaceplateDetails(ctx, device, box, template);
+    }
     for (const portBox of this.portBoxesByDevice?.get(device.id) || this.portBoxes.filter((candidate) => candidate.device.id === device.id)) {
       this.drawPort(ctx, portBox);
     }
@@ -1448,9 +1464,10 @@ export class CanvasEngine {
     const photoCount = (this.state.topology?.photos || []).filter((photo) =>
       (photo.targetKind === "device" && photo.targetId === device.id)
       || (photo.targetKind === "port" && portIDs.has(photo.targetId))).length;
-    if (photoCount) this.drawPhotoBadge(ctx, box, photoCount);
-    if (system) this.drawSwitchSystemBadge(ctx, box, system, device.id);
-    if (cluster) this.drawFirewallClusterBadge(ctx, box, cluster, device.id);
+    const badgeBox = scene?.profile ? { ...chassis, y: chassis.y + chassis.height - 100 } : box;
+    if (photoCount) this.drawPhotoBadge(ctx, chassis, photoCount);
+    if (system) this.drawSwitchSystemBadge(ctx, badgeBox, system, device.id);
+    if (cluster) this.drawFirewallClusterBadge(ctx, badgeBox, cluster, device.id);
     ctx.restore();
   }
 
@@ -1721,6 +1738,7 @@ export class CanvasEngine {
     ctx.globalAlpha = 1;
   }
 
+  /** Draw shared connector art while preserving selection and network-state overlays. */
   drawPort(ctx, box) {
     const { port } = box;
     const kind = connectorKind(port.type);
@@ -1738,53 +1756,12 @@ export class CanvasEngine {
     const management = /MGMT|OOB|ILO|IDRAC|BMC|NMC|NETWORK|UNITY/i.test(port.group || port.label || "");
     const connectorEdge = management ? "#55b9d8" : ["console", "usb-mini", "usb-micro", "usb-c"].includes(kind) ? "#5a9ec8" :
       optical ? "#879397" : passiveFiber ? "#52bac8" : kind === "stack" ? "#d39a48" : "#60757a";
-    ctx.fillStyle = invalid ? "#2d1717" : optical ? "#182124" : passiveFiber ? "#10272b" : "#080d0f";
-    ctx.strokeStyle = invalid ? "#743b38" : hovered || selected || draftTarget ? "#7affee" : connectorEdge;
-    ctx.lineWidth = hovered || selected ? 1.8 : 1;
-    ctx.beginPath(); ctx.roundRect(box.x, box.y, box.width, box.height, 2); ctx.fill(); ctx.stroke();
+    drawHardwareComponent(ctx, { kind, x: box.x, y: box.y, width: box.width, height: box.height }, {
+      fill: invalid ? "#2d1717" : optical ? "#182124" : passiveFiber ? "#10272b" : "#080d0f",
+      stroke: invalid ? "#743b38" : hovered || selected || draftTarget ? "#7affee" : connectorEdge,
+      strokeWidth: hovered || selected ? 1.8 : 1,
+    });
     ctx.shadowBlur = 0;
-    if (optical) {
-      ctx.fillStyle = "#586568"; ctx.fillRect(box.x + 3, box.y + 3, box.width - 6, 2);
-      ctx.fillStyle = "#0a1012"; ctx.fillRect(box.x + 4, box.y + 7, box.width - 8, Math.max(2, box.height - 10));
-      if (["qsfp", "cfp", "osfp"].includes(kind)) {
-        ctx.strokeStyle = "#899699"; ctx.lineWidth = .7;
-        ctx.beginPath(); ctx.moveTo(box.centerX, box.y + 2); ctx.lineTo(box.centerX, box.y + box.height - 2); ctx.stroke();
-      }
-      ctx.strokeStyle = "#a8b2b4"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(box.x + 3, box.y + box.height - 2); ctx.quadraticCurveTo(box.centerX, box.y + box.height + 3, box.x + box.width - 3, box.y + box.height - 2); ctx.stroke();
-    } else if (kind === "lc") {
-      ctx.strokeStyle = "#6cd2de"; ctx.lineWidth = 1;
-      for (const dx of [-3.2, 3.2]) { ctx.beginPath(); ctx.arc(box.centerX + dx, box.centerY, 2.4, 0, Math.PI * 2); ctx.stroke(); }
-    } else if (kind === "sc") {
-      ctx.strokeStyle = "#6cd2de"; ctx.strokeRect(box.centerX - 4, box.centerY - 4, 8, 8);
-    } else if (kind === "mpo") {
-      ctx.fillStyle = "#6cd2de";
-      for (let pin = 0; pin < 6; pin += 1) { ctx.beginPath(); ctx.arc(box.x + 4 + pin * 2.4, box.centerY, .7, 0, Math.PI * 2); ctx.fill(); }
-    } else if (kind === "usb-c" || kind === "usb-mini" || kind === "usb-micro") {
-      ctx.strokeStyle = "#7eb9d8"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(box.x + 2, box.y + 2, box.width - 4, box.height - 4, kind === "usb-c" ? 3 : kind === "usb-mini" ? 2 : 1); ctx.stroke();
-    } else if (kind === "stack") {
-      ctx.strokeStyle = "#d39a48"; ctx.lineWidth = 1;
-      ctx.strokeRect(box.x + 3, box.y + 3, box.width - 6, box.height - 6);
-      ctx.beginPath(); ctx.moveTo(box.x + 5, box.centerY); ctx.lineTo(box.x + box.width - 5, box.centerY); ctx.stroke();
-    } else if (kind === "coax") {
-      ctx.strokeStyle = "#c8d0cf"; ctx.lineWidth = 1.1;
-      ctx.beginPath(); ctx.arc(box.centerX, box.centerY, Math.min(box.width, box.height) * .32, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = "#273032";
-      ctx.beginPath(); ctx.arc(box.centerX, box.centerY, 1.5, 0, Math.PI * 2); ctx.fill();
-    } else if (kind === "power") {
-      ctx.strokeStyle = "#a5b0b2"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(box.centerX, box.centerY, Math.min(box.width, box.height) * .28, 0, Math.PI * 2); ctx.stroke();
-    } else {
-      ctx.strokeStyle = "#6b512b"; ctx.lineWidth = .7;
-      const pins = kind === "dsl" ? 4 : 6;
-      for (let pin = 0; pin < pins; pin += 1) {
-        const x = box.x + 3 + pin * ((box.width - 6) / Math.max(1, pins - 1));
-        ctx.beginPath(); ctx.moveTo(x, box.y + 3); ctx.lineTo(x, box.y + Math.min(7, box.height - 3)); ctx.stroke();
-      }
-      ctx.fillStyle = "rgba(213,225,224,.16)";
-      ctx.fillRect(box.x + 3, box.y + box.height - 4, box.width - 6, 2);
-    }
     if (port.isPoe) {
       ctx.fillStyle = "#f0b35a"; ctx.font = "bold 5px Bahnschrift Condensed, sans-serif"; ctx.textAlign = "left";
       ctx.fillText("P", box.x + 1, box.y - 2);
@@ -2457,9 +2434,28 @@ export class CanvasEngine {
     return { x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
   }
 
+  /** Expose visible connector centers for existing consumers. */
   portCenters() {
     this.layoutScene();
     return new Map(this.portBoxes.map((box) => [box.port.id, { x: box.centerX, y: box.centerY }]));
+  }
+
+  /** Supply the exact visible socket bounds used for hit testing and export. */
+  portGeometry() {
+    this.layoutScene();
+    return this.portBoxes.map((box) => ({ ...box }));
+  }
+
+  /** Include hidden-panel anchors so exported cable routes stay connected. */
+  routingPortGeometry() {
+    this.layoutScene();
+    return this.routingPortBoxes.map((box) => ({ ...box }));
+  }
+
+  /** Share the current physical panel and component coordinates with exporters. */
+  faceplateScenes() {
+    this.layoutScene();
+    return new Map(this.faceplateSceneByDevice);
   }
 
   rackRectangles() {

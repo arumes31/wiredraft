@@ -21,6 +21,7 @@ import {
   planPatchPanelMapping, planRearPanelLinkUpdate, RearChannelType,
 } from "./patch-panels.js";
 import { normalizeRackFace, RackFace, usedRackUnits } from "./rack.js";
+import { resolveModelFaceplate } from "./faceplate-models.js";
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./link-groups.js";
 import { describeLinkGroupMembers } from "./link-group-display.js";
 import {
@@ -896,12 +897,21 @@ function renderRackInspector(rackID) {
   });
 }
 
+/** Apply VLAN checklist colors without generating inline style attributes. */
+function applyVLANChecklistColors(container) {
+  const colors = new Map(state.topology.vlans.map((vlan) => [String(vlan.id), vlan.colorHex]));
+  container.querySelectorAll("[data-vlan-swatch]").forEach((swatch) => {
+    swatch.style.setProperty("--vlan-color", colors.get(swatch.dataset.vlanSwatch));
+  });
+}
+
+/** Render physical port settings and color its VLAN choices under strict CSP. */
 function renderPortInspector(portID) {
   const found = findPort(state.topology, portID);
   if (!found) return;
   const { device, port } = found;
   const vlanOptions = state.topology.vlans.map((vlan) => `<option value="${vlan.id}" ${vlan.id === port.nativeVlan ? "selected" : ""}>${vlan.id} · ${escapeHTML(vlan.name)}</option>`).join("");
-  const checks = state.topology.vlans.map((vlan) => `<label class="check-row"><input type="checkbox" name="allowed" value="${vlan.id}" ${port.allowedVlans.includes(vlan.id) ? "checked" : ""}><i style="--vlan-color:${vlan.colorHex}"></i><b>${vlan.id}</b><span>${escapeHTML(vlan.name)}</span></label>`).join("");
+  const checks = state.topology.vlans.map((vlan) => `<label class="check-row"><input type="checkbox" name="allowed" value="${vlan.id}" ${port.allowedVlans.includes(vlan.id) ? "checked" : ""}><i data-vlan-swatch="${vlan.id}"></i><b>${vlan.id}</b><span>${escapeHTML(vlan.name)}</span></label>`).join("");
   elements["inspector-content"].innerHTML = `
     <div class="inspector-title"><p class="eyebrow">PHYSICAL INTERFACE ${port.portIndex}</p><h3>${escapeHTML(device.name)} / ${escapeHTML(port.label)}</h3><p>${escapeHTML(port.type)} · ${port.speedMbps} Mbps ${port.isPoe ? "· PoE" : ""}</p></div>
     <form id="port-inspector-form" class="inspector-form">
@@ -914,6 +924,7 @@ function renderPortInspector(portID) {
       <label><span>LINK STATUS</span><select name="status"><option value="up" ${port.status === "up" ? "selected" : ""}>UP / ACTIVE</option><option value="down" ${port.status !== "up" ? "selected" : ""}>DOWN</option></select></label>
       <button class="primary">APPLY PORT CONFIG</button>
     </form>`;
+  applyVLANChecklistColors(document.getElementById("port-inspector-form"));
   document.getElementById("port-inspector-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -929,12 +940,20 @@ function renderPortInspector(portID) {
   });
 }
 
+/** Render the device record with a separate, session-local hardware panel view. */
 function renderDeviceInspector(deviceID) {
   const device = state.topology.devices.find((item) => item.id === deviceID);
   if (!device) return;
   const connected = state.topology.links.filter((link) => link.sourceDeviceId === device.id || link.targetDeviceId === device.id).length;
   const rack = (state.topology.racks || []).find((item) => item.id === device.rackId);
   const rackFace = normalizeRackFace(device.rackFace);
+  const physicalProfile = resolveModelFaceplate(device);
+  const physicalFace = state.deviceFaceplateFace(device.id, physicalProfile?.defaultFace);
+  const physicalPanelMarkup = physicalProfile ? `
+    <fieldset class="device-metadata-block hardware-panel-controls"><legend>HARDWARE PANEL</legend>
+      <div class="radio-row">${["front", "rear"].map((face) => `<label><input type="radio" name="hardwarePanel" value="${face}" ${physicalFace === face ? "checked" : ""}><span>${face.toUpperCase()}</span></label>`).join("")}</div>
+      <p>View this device's front or rear hardware. Connections on the opposite panel stay visible at its connection marker. This view is local to your session.</p>
+    </fieldset>` : "";
   const location = rack ? `${rack.name} · ${rackFace.toUpperCase()} · U${device.rackUnit}` : `${Math.round(device.positionX)}, ${Math.round(device.positionY)}`;
   const system = switchSystemForDevice(state.topology, device.id);
   const cluster = firewallClusterForDevice(state.topology, device.id);
@@ -952,6 +971,7 @@ function renderDeviceInspector(deviceID) {
   elements["inspector-content"].innerHTML = `
     <div class="inspector-title"><p class="eyebrow">RACK HARDWARE</p><h3>${escapeHTML(device.name)}</h3><p>${escapeHTML(device.category)} · ${escapeHTML(device.model)}</p></div>
     <div class="metric-grid"><span>HEIGHT<b>${device.faceplate.unitsU}U</b></span><span>PORTS<b>${device.ports.length}</b></span><span>PATCHED<b>${connected}</b></span><span>LOCATION<b>${escapeHTML(location)}</b></span></div>
+    ${physicalPanelMarkup}
     <form id="device-inspector-form" class="inspector-form">
       <fieldset class="device-metadata-block"><legend>IDENTITY</legend>
         <label><span>DISPLAY NAME</span><input name="name" maxlength="120" value="${escapeHTML(device.name)}" required></label>
@@ -1008,6 +1028,9 @@ function renderDeviceInspector(deviceID) {
     await updateFrom(() => api.updateDevice(state.topology.id, next), true, "Device record updated");
   });
   document.getElementById("delete-device").addEventListener("click", () => deleteDevice(device));
+  document.querySelectorAll('input[name="hardwarePanel"]').forEach((input) => {
+    input.addEventListener("change", () => state.setDeviceFaceplateFace(device.id, input.value));
+  });
   document.querySelectorAll("[data-switch-system-member]").forEach((button) => {
     button.addEventListener("click", () => state.select("device", button.dataset.switchSystemMember));
   });
@@ -1171,6 +1194,7 @@ function renderFirewallClusterInspector(device, cluster) {
     <div class="inspector-actions"><button id="dissolve-firewall-cluster" type="button" class="danger">DISSOLVE FIREWALL CLUSTER</button></div>`;
 }
 
+/** Render cable settings and its endpoint VLAN profile with CSP-safe swatches. */
 function renderLinkInspector(linkID) {
   const link = state.topology.links.find((item) => item.id === linkID);
   if (!link) return;
@@ -1217,7 +1241,7 @@ function renderLinkInspector(linkID) {
     : "The cable and both physical endpoint interfaces are validated and saved together.";
   const applyLabel = group ? `APPLY TO ${configurationLinks.length} CABLES + ALL PORTS` : "APPLY TO CABLE + BOTH PORTS";
   const vlanOptions = state.topology.vlans.map((vlan) => `<option value="${vlan.id}" ${vlan.id === configuration.nativeVlan ? "selected" : ""}>${vlan.id} · ${escapeHTML(vlan.name)}</option>`).join("");
-  const checks = state.topology.vlans.map((vlan) => `<label class="check-row"><input type="checkbox" name="allowed" value="${vlan.id}" ${configuration.allowedVlans.includes(vlan.id) ? "checked" : ""}><i style="--vlan-color:${vlan.colorHex}"></i><b>${vlan.id}</b><span>${escapeHTML(vlan.name)}</span></label>`).join("");
+  const checks = state.topology.vlans.map((vlan) => `<label class="check-row"><input type="checkbox" name="allowed" value="${vlan.id}" ${configuration.allowedVlans.includes(vlan.id) ? "checked" : ""}><i data-vlan-swatch="${vlan.id}"></i><b>${vlan.id}</b><span>${escapeHTML(vlan.name)}</span></label>`).join("");
   elements["inspector-content"].innerHTML = `
     <div class="inspector-title"><p class="eyebrow">PHYSICAL PATCH</p><h3>${escapeHTML(link.cableType)}</h3><p>${escapeHTML(source?.device.name || "Unknown")} → ${escapeHTML(target?.device.name || "Unknown")}</p></div>
     <div class="metric-grid"><span>SOURCE<b>${escapeHTML(source?.port.label || "—")}</b></span><span>TARGET<b>${escapeHTML(target?.port.label || "—")}</b></span><span>PRIMARY VLAN<b>${link.primaryVlan || 1}</b></span><span>RULE ALERTS<b>${issueCount}</b></span></div>
@@ -1236,6 +1260,7 @@ function renderLinkInspector(linkID) {
     ${group ? `<div class="inspector-actions"><button id="edit-link-group" class="secondary">EDIT GROUP</button><button id="leave-link-group" class="danger">REMOVE FROM GROUP</button></div>` : ""}
     <div class="inspector-actions"><button id="focus-link" class="secondary">FOCUS PATH</button><button id="delete-link" class="danger">UNPATCH</button></div>`;
   const form = document.getElementById("link-configuration-form");
+  applyVLANChecklistColors(form);
   const toggleTaggedVLANs = () => {
     const accessMode = form.elements.mode.value === "Access";
     document.getElementById("link-tagged-vlans").hidden = accessMode;

@@ -315,6 +315,9 @@ kbd { padding: 2px 4px; border: 1px solid #405258; background: #172125; color: #
 .radio-row span { display: block; margin: 0; padding: 9px 4px; border: 1px solid #35464b; color: var(--muted); font-family: var(--display); font-size: 9px; text-align: center; cursor: pointer; }
 .radio-row label + label span { border-left: 0; }
 .radio-row input:checked + span { background: #173a38; color: var(--cyan); box-shadow: inset 0 -2px var(--cyan); }
+.hardware-panel-controls { margin-bottom: 14px; }
+.hardware-panel-controls .radio-row { grid-template-columns: repeat(2, 1fr); }
+.hardware-panel-controls input:focus-visible + span { outline: 2px solid var(--cyan); outline-offset: 2px; }
 .checklist { max-height: 170px; overflow: auto; border: 1px solid #35464b; }
 .check-row { display: grid; grid-template-columns: 22px 12px 42px 1fr; align-items: center; min-height: 31px; padding: 0 6px; border-bottom: 1px solid #243237; }
 .check-row:last-child { border: 0; }

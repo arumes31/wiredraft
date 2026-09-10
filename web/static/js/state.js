@@ -3,6 +3,7 @@ function clone(value) {
 }
 
 export class AppState extends EventTarget {
+  /** Initialize topology history and independent local view preferences. */
   constructor() {
     super();
     this.topology = null;
@@ -10,11 +11,13 @@ export class AppState extends EventTarget {
     this.analysis = { issues: [], loops: [], stp: [] };
     this.traceLinkIDs = new Set();
     this.rackFaces = new Map();
+    this.deviceFaceplateFaces = new Map();
     this.dualFaceRackIDs = new Set();
     this.history = [];
     this.future = [];
   }
 
+  /** Replace the map snapshot and retain local views only for live entities. */
   setTopology(topology, { remember = false } = {}) {
     if (remember && this.topology) {
       this.history.push(clone(this.topology));
@@ -24,6 +27,8 @@ export class AppState extends EventTarget {
     this.topology = clone(topology);
     const liveRackIDs = new Set((this.topology?.racks || []).map((rack) => rack.id));
     const liveLinkIDs = new Set((this.topology?.links || []).map((link) => link.id));
+    const liveDeviceIDs = new Set((this.topology?.devices || []).map((device) => device.id));
+    this.deviceFaceplateFaces = new Map([...this.deviceFaceplateFaces].filter(([deviceID]) => liveDeviceIDs.has(deviceID)));
     this.rackFaces = new Map([...this.rackFaces].filter(([rackID]) => liveRackIDs.has(rackID)));
     this.dualFaceRackIDs = new Set([...this.dualFaceRackIDs].filter((rackID) => liveRackIDs.has(rackID)));
     this.traceLinkIDs = new Set([...this.traceLinkIDs].filter((linkID) => liveLinkIDs.has(linkID)));
@@ -63,6 +68,20 @@ export class AppState extends EventTarget {
     if (!rackID) return;
     this.rackFaces.set(rackID, face === "rear" ? "rear" : "front");
     this.emit("rack-view");
+  }
+
+  /** Resolve the local hardware panel selection, honoring the model's default. */
+  deviceFaceplateFace(deviceID, defaultFace = "front") {
+    return (this.deviceFaceplateFaces.get(deviceID) ?? defaultFace) === "rear" ? "rear" : "front";
+  }
+
+  /** Change a hardware panel view without modifying inventory or rack mounting. */
+  setDeviceFaceplateFace(deviceID, face) {
+    if (!deviceID) return;
+    const next = face === "rear" ? "rear" : "front";
+    if (this.deviceFaceplateFaces.get(deviceID) === next) return;
+    this.deviceFaceplateFaces.set(deviceID, next);
+    this.emit("device-view");
   }
 
   isRackDualFace(rackID) {

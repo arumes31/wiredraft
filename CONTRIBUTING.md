@@ -10,4 +10,12 @@ WireDraft compiles its Go module dependencies into the server binary and serves 
 
 Keep pull requests focused and explain any persistence-format or API compatibility impact.
 
+### Physical faceplates
+
+Model geometry lives in `web/static/js/faceplate-models.js`. Add only documented SKUs, cite the official guide and panel pages, and compose normalized components and typed port slots for each physical face. Coordinates describe a traced illustration, not manufacturing dimensions. Unknown variants retain their existing schematic layouts. Preserve inventory `portIndex` and IDs so user labels and cabling remain stable.
+
+`faceplate-scene.js` converts the model into shared world coordinates for Canvas drawing, picking, cable routing, and SVG export. `hardware-components.js` defines connector and chassis-component artwork once, with Canvas and SVG adapters consuming the same primitives. Keep application overlays and rack mounting separate from physical panel metadata. Rebuild the Go server after changing embedded browser assets before visual verification.
+
+Run the faceplate model, scene, hardware component, and export tests, `npm run audit:faceplates`, and `e2e/faceplate-panels.spec.mjs` for layout changes. Inspect both physical faces and verify connectors and hidden-panel cable anchors in Canvas and SVG.
+
 GitHub-hosted services add CodeQL result upload, dependency-diff review, OpenSSF Scorecard reporting, and Sigstore artifact attestations. Enable the dependency graph, Dependabot alerts and security updates, secret scanning with push protection, and branch rules requiring the CI checks in the repository settings.

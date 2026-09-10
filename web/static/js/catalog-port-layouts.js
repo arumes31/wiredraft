@@ -65,13 +65,14 @@ const exactFortiGateFaceplates = new Map([
     [["CONSOLE"], [{ x: .16, y: .55 }]],
   ])],
   ["FortiGate 100F", faceplateLayout(FORTIGATE_100F_QSG, [
-    [["DMZ", "MGMT"], [{ x: .3, y: .4 }, { x: .3, y: .7 }]],
+    [["DMZ", "MGMT"], [{ x: .32, y: .4 }, { x: .32, y: .7 }]],
     [["WAN1", "WAN2"], [{ x: .37, y: .4 }, { x: .37, y: .7 }]],
-    [["HA1", "HA2"], [{ x: .44, y: .4 }, { x: .44, y: .7 }]],
-    [range(1, 12), portGrid(12, .51, .72, .4, .7)],
-    [range(13, 20), portGrid(8, .79, .88, .4, .7)],
-    [["X1", "X2"], [{ x: .95, y: .4 }, { x: .95, y: .7 }]],
-    [["CONSOLE"], [{ x: .235, y: .7 }]],
+    [["HA1", "HA2"], [{ x: .405, y: .4 }, { x: .405, y: .7 }]],
+    [range(1, 12), portGrid(12, .44, .63, .4, .7)],
+    [["X1", "X2"], [{ x: .675, y: .4 }, { x: .675, y: .7 }]],
+    [range(13, 20), portGrid(8, .72, .825, .4, .7)],
+    [["RJ45_1G:17", "RJ45_1G:18", "RJ45_1G:19", "RJ45_1G:20"], portGrid(4, .87, .92, .4, .7)],
+    [["CONSOLE"], [{ x: .27, y: .7 }]],
   ])],
   ["FortiGate 200E", faceplateLayout(FORTIGATE_200E_QSG, [
     [["HA", "MGMT", "WAN1", "WAN2"], portRow(4, .39, .54, .55)],
@@ -80,27 +81,30 @@ const exactFortiGateFaceplates = new Map([
     [["CONSOLE"], [{ x: .32, y: .55 }]],
   ])],
   ["FortiGate 200F", faceplateLayout(FORTIGATE_200F_QSG, [
-    [["HA", "MGMT"], [{ x: .23, y: .4 }, { x: .23, y: .7 }]],
-    [range(1, 16), portGrid(16, .32, .56, .4, .7)],
-    [["X1", "X2", "X3", "X4"], portGrid(4, .64, .7, .4, .7)],
-    [range(17, 24), portGrid(8, .79, .91, .4, .7)],
-    [["CONSOLE"], [{ x: .16, y: .55 }]],
+    [["HA", "MGMT"], [{ x: .235, y: .4 }, { x: .235, y: .7 }]],
+    [range(1, 8), portGrid(8, .29, .39, .4, .7)],
+    [range(9, 16), portGrid(8, .437, .536, .4, .7)],
+    [["X1", "X2", "X3", "X4"], portGrid(4, .591, .624, .4, .7)],
+    [range(17, 24), portGrid(8, .721, .821, .4, .7)],
+    [["CONSOLE"], [{ x: .182, y: .66 }]],
   ])],
   ["FortiGate 400F", faceplateLayout(FORTIGATE_400F_QSG, [
-    [["HA", "MGMT"], [{ x: .2, y: .4 }, { x: .2, y: .7 }]],
-    [range(1, 16), portGrid(16, .29, .54, .4, .7)],
-    [["X1", "X2", "X3", "X4"], portGrid(4, .63, .69, .4, .7)],
-    [["X5", "X6", "X7", "X8"], portGrid(4, .75, .81, .4, .7)],
-    [range(17, 24), portGrid(8, .86, .95, .4, .7)],
-    [["CONSOLE"], [{ x: .14, y: .55 }]],
+    [["HA", "MGMT"], [{ x: .205, y: .4 }, { x: .205, y: .7 }]],
+    [range(1, 8), portGrid(8, .275, .38, .4, .7)],
+    [range(9, 16), portGrid(8, .434, .534, .4, .7)],
+    [["X1", "X2", "X3", "X4"], portGrid(4, .616, .652, .4, .7)],
+    [["X5", "X6", "X7", "X8"], portGrid(4, .699, .733, .4, .7)],
+    [range(17, 24), portGrid(8, .778, .883, .4, .7)],
+    [["CONSOLE"], [{ x: .157, y: .49 }]],
   ])],
   ["FortiGate 600F", faceplateLayout(FORTIGATE_600F_QSG, [
-    [["HA", "MGMT"], [{ x: .22, y: .4 }, { x: .22, y: .7 }]],
-    [range(1, 16), portGrid(16, .3, .55, .4, .7)],
-    [range(17, 24), portGrid(8, .64, .75, .4, .7)],
-    [["X1", "X2", "X3", "X4"], portGrid(4, .8, .85, .4, .7)],
-    [["X5", "X6", "X7", "X8"], portGrid(4, .9, .95, .4, .7)],
-    [["CONSOLE"], [{ x: .15, y: .55 }]],
+    [["HA", "MGMT"], [{ x: .18, y: .4 }, { x: .18, y: .7 }]],
+    [range(1, 8), portGrid(8, .225, .328, .4, .7)],
+    [range(9, 16), portGrid(8, .367, .469, .4, .7)],
+    [range(17, 24), portGrid(8, .562, .666, .4, .7)],
+    [["X1", "X2", "X3", "X4"], portGrid(4, .7, .733, .4, .7)],
+    [["X5", "X6", "X7", "X8"], portGrid(4, .776, .81, .4, .7)],
+    [["CONSOLE"], [{ x: .13, y: .66 }]],
   ])],
 ]);
 
@@ -311,6 +315,7 @@ const exactFortiSwitchLayouts = new Map([
   ]),
 ]);
 
+/** Resolve catalog labels and normalized connector coordinates from model references. */
 export function resolvePhysicalPortGroups(profile) {
   const groups = profile.groups.map((group) => ({
     ...group,
@@ -321,6 +326,15 @@ export function resolvePhysicalPortGroups(profile) {
   const exact = profile.vendor === "Fortinet" ? exactFortiGateLayouts.get(familyName) : null;
   if (exact) {
     applyZoneLabels(groups, exact);
+    // Append shared copper sockets so all existing catalog inventory indices stay stable.
+    if (/^FortiGate 10[01]F$/.test(profile.model) && groups.length === 4 &&
+        groups.some((group) => group.zone === "access" && group.type === "RJ45_1G" && group.count === 18) &&
+        groups.some((group) => group.zone === "uplink" && group.type === "SFP_1G" && group.count === 8) &&
+        groups.some((group) => group.zone === "uplink" && group.type === "SFP_PLUS_10G" && group.count === 2) &&
+        groups.some((group) => group.zone === "management" && group.type === "Console" && group.count === 1)) {
+      groups.push({ zone: "access", count: 4, type: "RJ45_1G", speed: 1000, poe: false,
+        prefix: "SHARED", labels: range(17, 20), inventoryAppend: true });
+    }
     applyLabelPositions(groups, exactFortiGateFaceplates.get(familyName));
     return groups;
   }
@@ -405,10 +419,11 @@ function applyExactFortiSwitchLayout(groups, layout) {
   }
 }
 
+/** Match typed sockets before labels because shared copper and SFP media reuse numbers. */
 function applyLabelPositions(groups, layout) {
   if (!layout) return;
   for (const group of groups) {
-    const positions = (group.labels || []).map((label) => layout.positions.get(label));
+    const positions = (group.labels || []).map((label) => layout.positions.get(`${group.type}:${label}`) || layout.positions.get(label));
     if (positions.length === group.count && positions.every(Boolean)) {
       group.positions = positions.map((position) => ({ ...position }));
     }

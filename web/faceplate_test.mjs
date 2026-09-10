@@ -5,6 +5,7 @@ import { hardwareCatalog, instantiateProfile, upgradeInstalledPhysicalPorts } fr
 import { portLayoutMetadata } from "./static/js/catalog-port-layouts.js";
 import { buildSVGDocument } from "./static/js/export.js";
 import { faceplateResearchCoverage, resolveFaceplateTemplate } from "./static/js/faceplate.js";
+import { hardwareComponentSVG } from "./static/js/hardware-components.js";
 import { connectorKind, connectorSize, endpointRouteSegment, faceplateConnectorSize, portLinkLEDColor } from "./static/js/termination.js";
 
 assert.equal(connectorKind("RJ45_1G"), "rj45");
@@ -399,8 +400,10 @@ assert.equal(svg.includes('data-layer="cable-plug"'), false, "the cable itself s
 assert.match(svg.slice(cableIndex), /d="M[^\"]+ [HV][^\"]+"/, "the foreground cable must preserve the complete orthogonal route");
 assert.doesNotMatch(svg.slice(cableIndex), /d="M[^\"]+ C[^\"]+"/, "cable exports must not contain Bézier segments");
 assert.match(svg, /class="name"[^>]+fill="#202426"[^>]*>SOURCE<\/text>/, "light faceplate labels need dark ink");
-assert.match(svg, /width="18" height="14" rx="2"/, "RJ45 SVG geometry should match the canvas connector size");
-assert.match(svg, /width="17" height="12" rx="2"/, "SFP SVG geometry should match the canvas connector size");
+assert.ok(svg.includes(hardwareComponentSVG({ kind: "rj45", x: 341, y: 143, width: 18, height: 14 }, resolveFaceplateTemplate(sourceDevice))),
+  "RJ45 SVG artwork must use the shared connector at the real endpoint bounds");
+assert.ok(svg.includes(hardwareComponentSVG({ kind: "sfp", x: 841.5, y: 394, width: 17, height: 12 }, resolveFaceplateTemplate(targetDevice))),
+  "SFP SVG artwork must use the shared connector at the real endpoint bounds");
 assert.match(svg, /data-layer="status-area"/, "SVG status indicators should use faceplate status-area geometry");
 
 const coreExportDevice = structuredClone(fortiSwitch1024E);

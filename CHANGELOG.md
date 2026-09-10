@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add documented front/rear panels for 20 FortiGate and FortiSwitch models, with reusable hardware components shared by Canvas and SVG. Hardware panel switching preserves rack mounting, cable connections, and unsaved device edits.
+- Correct FortiGate 100F/101F shared copper sockets and SFP+ ordering while preserving existing port IDs, labels, VLAN settings, and links.
+- Keep VLAN tree and inspector colors compatible with the strict Content Security Policy without inline style markup.
 - Upgrade the build toolchain to Go 1.27.1 and refresh Go and frontend dependencies, including the pgx migration-test interface.
 - Scan Go with the declared toolchain, add CodeQL coverage for GitHub Actions, publish Trivy findings to code scanning, and refresh Scorecard after changes to main.
 

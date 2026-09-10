@@ -58,6 +58,32 @@ test("dual-face rack view supports selected and all-rack expansion", () => {
   assert.equal(state.dualFaceRackIDs.size, 0);
 });
 
+test("physical hardware panel views remain local and independent from rack mounting", () => {
+  const state = new AppState();
+  state.setTopology(topology());
+  const changes = [];
+  state.addEventListener("change", (event) => changes.push(event.detail.kind));
+  const original = structuredClone(state.topology);
+  assert.equal(state.deviceFaceplateFace("device-1"), "front");
+  assert.equal(state.deviceFaceplateFace("device-1", "rear"), "rear");
+  state.setDeviceFaceplateFace("device-1", "front");
+  assert.equal(state.deviceFaceplateFace("device-1", "rear"), "front");
+  state.setDeviceFaceplateFace("device-1", "rear");
+  state.setDeviceFaceplateFace("device-1", "rear");
+  state.setDeviceFaceplateFace("", "rear");
+  assert.deepEqual(changes, ["device-view", "device-view"]);
+  assert.equal(state.deviceFaceplateFace("device-1"), "rear");
+  assert.equal(state.rackFace("rack-1"), "front");
+  assert.deepEqual(state.topology, original);
+  assert.equal(state.history.length, 0);
+  state.setTopology(topology());
+  assert.equal(state.deviceFaceplateFace("device-1"), "rear");
+  state.setDeviceFaceplateFace("device-1", "unsupported");
+  assert.equal(state.deviceFaceplateFace("device-1"), "front");
+  state.setTopology({ ...topology(), devices: [] });
+  assert.equal(state.deviceFaceplateFaces.size, 0);
+});
+
 test("commit, undo, and redo preserve independent snapshots", () => {
   const state = new AppState();
   let mutationCalled = false;

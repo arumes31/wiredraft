@@ -121,6 +121,7 @@ The published runtime image is `FROM scratch`, contains only the statically link
 
 - Multi-rack layouts with 6U–48U frames, independent front/rear rails, per-rack face switching, whole-U snapping, collision prevention, hidden-side silhouettes, grouped cable portals, trace-expanded dual-face views, capacity reporting, free-floating devices, and a navigable minimap.
 - High-DPI faceplates for switches, firewalls, routers, carrier handoffs, modems, access points, servers, patch panels, storage, power, and console equipment.
+- Documented front/rear hardware panels for 20 FortiGate and FortiSwitch models, composed from shared connector, indicator, vent, fan, and PSU artwork. Select **Hardware panel** in the device inspector; the choice is local to your session and independent of rack mounting. Cables to hidden sockets terminate at a labeled connection marker. Canvas and SVG use the same physical geometry.
 - Offline 542-profile hardware catalog with vendor-family layouts and 25 connector types up to 800G OSFP, plus JSON profile import.
 - Generic 1U–4U server rear builder with mixed card bays and independently cableable ports.
 - Copper and fiber patch panels with independent front/rear occupancy, editable rear mappings, and atomic one-to-one panel ranges.

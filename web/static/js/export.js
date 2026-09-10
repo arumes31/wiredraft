@@ -3,6 +3,7 @@ import {
   routeSegments, routesWithCrossingBridges,
 } from "./cabling.js";
 import { resolveFaceplateTemplate } from "./faceplate.js";
+import { hardwareComponentSVG } from "./hardware-components.js";
 import { linkVLANPalette, vlanBandPattern } from "./link-vlan-colors.js";
 import { linkGroupPortBadges } from "./link-group-display.js";
 import { layoutEndpointBadges, linkEndpointBadges } from "./link-end-labels.js";
@@ -467,31 +468,34 @@ export function buildHTMLDocument(topology, engine, generatedAt = new Date()) {
 </html>`;
 }
 
+/** Export the visible hardware scene and routes, including opposite-panel anchors. */
 export function buildSVGDocument(topology, engine) {
   const bounds = engine.worldBounds();
   const offsetX = 50 - bounds.x;
   const offsetY = 50 - bounds.y;
   const width = Math.ceil(bounds.width + 100);
   const height = Math.ceil(bounds.height + 100);
-  const portPoints = engine.portCenters();
+  const legacyPortPoints = engine.portCenters();
   const rackBoxes = engine.rackRectangles();
   const deviceBoxList = engine.deviceRectangles();
   const deviceBoxes = new Map(deviceBoxList.map((box) => [box.device.id, box]));
-  const portGeometry = new Map(topology.devices.flatMap((device) => device.ports.map((port) => {
-    const point = portPoints.get(port.id); const size = faceplateConnectorSize(port, device);
-    return [port.id, point ? { x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height } : null];
-  })).filter(([, box]) => box));
-  const portBoxes = topology.devices.flatMap((device) => device.ports.map((port) => {
-    const point = portPoints.get(port.id);
-    const geometry = portGeometry.get(port.id);
-    return point && geometry ? {
-      port,
-      device,
-      ...geometry,
-      centerX: point.x,
-      centerY: point.y,
+  const scenes = engine.faceplateScenes?.() || new Map();
+  const visiblePortBoxes = engine.portGeometry?.() || topology.devices.flatMap((device) => device.ports.map((port) => {
+    const point = legacyPortPoints.get(port.id);
+    const size = faceplateConnectorSize(port, device);
+    return point ? {
+      port, device, x: point.x - size.width / 2, y: point.y - size.height / 2,
+      ...size, centerX: point.x, centerY: point.y,
     } : null;
   })).filter(Boolean);
+  const portGeometry = new Map(visiblePortBoxes.map((box) => [box.port.id, box]));
+  // Keep opposite-panel anchors for visible devices; hidden rack rails are not
+  // represented in this export and must not introduce unlabeled cable ends.
+  const routingGeometry = engine.routingPortGeometry?.().filter((box) => deviceBoxes.has(box.device.id));
+  const portBoxes = routingGeometry || visiblePortBoxes;
+  const portPoints = routingGeometry
+    ? new Map(portBoxes.map((box) => [box.port.id, { x: box.centerX, y: box.centerY }]))
+    : legacyPortPoints;
   const renderedLinks = [];
   const groupByLink = new Map();
   for (const group of topology.linkGroups || []) {
@@ -507,6 +511,7 @@ export function buildSVGDocument(topology, engine) {
   });
   const portBoxMap = new Map(portBoxes.map((box) => [box.port.id, box]));
   const renderedPortLabels = [];
+  const renderedPanelPortals = [];
   const parts = [`<svg id="topology-map" data-export-version="2" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">`,
     `<style>text{font-family:'DIN Condensed',sans-serif}.name{font-size:14px;font-weight:bold;letter-spacing:1px}.model{font-size:9px}.port{fill:#091012;stroke:#60757a;stroke-width:1}.port-label{font-weight:700;text-anchor:middle;dominant-baseline:middle}</style>`,
     `<rect width="100%" height="100%" fill="#0a0f11"/>`];
@@ -560,104 +565,115 @@ export function buildSVGDocument(topology, engine) {
     if (!box) continue;
     const x = box.x + offsetX; const y = box.y + offsetY;
     const heightU = box.height;
-    const template = resolveFaceplateTemplate(device);
+    const scene = scenes.get(device.id);
+    const template = scene?.template || resolveFaceplateTemplate(device);
     const statusArea = template.statusArea || { x: .219, y: .5, width: 38, height: 40 };
     const statusX = x + statusArea.x * 690;
     const statusY = y + statusArea.y * heightU - statusArea.height / 2;
     const rackFace = device.rackId ? (device.rackFace === "rear" ? "rear" : "front") : "free";
-    parts.push(`<g data-layer="faceplate" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${rackFace}" data-name="${escapeXML(device.name)}" data-template="${template.id}"><title>${escapeXML(device.name)} · ${escapeXML(device.model || device.category || "Device")}</title>`);
-    parts.push(`<rect x="${x}" y="${y}" width="690" height="${heightU}" rx="8" fill="${template.surface}" stroke="#687b7f"/>`);
-    parts.push(`<path d="M${x + 20} ${y + 5}H${x + 670}" stroke="rgba(255,255,255,.28)"/>`);
-    if (statusArea.compact) {
-      const statusColors = [template.accent, "#55c98e", "#536265", "#536265"];
-      for (let index = 0; index < 4; index += 1) {
-        parts.push(`<circle data-layer="status-indicator" cx="${statusX + index * 6}" cy="${y + 7}" r="1.6" fill="${statusColors[index]}"/>`);
+    parts.push(`<g data-layer="faceplate" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${rackFace}" data-name="${escapeXML(device.name)}" data-template="${template.id}"${scene?.profile ? ` data-hardware-face="${scene.face}"` : ""}><title>${escapeXML(device.name)} · ${escapeXML(device.model || device.category || "Device")}</title>`);
+    if (scene?.profile) {
+      const chassis = scene.chassis;
+      parts.push(`<rect data-layer="physical-chassis" x="${chassis.x + offsetX}" y="${chassis.y + offsetY}" width="${chassis.width}" height="${chassis.height}" rx="4" fill="${template.surface}" stroke="#687b7f"/>`);
+      parts.push(`<g transform="translate(${offsetX} ${offsetY})">`);
+      for (const component of scene.components) {
+        parts.push(`<g data-component="${escapeXML(component.kind)}">${hardwareComponentSVG(component, template)}</g>`);
       }
-    } else if (template.control !== "passive") {
-      parts.push(`<rect data-layer="status-area" x="${statusX}" y="${statusY}" width="${statusArea.width}" height="${statusArea.height}" rx="3" fill="${template.surfaceDark}" opacity=".72"/>`);
-    }
-    if (!statusArea.compact && !["lcm", "server", "passive"].includes(statusArea.kind)) {
-      const statusColors = [template.accent, "#55c98e", "#536265", "#536265"];
-      for (let index = 0; index < 4; index += 1) {
-        parts.push(`<circle data-layer="status-indicator" cx="${statusX + 10 + (index % 2) * 13}" cy="${statusY + 10 + Math.floor(index / 2) * 14}" r="2" fill="${statusColors[index]}"/>`);
+      if (scene.portal) {
+        const portal = scene.portal;
+        renderedPanelPortals.push(`<g data-layer="opposite-panel-portal" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${rackFace}" transform="translate(${offsetX} ${offsetY})"><title>${escapeXML(portal.label)}</title><rect x="${portal.x}" y="${portal.y}" width="${portal.width}" height="${portal.height}" rx="4" fill="#102126" stroke="#7d999e"/><text x="${portal.x + portal.width / 2}" y="${portal.y + portal.height / 2}" text-anchor="middle" dominant-baseline="middle" fill="#dce8e9" font-size="6">${escapeXML(portal.label)}</text></g>`);
       }
-    }
-    if (template.modules) parts.push(`<rect x="${x + 202}" y="${y + 10}" width="425" height="${Math.max(20, heightU - 20)}" rx="3" fill="none" stroke="${template.ink}" opacity=".2"/>`);
-    if (template.vent !== "minimal") {
-      for (let ventX = x + 198; ventX < x + 258; ventX += 9) for (let ventY = y + 22; ventY < y + heightU - 15; ventY += 9) {
-        parts.push(`<circle cx="${ventX}" cy="${ventY}" r="1.4" fill="${template.surfaceDark}" opacity=".65"/>`);
-      }
-    }
-    if (template.id === "fortinet-dense-core-switch") {
-      parts.push(`<text class="name" x="${x + 270}" y="${y + 9}" fill="${template.ink}" style="font-size:6px">${escapeXML(device.name)}</text>`);
-    } else if (template.id === "fortinet-core-switch") {
-      parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML((device.faceplate.vendor || "FORTINET").toUpperCase())}</text>`);
-      parts.push(`<text class="name" x="${x + 27}" y="${y + 18}" fill="${template.ink}" style="font-size:8px">${escapeXML(device.name)}</text>`);
-    } else if (template.id === "fortinet-campus-switch") {
-      parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML(device.faceplate.vendor || "FORTINET")}</text>`);
-      const dataPoints = device.ports.filter((port) =>
-        !/MGMT|CONSOLE|OOB|BMC|ILO|IDRAC/i.test(`${port.group || ""} ${port.label || ""}`))
-        .map((port) => portPoints.get(port.id)?.x).filter(Number.isFinite);
-      const firstDataX = dataPoints.length ? Math.min(...dataPoints) + offsetX : x + 160;
-      const nameWidth = Math.max(50, firstDataX - x - 35);
-      const nameSize = fittedFontSize(device.name, nameWidth, 8);
-      parts.push(`<text class="name" x="${x + 27}" y="${y + 18}" fill="${template.ink}" style="font-size:${nameSize}px">${escapeXML(device.name)}</text>`);
-    } else if (template.id === "fortinet-compact-switch") {
-      parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML(device.faceplate.vendor || "FORTINET")}</text>`);
-      parts.push(`<text class="name" x="${x + 555}" y="${y + 18}" fill="${template.ink}" style="font-size:8px">${escapeXML(device.name)}</text>`);
-    } else if (template.id === "fortinet-rugged-switch") {
-      parts.push(`<text class="name" x="${x + 27}" y="${y + 13}" fill="${template.ink}" style="font-size:7px">${escapeXML(device.name)}</text>`);
-    } else if (/^fortinet-(?:desktop|rack|datacenter)$/.test(template.id)) {
-      const nameSize = fittedFontSize(device.name, 94, 12);
-      parts.push(`<text x="${x + 28}" y="${y + 16}" fill="${template.accent}" font-size="7" font-weight="700">${escapeXML(device.faceplate.vendor || "FORTINET")}</text>`);
-      parts.push(`<text class="name" x="${x + 28}" y="${y + 31}" fill="${template.ink}" style="font-size:${nameSize}px">${escapeXML(device.name)}</text>`);
-      parts.push(`<text class="model" x="${x + 28}" y="${y + 43}" fill="${template.ink}" style="font-size:8px" opacity=".68">${escapeXML(device.model)}</text>`);
+      parts.push(`</g>`);
     } else {
-      parts.push(`<text class="name" x="${x + 28}" y="${y + 28}" fill="${template.ink}">${escapeXML(device.name)}</text>`);
-      parts.push(`<text class="model" x="${x + 28}" y="${y + 43}" fill="${template.ink}" opacity=".68">${escapeXML(device.model)}</text>`);
-    }
-    if (template.control === "server") {
-      const cardGroups = new Map();
-      for (const port of device.ports) {
-        const point = portPoints.get(port.id);
-        if (!point) continue;
-        const group = cardGroups.get(port.group || "REAR CARD") || [];
-        group.push({ port, point, size: faceplateConnectorSize(port, device) });
-        cardGroups.set(port.group || "REAR CARD", group);
-      }
-      for (const [name, group] of cardGroups) {
-        let left = Math.min(...group.map(({ point, size }) => point.x - size.width / 2)) + offsetX - 7;
-        let right = Math.max(...group.map(({ point, size }) => point.x + size.width / 2)) + offsetX + 7;
-        let top = Math.min(...group.map(({ point, size }) => point.y - size.height / 2)) + offsetY - 10;
-        let bottom = Math.max(...group.map(({ point, size }) => point.y + size.height / 2)) + offsetY + 7;
-        const serverSlot = Number(name.match(/^S(\d+)/)?.[1] || 0);
-        if (serverSlot) {
-          const units = Math.max(1, Number(device.faceplate.unitsU) || 1);
-          const slotIndex = serverSlot - 1;
-          const row = Math.floor(slotIndex / 4);
-          const column = slotIndex % 4;
-          left = x + 690 * (.43 + column * .135) - 4;
-          right = left + 690 * .12 + 8;
-          top = y + heightU * (.13 + row * (.74 / units)) - 4;
-          bottom = top + heightU * (.74 / units) + 8;
+      parts.push(`<rect x="${x}" y="${y}" width="690" height="${heightU}" rx="8" fill="${template.surface}" stroke="#687b7f"/>`);
+      parts.push(`<path d="M${x + 20} ${y + 5}H${x + 670}" stroke="rgba(255,255,255,.28)"/>`);
+      if (statusArea.compact) {
+        const statusColors = [template.accent, "#55c98e", "#536265", "#536265"];
+        for (let index = 0; index < 4; index += 1) {
+          parts.push(`<circle data-layer="status-indicator" cx="${statusX + index * 6}" cy="${y + 7}" r="1.6" fill="${statusColors[index]}"/>`);
         }
-        parts.push(`<rect data-layer="server-card" x="${left}" y="${top}" width="${right - left}" height="${bottom - top}" rx="2" fill="#080d0f" fill-opacity=".34" stroke="${template.ink}" stroke-opacity=".3"/>`);
-        parts.push(`<text data-layer="server-card" x="${left + 3}" y="${top + 7}" fill="${template.ink}" opacity=".55" font-size="5">${escapeXML(name)}</text>`);
+      } else if (template.control !== "passive") {
+        parts.push(`<rect data-layer="status-area" x="${statusX}" y="${statusY}" width="${statusArea.width}" height="${statusArea.height}" rx="3" fill="${template.surfaceDark}" opacity=".72"/>`);
+      }
+      if (!statusArea.compact && !["lcm", "server", "passive"].includes(statusArea.kind)) {
+        const statusColors = [template.accent, "#55c98e", "#536265", "#536265"];
+        for (let index = 0; index < 4; index += 1) {
+          parts.push(`<circle data-layer="status-indicator" cx="${statusX + 10 + (index % 2) * 13}" cy="${statusY + 10 + Math.floor(index / 2) * 14}" r="2" fill="${statusColors[index]}"/>`);
+        }
+      }
+      if (template.modules) parts.push(`<rect x="${x + 202}" y="${y + 10}" width="425" height="${Math.max(20, heightU - 20)}" rx="3" fill="none" stroke="${template.ink}" opacity=".2"/>`);
+      if (template.vent !== "minimal") {
+        for (let ventX = x + 198; ventX < x + 258; ventX += 9) for (let ventY = y + 22; ventY < y + heightU - 15; ventY += 9) {
+          parts.push(`<circle cx="${ventX}" cy="${ventY}" r="1.4" fill="${template.surfaceDark}" opacity=".65"/>`);
+        }
+      }
+      if (template.id === "fortinet-dense-core-switch") {
+        parts.push(`<text class="name" x="${x + 270}" y="${y + 9}" fill="${template.ink}" style="font-size:6px">${escapeXML(device.name)}</text>`);
+      } else if (template.id === "fortinet-core-switch") {
+        parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML((device.faceplate.vendor || "FORTINET").toUpperCase())}</text>`);
+        parts.push(`<text class="name" x="${x + 27}" y="${y + 18}" fill="${template.ink}" style="font-size:8px">${escapeXML(device.name)}</text>`);
+      } else if (template.id === "fortinet-campus-switch") {
+        parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML(device.faceplate.vendor || "FORTINET")}</text>`);
+        const dataPoints = device.ports.filter((port) =>
+          !/MGMT|CONSOLE|OOB|BMC|ILO|IDRAC/i.test(`${port.group || ""} ${port.label || ""}`))
+          .map((port) => portPoints.get(port.id)?.x).filter(Number.isFinite);
+        const firstDataX = dataPoints.length ? Math.min(...dataPoints) + offsetX : x + 160;
+        const nameWidth = Math.max(50, firstDataX - x - 35);
+        const nameSize = fittedFontSize(device.name, nameWidth, 8);
+        parts.push(`<text class="name" x="${x + 27}" y="${y + 18}" fill="${template.ink}" style="font-size:${nameSize}px">${escapeXML(device.name)}</text>`);
+      } else if (template.id === "fortinet-compact-switch") {
+        parts.push(`<text x="${x + 27}" y="${y + 9}" fill="${template.accent}" font-size="6" font-weight="700">${escapeXML(device.faceplate.vendor || "FORTINET")}</text>`);
+        parts.push(`<text class="name" x="${x + 555}" y="${y + 18}" fill="${template.ink}" style="font-size:8px">${escapeXML(device.name)}</text>`);
+      } else if (template.id === "fortinet-rugged-switch") {
+        parts.push(`<text class="name" x="${x + 27}" y="${y + 13}" fill="${template.ink}" style="font-size:7px">${escapeXML(device.name)}</text>`);
+      } else if (/^fortinet-(?:desktop|rack|datacenter)$/.test(template.id)) {
+        const nameSize = fittedFontSize(device.name, 94, 12);
+        parts.push(`<text x="${x + 28}" y="${y + 16}" fill="${template.accent}" font-size="7" font-weight="700">${escapeXML(device.faceplate.vendor || "FORTINET")}</text>`);
+        parts.push(`<text class="name" x="${x + 28}" y="${y + 31}" fill="${template.ink}" style="font-size:${nameSize}px">${escapeXML(device.name)}</text>`);
+        parts.push(`<text class="model" x="${x + 28}" y="${y + 43}" fill="${template.ink}" style="font-size:8px" opacity=".68">${escapeXML(device.model)}</text>`);
+      } else {
+        parts.push(`<text class="name" x="${x + 28}" y="${y + 28}" fill="${template.ink}">${escapeXML(device.name)}</text>`);
+        parts.push(`<text class="model" x="${x + 28}" y="${y + 43}" fill="${template.ink}" opacity=".68">${escapeXML(device.model)}</text>`);
+      }
+      if (template.control === "server") {
+        const cardGroups = new Map();
+        for (const port of device.ports) {
+          const point = portPoints.get(port.id);
+          if (!point) continue;
+          const group = cardGroups.get(port.group || "REAR CARD") || [];
+          group.push({ port, point, size: faceplateConnectorSize(port, device) });
+          cardGroups.set(port.group || "REAR CARD", group);
+        }
+        for (const [name, group] of cardGroups) {
+          let left = Math.min(...group.map(({ point, size }) => point.x - size.width / 2)) + offsetX - 7;
+          let right = Math.max(...group.map(({ point, size }) => point.x + size.width / 2)) + offsetX + 7;
+          let top = Math.min(...group.map(({ point, size }) => point.y - size.height / 2)) + offsetY - 10;
+          let bottom = Math.max(...group.map(({ point, size }) => point.y + size.height / 2)) + offsetY + 7;
+          const serverSlot = Number(name.match(/^S(\d+)/)?.[1] || 0);
+          if (serverSlot) {
+            const units = Math.max(1, Number(device.faceplate.unitsU) || 1);
+            const slotIndex = serverSlot - 1;
+            const row = Math.floor(slotIndex / 4);
+            const column = slotIndex % 4;
+            left = x + 690 * (.43 + column * .135) - 4;
+            right = left + 690 * .12 + 8;
+            top = y + heightU * (.13 + row * (.74 / units)) - 4;
+            bottom = top + heightU * (.74 / units) + 8;
+          }
+          parts.push(`<rect data-layer="server-card" x="${left}" y="${top}" width="${right - left}" height="${bottom - top}" rx="2" fill="#080d0f" fill-opacity=".34" stroke="${template.ink}" stroke-opacity=".3"/>`);
+          parts.push(`<text data-layer="server-card" x="${left + 3}" y="${top + 7}" fill="${template.ink}" opacity=".55" font-size="5">${escapeXML(name)}</text>`);
+        }
       }
     }
     for (const port of device.ports) {
-      const point = portPoints.get(port.id);
-      if (point) {
-        const size = faceplateConnectorSize(port, device);
+      const geometry = portGeometry.get(port.id);
+      if (geometry) {
+        const point = { x: geometry.centerX, y: geometry.centerY };
+        const size = geometry;
         const kind = connectorKind(port.type);
         const portLabel = String(port.label || `PORT ${port.portIndex || ""}`).trim();
         parts.push(`<g data-entity="port" data-port-id="${escapeXML(port.id)}" data-device-id="${escapeXML(device.id)}" data-name="${escapeXML(portLabel)}"><title>${escapeXML(device.name)}:${escapeXML(portLabel)} · ${escapeXML(port.type || "PORT")}</title>`);
-        if (kind === "coax") {
-          parts.push(`<circle class="port" cx="${point.x + offsetX}" cy="${point.y + offsetY}" r="${size.width / 2}"/>`);
-          parts.push(`<circle cx="${point.x + offsetX}" cy="${point.y + offsetY}" r="1.5" fill="#536265"/>`);
-        } else {
-          parts.push(`<rect class="port" x="${point.x + offsetX - size.width / 2}" y="${point.y + offsetY - size.height / 2}" width="${size.width}" height="${size.height}" rx="2"/>`);
-        }
+        parts.push(hardwareComponentSVG({ kind, x: geometry.x + offsetX, y: geometry.y + offsetY, width: size.width, height: size.height }, template));
         parts.push(`</g>`);
         const portBox = {
           port: { ...port, label: portLabel }, centerX: point.x, centerY: point.y,
@@ -716,6 +732,7 @@ export function buildSVGDocument(topology, engine) {
     parts.push(`<rect x="${badge.x - badge.width / 2}" y="${badge.y - badge.height / 2}" width="${badge.width}" height="${badge.height}" rx="2.5" fill="#050a0c" fill-opacity=".94" stroke="#e1efef" stroke-opacity=".72" stroke-width="1"/>`);
     parts.push(`<text x="${badge.x}" y="${badge.y + .25}" fill="#edf7f6" font-size="6" font-weight="700" text-anchor="middle" dominant-baseline="middle">${escapeXML(badge.text)}</text></g>`);
   }
+  parts.push(...renderedPanelPortals);
   for (const label of renderedPortLabels) {
     const x = label.x + label.offsetX; const y = label.y + label.offsetY;
     const width = Math.max(12, Math.min(label.maxWidth, label.label.length * label.fontSize * .55) + 6);

@@ -162,6 +162,7 @@ function defaultCatalogFamily(category) {
   }[category] || "Servers & Infrastructure";
 }
 
+/** Refresh catalog geometry and safely extend known older physical-port inventories. */
 export function upgradeInstalledPhysicalPorts(topology) {
   let changed = false;
   for (const device of topology?.devices || []) {
@@ -169,6 +170,10 @@ export function upgradeInstalledPhysicalPorts(topology) {
       candidate.vendor === device.faceplate?.vendor && candidate.model === device.model);
     if (!profile) continue;
     const expected = instantiateProfile(profile, device.name, { x: device.positionX, y: device.positionY }).ports;
+    if (upgradeFortiGateSharedPorts(device, expected)) {
+      changed = true;
+      continue;
+    }
     if (expected.length === device.ports.length) {
       for (let index = 0; index < expected.length; index += 1) {
         const current = device.ports[index];
@@ -221,6 +226,19 @@ export function upgradeInstalledPhysicalPorts(topology) {
   return changed;
 }
 
+/** Append the four missing 100F copper sockets without renumbering or replacing old ports. */
+function upgradeFortiGateSharedPorts(device, expected) {
+  if (!/^FortiGate 10[01]F$/.test(device.model) || device.ports.length !== 29 || expected.length !== 33) return false;
+  if (!device.ports.every((port, index) => port.type === expected[index].type && port.portIndex === index + 1)) return false;
+  for (let index = 0; index < device.ports.length; index++) {
+    device.ports[index].faceplateX = expected[index].faceplateX;
+    device.ports[index].faceplateY = expected[index].faceplateY;
+  }
+  device.ports.push(...expected.slice(29).map((port) => ({ ...port, id: crypto.randomUUID(), deviceId: device.id })));
+  device.faceplate.totalPorts = device.ports.length;
+  return true;
+}
+
 export function registerProfiles(input) {
   if (!Array.isArray(input)) throw new Error("Catalog import must be an array of profiles");
   for (const profile of input) {
@@ -246,9 +264,11 @@ export function registerProfiles(input) {
   return input.length;
 }
 
+/** Instantiate catalog groups while preserving stable inventory indices for added shared media. */
 export function instantiateProfile(profile, name, position) {
   const groups = resolvePhysicalPortGroups(profile);
-  const accessGroups = groups.filter((group) => group.zone === "access");
+  const accessGroups = groups.filter((group) => group.zone === "access" && !group.inventoryAppend);
+  const appendedGroups = groups.filter((group) => group.inventoryAppend);
   const uplinkGroups = groups.filter((group) => group.zone === "uplink");
   const managementGroups = groups.filter((group) => group.zone === "management");
   const managementCount = managementGroups.reduce((sum, group) => sum + group.count, 0);
@@ -256,6 +276,7 @@ export function instantiateProfile(profile, name, position) {
   const ports = [
     ...layoutGroups([...accessGroups, ...uplinkGroups], denseManagement ? .34 : .29, .955),
     ...layoutGroups(managementGroups, denseManagement ? .22 : .18, denseManagement ? .31 : .275, 2),
+    ...layoutGroups(appendedGroups, .86, .94),
   ].map((port, index) => {
     const passive = profile.category === "PatchPanel" || ["Console", "Power", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack"].includes(port.type);
     return {

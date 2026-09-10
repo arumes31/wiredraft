@@ -87,8 +87,10 @@ test("topology tree groups devices, escapes labels, and emits selections", () =>
       buttons.length = 0;
       for (const match of value.matchAll(/data-tree-type="([^"]+)" data-tree-id="([^"]+)"/g)) {
         const listeners = new Map();
+        const properties = new Map();
         buttons.push({
           dataset: { treeType: match[1], treeId: match[2] },
+          style: { setProperty: (name, color) => properties.set(name, color), getPropertyValue: (name) => properties.get(name) },
           addEventListener: (type, listener) => listeners.set(type, listener),
           click: () => listeners.get("click")?.(),
         });
@@ -113,6 +115,10 @@ test("topology tree groups devices, escapes labels, and emits selections", () =>
   assert.match(container.innerHTML, /FREE CANVAS/);
   assert.match(container.innerHTML, /tree-device is-selected/);
   assert.match(container.innerHTML, /Users &amp; Voice/);
+  assert.doesNotMatch(container.innerHTML, /\sstyle=/,
+    "tree markup must satisfy the application's strict style-src policy");
+  assert.equal(buttons.at(-1).style.getPropertyValue("--tree-color"), "#12ab34",
+    "VLAN swatches must retain their color through the DOM style API");
   buttons[0].click();
   buttons.at(-1).click();
   assert.deepEqual(selections, [["device", "device-1"], ["vlan", "20"]]);
