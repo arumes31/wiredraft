@@ -54,18 +54,19 @@ test("all 132 equipment models preserve the catalog inventory in distinct, bound
 });
 
 test("documented connector panel roles distinguish networking, AV switches, servers and APs", () => {
-  for (const [model, face] of [
+  for (const [model, face, panelPortCount] of [
     ["UniFi Standard 24", "front"], ["CRS317-1G-16S+RM", "front"], ["GS108T", "front"],
     ["SG2008P", "rear"], ["M4250 family", "rear"], ["M4250-26G4F-PoE+", "rear"],
     ["Console Manager family", "front"], ["SLC Console Manager family", "rear"],
-    ["Dominion Serial family", "rear"], ["PowerEdge R650", "rear"], ["ProLiant ML350", "rear"],
+    ["Dominion Serial family", "rear"], ["PowerEdge R650", "rear", 3], ["ProLiant ML350", "rear"],
     ["RackStation family", "rear"], ["Smart-UPS Network family", "rear"], ["UniFi U7 Pro", "rear"],
     ["Catalyst 9166I", "rear"], ["AP-635", "rear"], ["RUTX50", "front"],
   ]) {
     const device = deviceFor(model);
     const profile = resolveEquipmentFaceplate(device);
     assert.equal(profile.defaultFace, face, model);
-    assert.equal(profile.faces[face].ports.length, device.ports.length, model);
+    assert.equal(profile.faces[face].ports.length, panelPortCount ?? device.ports.length, model);
+    if (model === "PowerEdge R650") assert.equal(profile.faces.front.ports.length, 1);
   }
 });
 
@@ -91,7 +92,7 @@ test("generic passive rear artwork never duplicates connectable inventory or pat
 });
 
 test("configurable equipment identifies schematic service areas without invented fan or PSU populations", () => {
-  for (const model of ["PowerEdge R650", "ProLiant DL380", "RackStation family", "PowerStore family", "FAS family",
+  for (const model of ["PowerEdge R6625", "ProLiant DL380", "RackStation family", "PowerStore family", "FAS family",
     "Smart-UPS Network family", "KVM-over-IP 16 port", "EdgeMAX legacy family"]) {
     const profile = resolveEquipmentFaceplate(deviceFor(model));
     assert.equal(profile.fidelity, "schematic", model);

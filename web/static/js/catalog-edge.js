@@ -47,7 +47,7 @@ const profiles = [
   profile("Cisco", "Catalyst 9166I", "AccessPoint", FAMILIES.accessPoints, "#e5e8e7", [
     group("access", "RJ45_MGIG", 5000, ["2.5/5G PoE"]),
     group("management", "Console", 0, ["CONSOLE"]),
-  ], SOURCE.ciscoAP, "Vendor-documented multigigabit uplink and RJ45 management console.", { placement: "ceiling / wall" }),
+  ], SOURCE.ciscoAP, "CW9166I with one 5GbE PoE uplink and RJ45 serial console; individual cover and mounting-side connector views are documented in the hardware guide.", { placement: "ceiling / wall" }),
   profile("HPE Aruba", "AP-635", "AccessPoint", FAMILIES.accessPoints, "#e7e9e5", [
     group("access", "RJ45_MGIG", 2500, ["E0", "E1"]),
     group("management", "USB_MICRO_CONSOLE", 0, ["CONSOLE"]),

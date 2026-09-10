@@ -85,7 +85,25 @@ const profiles = [
   profile("Dell", "PowerEdge R550", "Server", 2, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
     ...verified("https://i.dell.com/sites/csdocuments/product_docs/en/dell-emc-poweredge-r550-technical-guide.pdf"), inventoryRevision: 1,
     note: "2U with fixed dual 1GbE LOM, dedicated iDRAC and front micro-USB; OCP and optional serial absent in selected configuration." }),
-  ...many("Dell", ["PowerEdge R650", "PowerEdge R750", "PowerEdge R6525", "PowerEdge R7525", "PowerEdge R6615", "PowerEdge R6625", "PowerEdge R7615", "PowerEdge R7625"], "Server", 2, "#303a3e", [t(4, "NIC"), mgmt(1, "iDRAC")]),
+  profile("Dell", "PowerEdge R650", "Server", 1, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
+    ...verified("https://i.dell.com/sites/csdocuments/product_docs/en/poweredge-r650-technical-guide.pdf"), inventoryRevision: 1,
+    note: "1U eight-drive SAS/SATA configuration with dual 1GbE LOM, iDRAC and front micro-USB; no optional add-in NIC or serial." }),
+  profile("Dell", "PowerEdge R6525", "Server", 1, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
+    ...verified("https://i.dell.com/sites/csdocuments/product_docs/en/poweredge-r6525-spec-sheet.pdf"), inventoryRevision: 1,
+    note: "1U eight-drive configuration with three PCIe covers, dual 1GbE LOM, iDRAC and front micro-USB; OCP omitted." }),
+  profile("Dell", "PowerEdge R750", "Server", 2, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
+    ...verified("https://i.dell.com/sites/csdocuments/Product_Docs/en/au/poweredge-r750-technical-guide.pdf"), inventoryRevision: 1,
+    note: "2U eight-drive configuration with eight PCIe covers, dual 1GbE LOM, iDRAC and front micro-USB; OCP omitted." }),
+  profile("Dell", "PowerEdge R7525", "Server", 2, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
+    ...verified("https://i.dell.com/sites/csdocuments/Product_Docs/en/dell-emc-poweredge-r7525-technical-guide.pdf"), inventoryRevision: 1,
+    note: "2U eight-drive configuration with eight PCIe covers, dual 1GbE LOM, iDRAC and front micro-USB; OCP omitted." }),
+  profile("Dell", "PowerEdge R6615", "Server", 1, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
+    ...verified("https://www.dell.com/support/manuals/en-us/poweredge-r6615/r6615_ism/nic-port-specifications?guid=guid-b60e54dd-0519-4f84-ab7b-31c5d1d3c929&lang=en-us"), inventoryRevision: 1,
+    note: "1U eight-NVMe configuration with optional dual 1GbE LOM installed, iDRAC and front micro-USB; OCP and serial omitted." }),
+  profile("Dell", "PowerEdge R7615", "Server", 2, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
+    ...verified("https://www.delltechnologies.com/asset/en-gb/products/servers/technical-support/poweredge-r7615-technical-guide.pdf"), inventoryRevision: 1,
+    note: "2U eight-drive configuration with optional dual 1GbE LOM installed, iDRAC and front micro-USB; OCP and serial omitted." }),
+  ...many("Dell", ["PowerEdge R6625", "PowerEdge R7625"], "Server", 2, "#303a3e", [t(4, "NIC"), mgmt(1, "iDRAC")]),
 
   ...many("NETGEAR", ["M4250 family", "M4300 family", "M4350 family", "M4500 family"], "Switch", 1, "#30284a", [r(48, 1000, true), u(4), mgmt()]),
   profile("NETGEAR", "GS108T", "Switch", 1, "#30284a", [
@@ -213,7 +231,8 @@ const profiles = [
   profile("MikroTik", "CCR1036", "Router", 1, "#e1e4e1", [r(12), u(4, "SFP_1G", 1000, "SFP"), con()],
     representative("https://manual.mikrotik.com/docs/hardware/mtu-in-routeros/", "CCR1036-12G-4S")),
   profile("MikroTik", "CCR1072", "Router", 1, "#e1e4e1", [mgmt(), u(8), con()],
-    representative("https://mikrotik.com/product/CCR1072-1G-8Splus", "CCR1072-1G-8S+")),
+    { fidelity: "exact", source: "https://mikrotik.com/product/CCR1072-1G-8Splus",
+      note: "Selected CCR1072-1G-8S+ chassis with eight 10G cages, Gigabit Ethernet and RJ45 console, front LCD and two removable AC supplies." }),
   profile("MikroTik", "CCR2004", "Router", 1, "#e1e4e1", [mgmt(), u(12), u(2, "SFP28_25G", 25000, "SFP28"), con()],
     { fidelity: "exact", source: "https://mikrotik.com/product/ccr2004_1g_12s_2xs",
       note: "Selected CCR2004-1G-12S+2XS chassis with twelve 10G SFP+, two 25G SFP28, Gigabit management and RJ45 console; two fixed AC inputs and external rear heatsink." }),
@@ -224,26 +243,31 @@ const profiles = [
     { fidelity: "exact", source: "https://manual.mikrotik.com/hardware/ccr2216-1g-12xs-2xq/",
       note: "Selected CCR2216-1G-12XS-2XQ chassis with twelve 25G SFP28, two 100G QSFP28, Gigabit Ethernet and RJ45 console; both AC supplies and all four fan trays installed." }),
   profile("MikroTik", "CRS305", "Switch", 1, "#e1e4e1", [mgmt(), u(4)],
-    representative("https://mikrotik.com/products/group/switches", "CRS305-1G-4S+IN")),
-  profile("MikroTik", "CRS309", "Switch", 1, "#e1e4e1", [mgmt(), u(8)],
-    representative("https://mikrotik.com/products/group/switches", "CRS309-1G-8S+IN")),
+    { fidelity: "exact", source: "https://mikrotik.com/product/crs305_1g_4s_in",
+      note: "Selected CRS305-1G-4S+IN chassis with four 10G cages and Gigabit Ethernet, two DC jacks and passive cooling. Ethernet accepts PoE input without PoE output." }),
+  profile("MikroTik", "CRS309", "Switch", 1, "#e1e4e1", [mgmt(), u(8), con()],
+    { fidelity: "exact", inventoryRevision: 1, source: "https://mikrotik.com/product/crs309_1g_8s_in",
+      note: "Selected CRS309-1G-8S+IN chassis with eight 10G cages, Gigabit Ethernet and DB9 serial console. Revision 1 appends the omitted console; old indices remain unchanged." }),
   profile("MikroTik", "CRS310", "Switch", 1, "#e1e4e1", [mgmt(), u(5, "SFP_1G", 1000, "SFP"), u(4)],
     representative("https://help.mikrotik.com/docs/spaces/ROS/pages/30474317/Marvell%2BPrestera%2Bswitch%2Bchip%2Bfeatures", "CRS310-1G-5S-4S+IN")),
   profile("MikroTik", "CRS312", "Switch", 1, "#e1e4e1", [
     t(8), t(4, "COMBO-RJ45"), u(4, "SFP_PLUS_10G", 10000, "COMBO-SFP"), con(),
   ], representative("https://cdn.mikrotik.com/web-assets/product_files/CRS312-4C8XG-RM_220517.pdf", "CRS312-4C+8XG-RM")),
   profile("MikroTik", "CRS317", "Switch", 1, "#e1e4e1", [mgmt(), u(16), con()],
-    representative("https://mikrotik.com/products/group/switches", "CRS317-1G-16S+RM")),
+    { fidelity: "exact", source: "https://mikrotik.com/product/crs317_1g_16s_rm",
+      note: "Selected CRS317-1G-16S+RM chassis with sixteen 10G cages, Gigabit management, RJ45 console and two AC inputs; reuses its full SKU's verified panels." }),
   profile("MikroTik", "CRS326", "Switch", 1, "#e1e4e1", [r(24), u(2), con()],
     representative("https://mikrotik.com/product/crs326_24g_2s_in", "CRS326-24G-2S+")),
   profile("MikroTik", "CRS328", "Switch", 1, "#e1e4e1", [r(24, 1000, true), u(4), con()],
     representative("https://help.mikrotik.com/docs/spaces/ROS/pages/30474317/Marvell%2BPrestera%2Bswitch%2Bchip%2Bfeatures", "CRS328-24P-4S+RM")),
-  profile("MikroTik", "CRS354", "Switch", 1, "#e1e4e1", [r(48), u(4), u(2, "QSFP_PLUS_40G", 40000, "QSFP+"), mgmt(), con()],
-    representative("https://cdn.mikrotik.com/web-assets/product_files/CRS354-48G-4Splus2QplusRM_3_200705.pdf", "CRS354-48G-4S+2Q+RM")),
+  profile("MikroTik", "CRS354", "Switch", 1, "#e1e4e1", [r(48), u(4), u(2, "QSFP_PLUS_40G", 40000, "QSFP+"), g("management", 1, "RJ45_1G", 100, "MGMT"), con()],
+    { fidelity: "exact", source: "https://mikrotik.com/product/crs354_48g_4splus2qplusrm",
+      note: "Selected CRS354-48G-4S+2Q+RM chassis with 48 Gigabit copper ports, four 10G and two 40G cages, 100 Mbps management and RJ45 console; saved settings remain unchanged." }),
   profile("MikroTik", "CRS504", "Switch", 1, "#e1e4e1", [mgmt(), u(4, "QSFP28_100G", 100000, "QSFP28"), con()],
     representative("https://mikrotik.com/product/crs504_4xq_in", "CRS504-4XQ-IN")),
-  profile("MikroTik", "CRS518", "Switch", 1, "#e1e4e1", [mgmt(), u(16, "SFP28_25G", 25000, "SFP28"), u(2, "QSFP28_100G", 100000, "QSFP28"), con()],
-    representative("https://mikrotik.com/products/group/switches", "CRS518-16XS-2XQ-RM")),
+  profile("MikroTik", "CRS518", "Switch", 1, "#e1e4e1", [g("management", 1, "RJ45_1G", 100, "MGMT"), u(16, "SFP28_25G", 25000, "SFP28"), u(2, "QSFP28_100G", 100000, "QSFP28"), con()],
+    { fidelity: "exact", source: "https://mikrotik.com/product/crs518_16xs_2xq",
+      note: "Selected CRS518-16XS-2XQ-RM chassis with sixteen 25G cages, two 100G cages, 100 Mbps management and RJ45 console; saved settings remain unchanged." }),
 
   profile("Palo Alto", "PA-220", "Firewall", 1, "#304047", [
     g("access", 8, "RJ45_1G", 1000, "ETH", false, labels(1, 8).map((label) => `ethernet1/${label}`)),

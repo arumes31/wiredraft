@@ -73,6 +73,7 @@ export function hardwarePrimitives(component, palette = {}) {
   } else if (kind === "fan") {
     if (component.variant === "mesh-handle") addMeshHandleFan(art, component, colors);
     else if (component.variant === "mesh-dual") addMeshDualFan(art, component, colors);
+    else if (["mesh-dual-end-top", "mesh-dual-end-bottom", "mesh-triple-end"].includes(component.variant)) addEndHandleFan(art, component, colors);
     else addFan(art, colors, component.variant);
   } else if (kind === "drive-carrier") {
     addDriveCarrier(art, component, colors);
@@ -367,6 +368,46 @@ function addMeshDualFan(art, component, colors) {
   }
 }
 
+/** Trace 7081F/7121F circular mesh guards, end pull handles and the tray's single status lamp. */
+function addEndHandleFan(art, component, colors) {
+  const count = component.variant === "mesh-triple-end" ? 3 : 2;
+  const { width, height } = component;
+  const scale = Math.min(width, height);
+  const radius = Math.min(width * .43, height * .82 / (count * 2.10));
+  const cell = radius * 2 / 9;
+  const bar = cell * .13;
+  art.rect(.015, .012, .97, .976, colors.surface, colors.ink, .035);
+  for (let index = 0; index < count; index++) {
+    const center = (count === 3 ? [.180, .485, .790] : [.290, .735])[index];
+    art.circle(.5, center, radius / scale, "#122327", colors.surfaceDark);
+    art.circle(.5, center, radius * .43 / scale, colors.surfaceDark, "#a7b2b5");
+    for (let grid = 1; grid < 9; grid++) {
+      const offset = -radius + grid * cell;
+      const half = Math.sqrt(radius * radius - offset * offset) * .99;
+      art.rect(.5 + (offset - bar / 2) / width, center - half / height, bar / width, half * 2 / height, "#a7b2b5", undefined, 0);
+      art.rect(.5 - half / width, center + (offset - bar / 2) / height, half * 2 / width, bar / height, "#a7b2b5", undefined, 0);
+    }
+    for (const x of [.08, .92]) for (const y of [center - radius * .90 / height, center + radius * .90 / height]) {
+      art.circle(x, y, .014, "#a7b2b5", colors.ink);
+    }
+  }
+  for (const top of [true, false]) {
+    const y = top ? .03 : .91;
+    for (const x of [.35, .65]) {
+      art.circle(x, top ? .028 : .972, .028, "#a7b2b5", colors.ink);
+      art.rect(x - .018, y, .036, .06, "#a7b2b5", colors.ink, .016);
+    }
+    art.rect(.35, top ? .077 : .91, .30, .013, "#a7b2b5", colors.ink, .016);
+  }
+  for (const x of [.055, .945]) for (const y of [.027, .973]) {
+    art.circle(x, y, .024, colors.surfaceDark, colors.ink);
+    art.line(x - .013, y - .006, x + .013, y + .006, "#a7b2b5");
+    art.line(x - .013, y + .006, x + .013, y - .006, "#a7b2b5");
+  }
+  art.circle(.5, component.variant === "mesh-dual-end-top" ? .043 : .957, .020,
+    component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
+}
+
 /** Distinguish a front drive's release/status strip and grille from the compact rear BOSS pull tray. */
 function addDriveCarrier(art, component, colors) {
   if (component.variant === "boss") {
@@ -458,6 +499,18 @@ function addHandle(art, colors) {
 function addPowerSupply(art, component, colors) {
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
+  if (["ac-c16-portrait", "dc-keyed2-portrait", "ac-saf-d-grid"].includes(component.variant)) {
+    add7000FPowerSupply(art, component, colors);
+    return;
+  }
+  if (component.variant === "ac-fan-left-c20") {
+    addC20FanSupply(art, component, colors);
+    return;
+  }
+  if (component.variant === "ac-inlet-right-sideways") {
+    addNarrowDellSupply(art, colors);
+    return;
+  }
   if (component.variant === "ac-compact-c14") {
     addCompactACSupply(art, component, colors);
     return;
@@ -514,6 +567,89 @@ function addCompactACSupply(art, component, colors) {
   art.line(.742, .145, .742, .845, "#b9c3c4");
   art.circle(.858, .82, .025, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
   art.rect(.907, .655, .055, .295, "#53b454", colors.ink, .012);
+}
+
+/** Preserve the distinct 7000F Saf-D-Grid, portrait C16 and portrait two-contact DC supplies. */
+function add7000FPowerSupply(art, component, colors) {
+  const saf = component.variant === "ac-saf-d-grid";
+  const dc = component.variant === "dc-keyed2-portrait";
+  const face = orientedArt(art, !saf);
+  for (let row = 0; row < 8; row++) for (let column = 0; column < 8; column++) {
+    face.rect(.045 + column * .115, .075 + row * .108, .09, .085, colors.surfaceDark, undefined, .005);
+  }
+  if (saf) {
+    face.rect(.11, .12, .78, .42, "#535c60", colors.ink, .05);
+    face.rect(.16, .16, .68, .34, "#07151a", "#708389", .065);
+    // The source resolves the interlocking key outline, rather than three IEC blade contacts.
+    for (const [x1, y1, x2, y2] of [[.24,.43,.39,.43],[.39,.43,.39,.32],[.39,.32,.29,.32],
+      [.29,.32,.37,.25],[.37,.25,.37,.21],[.37,.21,.63,.21],[.63,.21,.63,.25],
+      [.63,.25,.71,.32],[.71,.32,.61,.32],[.61,.32,.61,.43],[.61,.43,.76,.43]]) {
+      face.line(x1, y1, x2, y2, "#a7b2b5");
+    }
+    face.rect(.06, .70, .87, .075, "#39484d", colors.ink, .045);
+    face.rect(.045, .85, .23, .11, "#4c73b2", colors.ink, .008);
+    face.circle(.77, .86, .041, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
+    return;
+  }
+  face.rect(.065, dc ? .36 : .16, .58, dc ? .49 : .64, "#39484d", colors.ink, .07);
+  face.rect(.12, dc ? .42 : .23, .47, dc ? .37 : .49, "#07151a", "#708389", .07);
+  if (dc) {
+    for (const x of [.25, .46]) {
+      face.circle(x, .615, .035, "#b9c3c4", colors.ink);
+      face.circle(x, .615, .015, "#07151a");
+    }
+    face.rect(.33, .40, .06, .055, "#39484d", undefined, .01);
+    face.rect(.33, .76, .06, .055, "#39484d", undefined, .01);
+  } else {
+    for (const [x, y] of [[.355,.40],[.23,.51],[.48,.51]]) face.rect(x - .017, y - .04, .034, .08, "#b9c3c4", undefined, .002);
+    face.circle(.355, .65, .037, "#708389", colors.ink);
+    face.line(.12, .34, .22, .23, "#708389");
+    face.line(.49, .23, .59, .34, "#708389");
+  }
+  face.rect(.71, .07, .09, .84, "#39484d", colors.ink, .045);
+  face.rect(.88, .70, .09, .25, dc ? "#a7b2b5" : "#4c73b2", colors.ink, .008);
+  if (dc) for (const y of [.73, .78, .83, .88, .93]) face.line(.94, y, .98, y, colors.ink);
+  face.circle(.84, dc ? .17 : .88, .031, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
+}
+
+/** Trace Dell's narrow supply with a left pull handle, rotated C14 contacts and orange inlet-side latch. */
+function addNarrowDellSupply(art, colors) {
+  for (let row = 0; row < 7; row++) for (const x of [.30, .38, .91]) {
+    art.rect(x, .12 + row * .11, .055, .077, colors.surfaceDark, undefined, .008);
+  }
+  art.rect(.095, .11, .155, .78, "#a7b2b5", colors.ink, .045);
+  art.rect(.120, .20, .080, .60, "#708389", undefined, .025);
+  art.rect(.480, .13, .415, .73, "#39484d", colors.ink, .025);
+  art.rect(.525, .185, .320, .615, "#07151a", colors.ink, .065);
+  art.line(.525, .29, .605, .185, "#708389");
+  art.line(.525, .695, .605, .800, "#708389");
+  for (const [x, y] of [[.635,.50],[.720,.345],[.720,.655]]) {
+    art.rect(x - .035, y - .017, .070, .034, "#d0d6d8", undefined, .003);
+  }
+  art.rect(.865, .305, .078, .39, "#d68c40", colors.ink, .008);
+}
+
+/** Trace Dell's 2400W assembly with a left fan, center handle and rectangular three-blade C20 inlet. */
+function addC20FanSupply(art, component, colors) {
+  const radius = Math.min(component.width * .19, component.height * .42);
+  const scale = Math.min(component.width, component.height);
+  art.circle(.225, .50, radius / scale, "#07151a", "#a7b2b5");
+  art.circle(.225, .50, radius * .76 / scale, "#122327", "#708389");
+  art.circle(.225, .50, radius * .53 / scale, "#a7b2b5", colors.ink);
+  for (const direction of [-1, 1]) for (const side of [-1, 1]) {
+    art.line(.225 + side * radius * .49 / component.width, .5 + direction * radius * .49 / component.height,
+      .225 + side * radius * .83 / component.width, .5 + direction * radius * .83 / component.height, "#a7b2b5");
+    art.circle(.225 + side * radius * .84 / component.width, .5 + direction * radius * .84 / component.height,
+      radius * .11 / scale, colors.surfaceDark, colors.ink);
+  }
+  art.rect(.450, .10, .10, .81, "#a7b2b5", colors.ink, .035);
+  art.rect(.476, .16, .049, .68, "#b9c3c4", undefined, .025, .65);
+  art.rect(.585, .090, .335, .83, "#39484d", colors.ink, .018);
+  art.rect(.610, .135, .278, .73, "#07151a", colors.ink, .025);
+  for (const [x, y] of [[.697,.50],[.790,.33],[.790,.67]]) {
+    art.rect(x - .010, y - .047, .020, .094, "#d0d6d8", undefined, .003);
+  }
+  art.rect(.920, .31, .050, .38, "#d68c40", colors.ink, .008);
 }
 
 /** Draw three-contact DC modules with a retained metal inlet or a recessed keyed opening. */

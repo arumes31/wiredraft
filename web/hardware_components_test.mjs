@@ -428,7 +428,9 @@ test("new connector, carrier and mesh-fan adapters retain finite bounded geometr
   const configurations = [{ kind: "vga" }, { kind: "db9" }, { kind: "drive-carrier" },
     { kind: "drive-carrier", variant: "boss" }, { kind: "fan", variant: "mesh-handle" },
     { kind: "terminal", variant: "pluggable", pins: 9 }, { kind: "led", variant: "bar" }, { kind: "service-jack" },
-    { kind: "fan", variant: "mesh-dual" }, { kind: "psu", variant: "ac-compact-c14" }];
+    { kind: "fan", variant: "mesh-dual" }, { kind: "psu", variant: "ac-compact-c14" },
+    ...["mesh-dual-end-top", "mesh-dual-end-bottom", "mesh-triple-end"].map((variant) => ({ kind: "fan", variant })),
+    ...["ac-c16-portrait", "dc-keyed2-portrait", "ac-saf-d-grid", "ac-fan-left-c20", "ac-inlet-right-sideways"].map((variant) => ({ kind: "psu", variant }))];
   for (const configuration of configurations) for (const [width, height] of [[80, 30], [30, 80], [12, 12]]) {
     const component = { ...configuration, x: -10, y: 20, width, height };
     const parts = hardwarePrimitives(component);
@@ -535,4 +537,87 @@ test("compact C14 supplies keep a broad three-contact inlet left of the pull bar
   assert.ok(!hardwarePrimitives({ ...component, active: false }).some((part) => part.fill === "#42d98b"));
   const ordinary = hardwarePrimitives({ ...component, variant: "ac" });
   assert.ok(!ordinary.some((part) => part.fill === "#53b454"), "existing generic PSU variants retain their prior artwork");
+});
+
+test("7000F trays retain their rotor count, end handles and single correctly placed status lamp", () => {
+  for (const variant of ["mesh-dual-end-top", "mesh-dual-end-bottom", "mesh-triple-end"]) {
+    const triple = variant === "mesh-triple-end";
+    const component = { kind: "fan", variant, x: 0, y: 0, width: 180, height: triple ? 530 : 360 };
+    const parts = hardwarePrimitives(component);
+    const rotors = parts.filter((part) => part.kind === "circle" && part.fill === "#122327");
+    assert.equal(rotors.length, triple ? 3 : 2);
+    for (let index = 1; index < rotors.length; index++) assert.ok(rotors[index - 1].cy + rotors[index - 1].r < rotors[index].cy - rotors[index].r);
+    assert.ok(rotors.every((rotor) => rotor.cx === 90));
+    for (const [index, center] of (triple ? [.180, .485, .790] : [.290, .735]).entries()) {
+      assert.ok(Math.abs(rotors[index].cy / component.height - center) < 1e-12);
+    }
+    const led = parts.filter((part) => part.fill === "#42d98b");
+    assert.equal(led.length, 1);
+    assert.equal(led[0].cx, 90);
+    assert.ok(variant.endsWith("top") ? led[0].cy < rotors[0].cy - rotors[0].r : led[0].cy > rotors.at(-1).cy + rotors.at(-1).r);
+    const bars = parts.filter((part) => part.kind === "rect" && part.fill === "#a7b2b5" && part.width === 54);
+    assert.equal(bars.length, 2, "two centered horizontal grip sections join the four end posts");
+    assert.ok(bars[0].y < rotors[0].cy && bars[1].y > rotors.at(-1).cy);
+    assert.ok(!hardwarePrimitives({ ...component, active: false }).some((part) => part.fill === "#42d98b"));
+  }
+});
+
+test("7000F PSU variants distinguish C16 key, DC contacts and the Saf-D-Grid outline", () => {
+  const component = { kind: "psu", x: 0, y: 0, width: 70, height: 100 };
+  const c16 = hardwarePrimitives({ ...component, variant: "ac-c16-portrait" });
+  const contacts = c16.filter((part) => part.kind === "rect" && part.fill === "#b9c3c4");
+  assert.equal(contacts.length, 3);
+  assert.ok(contacts.every((part) => part.width > part.height), "C16 contact blades rotate with the installed vertical supply");
+  assert.ok(c16.some((part) => part.kind === "circle" && part.fill === "#708389"), "the C16 high-temperature key remains visible");
+  const dc = hardwarePrimitives({ ...component, variant: "dc-keyed2-portrait" });
+  const dcContacts = dc.filter((part) => part.kind === "circle" && part.fill === "#b9c3c4");
+  assert.equal(dcContacts.length, 2);
+  assert.equal(dcContacts[0].cx, dcContacts[1].cx);
+  assert.ok(dcContacts[0].cy < dcContacts[1].cy);
+  const saf = hardwarePrimitives({ ...component, variant: "ac-saf-d-grid" });
+  assert.ok(!saf.some((part) => part.fill === "#b9c3c4"), "Saf-D-Grid is not substituted with invented IEC blades");
+  assert.ok(saf.filter((part) => part.kind === "line" && part.stroke === "#a7b2b5").length >= 10);
+  for (const variant of ["ac-c16-portrait", "dc-keyed2-portrait", "ac-saf-d-grid"]) {
+    const parts = hardwarePrimitives({ ...component, variant });
+    assert.equal(parts.filter((part) => part.fill === "#42d98b").length, 1);
+    assert.ok(!hardwarePrimitives({ ...component, variant, active: false }).some((part) => part.fill === "#42d98b"));
+    assert.equal(parts.some((part) => part.fill === "#4c73b2"), variant !== "dc-keyed2-portrait",
+      "AC supplies have blue release latches; the DC supply has the illustrated gray toothed latch");
+  }
+});
+
+test("Dell 2400W supplies retain their C20 blade arrangement, left fan and orange release latch", () => {
+  const component = { kind: "psu", variant: "ac-fan-left-c20", x: 0, y: 0, width: 250, height: 110 };
+  const parts = hardwarePrimitives(component);
+  const contacts = parts.filter((part) => part.kind === "rect" && part.fill === "#d0d6d8");
+  assert.equal(contacts.length, 3);
+  assert.ok(contacts.every((contact) => contact.height > contact.width));
+  assert.ok(contacts[0].x < contacts[1].x && contacts[1].x === contacts[2].x);
+  assert.ok(contacts[1].y < contacts[0].y && contacts[0].y < contacts[2].y);
+  const fan = parts.find((part) => part.kind === "circle" && part.fill === "#122327");
+  const inlet = parts.find((part) => part.kind === "rect" && part.fill === "#07151a");
+  const handle = parts.find((part) => part.kind === "rect" && part.fill === "#a7b2b5");
+  const latch = parts.find((part) => part.fill === "#d68c40");
+  assert.ok(fan.cx + fan.r < handle.x && handle.x + handle.width < inlet.x);
+  assert.ok(latch.x > inlet.x + inlet.width);
+  assert.ok(!hardwarePrimitives({ ...component, variant: "ac-fan-left" }).some((part) => part.fill === "#d68c40"));
+});
+
+test("Dell narrow supplies rotate C14 blades toward the left handle and retain the orange inlet-side latch", () => {
+  const component = { kind: "psu", variant: "ac-inlet-right-sideways", x: 0, y: 0, width: 110, height: 90 };
+  const parts = hardwarePrimitives(component);
+  const contacts = parts.filter((part) => part.kind === "rect" && part.fill === "#d0d6d8");
+  assert.equal(contacts.length, 3);
+  assert.ok(contacts.every((contact) => contact.width > contact.height), "the three C14 blades are horizontal in the installed Dell supply");
+  assert.ok(contacts[0].x < contacts[1].x && contacts[1].x === contacts[2].x);
+  assert.ok(contacts[1].y < contacts[0].y && contacts[0].y < contacts[2].y);
+  const inlet = parts.find((part) => part.kind === "rect" && part.fill === "#07151a");
+  const handle = parts.find((part) => part.kind === "rect" && part.fill === "#a7b2b5");
+  const latch = parts.find((part) => part.fill === "#d68c40");
+  assert.ok(handle.x + handle.width < inlet.x);
+  assert.ok(latch.x > inlet.x + inlet.width);
+  assert.ok(latch.y > inlet.y && latch.y + latch.height < inlet.y + inlet.height);
+  assert.ok(!parts.some((part) => part.fill === "#42d98b"), "the source does not establish a separate upper-right PSU lamp");
+  assert.ok(!hardwarePrimitives({ ...component, variant: "ac-inlet-right" }).some((part) => part.fill === "#d68c40"),
+    "the existing inlet-right PSU variant is unchanged");
 });

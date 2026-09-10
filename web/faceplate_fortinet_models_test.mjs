@@ -552,3 +552,71 @@ for (const [model, count, fimCount] of [["7030E", 41, 1], ["7040E", 23, 2]]) {
     assert.ok(!scene.ports.some((other) => overlaps(caption, other)), `${model} FIM caption ${port.port.portIndex} covers a socket`);
   }
 }
+
+for (const model of ["7081F", "7081F-DC", "7081F-2-DC", "7121F", "7121F-2", "7121F-DC", "7121F-2-DC"]) {
+  const large = model.startsWith("7121F");
+  const device = deviceFor(`FortiGate ${model}`);
+  const profile = resolveFortinetFaceplate(device);
+  const population = large ? 2 : 1;
+  assert.equal(profile.fidelity, "model");
+  assert.equal(profile.inventoryComplete, true);
+  assert.equal(device.faceplate.unitsU, large ? 16 : 12);
+  assert.equal(device.ports.length, large ? 80 : 43);
+  assert.equal(profile.faces.front.ports.length, device.ports.length);
+  assert.equal(profile.faces.rear.ports.length, 0);
+  assert.equal(new Set(device.ports.map((port) => port.label)).size, device.ports.length);
+  assert.match(profile.evidence.configuration, model.includes("-2") ? /FIM-7941F/ : /FIM-7921F/);
+  assert.match(profile.evidence.front, large ? /#page=9$/ : /#page=8$/);
+  assert.match(profile.evidence.rear, large ? /#page=13$/ : /#page=12$/);
+  assert.ok(profile.evidence.supplemental.some((source) => source.endsWith("fortigate-7121f.pdf#page=13")));
+  const front = profile.faces.front.components;
+  for (const number of [1, 2]) {
+    const indicators = front.filter((item) => item.role === `smm${number}-selection`);
+    assert.equal(indicators.length, large ? 24 : 16);
+    assert.equal(new Set(indicators.map((item) => item.y)).size, 4, "SMM selection indicators have four rows in both chassis");
+    assert.equal(new Set(indicators.map((item) => item.x)).size, large ? 6 : 4);
+  }
+  assert.equal(front.filter((item) => item.role === "unused-module").length, large ? 8 : 6);
+  assert.equal(front.filter((item) => item.role === "unsupported-console").length, population);
+  assert.equal(front.filter((item) => item.role === "manufacturer-cover").length, population);
+  assert.ok(front.filter((item) => item.role === "unsupported-console").every((item) => item.kind === "rj45"));
+  assert.equal(profile.missingPorts.length, 0, "an explicitly unsupported console is not an omitted interactive port");
+  assert.equal(front.filter((item) => item.kind === "usb").length, population);
+  const supplies = front.filter((item) => item.kind === "psu");
+  assert.equal(supplies.length, large ? 8 : 6);
+  assert.ok(supplies.every((item) => item.variant === (model.endsWith("-DC") ? "dc-keyed2-portrait" : large ? "ac-c16-portrait" : "ac-saf-d-grid")));
+  const fans = profile.faces.rear.components.filter((item) => item.kind === "fan");
+  assert.equal(fans.length, large ? 6 : 3);
+  assert.equal(fans.reduce((sum, fan) => sum + hardwarePrimitives({ ...fan, x: 0, y: 0, width: 100, height: 300 })
+    .filter((part) => part.kind === "circle" && part.fill === "#122327").length, 0), large ? 12 : 9);
+  if (large) assert.deepEqual(fans.map((fan) => fan.variant), Array.from({ length: 3 }, () => ["mesh-dual-end-top", "mesh-dual-end-bottom"]).flat());
+  for (const number of Array.from({ length: population }, (_, index) => index + 1)) {
+    const card = profile.faces.front.ports.filter((port) => port.label.startsWith(`FIM${number}-`));
+    assert.equal(card.length, 27);
+    assert.equal(card.filter((port) => port.type === "QSFP28_100G").length, 20);
+    assert.equal(card.filter((port) => port.type === "QSFP_DD_400G").length, 2);
+    assert.equal(card.filter((port) => port.type === "SFP28_25G").length, 2);
+    assert.equal(card.filter((port) => port.type === "RJ45_1G").length, 2);
+    assert.equal(card.filter((port) => port.type === "Console").length, 1);
+    const dd = card.find((port) => port.physicalLabel === "19");
+    const ha = card.find((port) => port.physicalLabel === "M1");
+    assert.equal(dd.x, ha.x);
+    assert.ok(dd.y < ha.y, "400G port19 sits over HA port M1, rather than over another data socket");
+    const fpm = profile.faces.front.ports.filter((port) => port.label.startsWith(`FPM${number + 2}-`));
+    assert.equal(fpm.length, 10);
+    assert.equal(fpm.filter((port) => port.type === "QSFP_DD_400G").length, 2);
+    assert.equal(fpm.filter((port) => port.type === "SFP28_25G").length, 8);
+    assert.ok(fpm.every((port) => !["Console", "RJ45_1G"].includes(port.type)));
+  }
+  verifyLegacyE(model, [["RJ45_1G", 2], ["Console", 2]], large ? { 1: 69, 2: 72 } : { 1: 35, 2: 38 });
+  const before = structuredClone(device);
+  assert.equal(upgradeInstalledPhysicalPorts({ devices: [device] }), false);
+  assert.deepEqual(device, before);
+  const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: device.faceplate.unitsU * 100 });
+  for (const port of scene.ports) {
+    const placement = port.labelPlacement;
+    const width = Math.min(placement.boxMaxWidth, Math.max(12, placement.maxWidth + 6));
+    const caption = { x: placement.x - width / 2, y: placement.y - 5.5, width, height: 11 };
+    assert.ok(!scene.ports.some((other) => overlaps(caption, other)), `${model} module caption ${port.port.portIndex} covers a socket`);
+  }
+}

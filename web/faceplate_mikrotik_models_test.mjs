@@ -19,7 +19,7 @@ function fixture(model) {
   return { device, profile: resolveMikroTikFaceplate(device) };
 }
 
-test("the five full SKUs preserve every typed port while shorter family names remain unresolved", () => {
+test("the five full SKUs preserve every typed port while unspecified short names remain unresolved", () => {
   for (const model of ["CRS317-1G-16S+RM", "CRS326-24G-2S+RM", "CRS328-24P-4S+RM", "CRS354-48G-4S+2Q+RM", "CRS518-16XS-2XQ-RM"]) {
     const { device, profile } = fixture(model);
     assert.deepEqual(profile.faces.front.ports.map((port) => [port.portIndex, port.type]).sort((a, b) => a[0] - b[0]),
@@ -33,9 +33,96 @@ test("the five full SKUs preserve every typed port while shorter family names re
     assert.equal(resolveMikroTikFaceplate(device), profile);
     assert.equal(profile.faces.front.ports.some((port) => port.label === "Edited logical name"), false);
   }
-  for (const model of ["CRS317", "CRS326", "CRS328"]) assert.equal(fixture(model).profile, null);
+  for (const model of ["CRS326", "CRS328"]) assert.equal(fixture(model).profile, null);
   assert.equal(resolveMikroTikFaceplate({}), null);
   assert.equal(resolveMikroTikFaceplate({ model: "CRS317-1G-16S+RM", faceplate: { vendor: "Other" } }), null);
+});
+
+test("CCR1072, CRS305 and CRS309 use their photographed enclosures and preserve edited saved endpoints", () => {
+  for (const [model, count, sku] of [["CCR1072", 10, "CCR1072-1G-8S+"],
+    ["CRS305", 5, "CRS305-1G-4S+IN"], ["CRS309", 10, "CRS309-1G-8S+IN"]]) {
+    const { device, profile } = fixture(model);
+    assert.equal(profile.fidelity, "model");
+    assert.equal(profile.sku, sku);
+    assert.equal(profile.inventoryComplete, true);
+    assert.equal(device.ports.length, count);
+    device.ports.reverse();
+    device.ports[0].label = "Site service connection";
+    device.ports[0].nativeVlan = 201;
+    const before = structuredClone(device);
+    const scenes = ["front", "rear"].map((face) => buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 }, { face }));
+    assert.equal(scenes.flatMap((scene) => scene.unmappedPorts).length, 0);
+    assert.deepEqual(scenes.flatMap((scene) => scene.ports.map((box) => box.port.id)).sort(), device.ports.map((port) => port.id).sort());
+    assert.deepEqual(device, before);
+    const selected = scenes.flatMap((scene) => scene.ports).find((box) => box.port.id === device.ports[0].id);
+    assert.equal(selected.displayLabel, "Site service connection");
+    device.ports = device.ports.filter((port) => port.portIndex % 2);
+    assert.equal(buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 }).ports.length, device.ports.length);
+  }
+});
+
+test("CCR1072 retains its LCD, horizontal services, eight optical ports and four fixed rear fans", () => {
+  const { profile } = fixture("CCR1072");
+  const slots = profile.faces.front.ports;
+  assert.equal(new Set(slots.filter((slot) => slot.type === "SFP_PLUS_10G").map((slot) => slot.y)).size, 1);
+  const console = slots.find((slot) => slot.type === "Console");
+  const ethernet = slots.find((slot) => slot.type === "RJ45_1G");
+  assert.ok(ethernet.x < console.x && ethernet.y === console.y);
+  assert.ok(profile.faces.front.components.some((part) => part.kind === "lcd"));
+  assert.deepEqual(profile.faces.front.components.filter((part) => part.kind.startsWith("usb")).map((part) => part.kind), ["usb", "usb-micro"]);
+  assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, 4);
+  assert.equal(profile.faces.rear.components.filter((part) => part.kind === "psu").length, 2);
+});
+
+test("CRS305 keeps its passive desktop body, five front sockets and two rear DC jacks", () => {
+  const { device, profile } = fixture("CRS305");
+  assert.ok(profile.chassis.width < .6);
+  assert.deepEqual(profile.faces.front.ports.map((port) => port.physicalLabel), ["ETH/BOOT", "1", "2", "3", "4"]);
+  assert.equal(profile.faces.rear.components.filter((part) => part.kind === "power" && part.variant === "dc-barrel").length, 2);
+  assert.ok(Object.values(profile.faces).flatMap((face) => face.components).every((part) => part.kind !== "fan" && part.kind !== "usb"));
+  assert.ok(device.ports.every((port) => !port.isPoe), "PoE input must not become PoE output");
+});
+
+test("CRS309 adds its actual DB9 console without moving any revision-zero socket", () => {
+  const { device, profile } = fixture("CRS309");
+  assert.equal(profile.inventoryRevision, 1);
+  assert.equal(device.faceplate.inventoryRevision, 1);
+  assert.equal(profile.faces.front.ports.find((slot) => slot.portIndex === 10).connectorKind, "db9");
+  assert.ok(profile.faces.rear.components.some((part) => part.variant === "fins"));
+  assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, 0);
+  const legacy = structuredClone(device);
+  delete legacy.faceplate.inventoryRevision;
+  legacy.ports = legacy.ports.filter((port) => port.portIndex < 10).reverse();
+  legacy.ports[0].label = "Customized management";
+  const before = structuredClone(legacy);
+  const scene = buildFaceplateScene(legacy, { x: 0, y: 0, width: 690, height: 100 });
+  assert.equal(scene.ports.length, 9);
+  assert.equal(scene.unmappedPorts.length, 0);
+  assert.deepEqual(legacy, before);
+  legacy.ports = legacy.ports.filter((port) => [2, 7, 9].includes(port.portIndex));
+  assert.equal(buildFaceplateScene(legacy, { x: 0, y: 0, width: 690, height: 100 }).ports.length, 3);
+  legacy.faceplate.inventoryRevision = 99;
+  assert.equal(buildFaceplateScene(legacy, { x: 0, y: 0, width: 690, height: 100 }).unmappedPorts.length, 3);
+});
+
+test("documented CRS317, CRS354 and CRS518 short names resolve the same physical SKU with their own inventory indices", () => {
+  for (const [model, sku] of [["CRS317", "CRS317-1G-16S+RM"], ["CRS354", "CRS354-48G-4S+2Q+RM"], ["CRS518", "CRS518-16XS-2XQ-RM"]]) {
+    const { device, profile } = fixture(model);
+    const full = fixture(sku).profile;
+    assert.equal(profile.fidelity, "model");
+    assert.equal(profile.sku, sku);
+    assert.deepEqual(profile.faces.rear.components, full.faces.rear.components);
+    for (const type of new Set(device.ports.map((port) => port.type))) {
+      const geometry = (candidate) => candidate.faces.front.ports.filter((port) => port.type === type).map(({ x, y, width, height }) => ({ x, y, width, height }));
+      assert.deepEqual(geometry(profile), geometry(full));
+    }
+    const before = structuredClone(device);
+    const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 });
+    assert.equal(scene.ports.length, device.ports.length);
+    assert.equal(scene.unmappedPorts.length, 0);
+    assert.deepEqual(device, before);
+    if (model !== "CRS317") assert.equal(device.ports.find((port) => port.type === "RJ45_1G" && port.group === "MGMT").speedMbps, 100);
+  }
 });
 
 test("CRS317 has one optical row followed by the console/Ethernet stack and its rear heatsink", () => {

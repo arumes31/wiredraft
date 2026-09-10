@@ -8,6 +8,12 @@ const cases = [
   { model: "PowerEdge R350", units: 1, drives: 4, endpoints: 5 },
   { model: "PowerEdge R450", units: 1, drives: 8, endpoints: 4 },
   { model: "PowerEdge R550", units: 2, drives: 8, endpoints: 4 },
+  { model: "PowerEdge R650", units: 1, drives: 8, endpoints: 4, watts: 800 },
+  { model: "PowerEdge R6525", units: 1, drives: 8, endpoints: 4, watts: 1400 },
+  { model: "PowerEdge R750", units: 2, drives: 8, endpoints: 4, watts: 2400 },
+  { model: "PowerEdge R7525", units: 2, drives: 8, endpoints: 4, watts: 2400 },
+  { model: "PowerEdge R6615", units: 1, drives: 8, endpoints: 4, watts: 800 },
+  { model: "PowerEdge R7615", units: 2, drives: 8, endpoints: 4, watts: 2400 },
 ];
 
 /** Reconstruct the original family record when checking saved topology compatibility. */
@@ -31,9 +37,9 @@ for (const expected of cases) {
     assert.equal(device.faceplate.inventoryRevision, 1);
     assert.equal(profile.fidelity, "model");
     assert.deepEqual(profile.evidence.models, [expected.model]);
-    assert.equal(new URL(profile.source).hostname, "www.dell.com");
+    assert.ok(["www.dell.com", "i.dell.com", "www.delltechnologies.com"].includes(new URL(profile.source).hostname));
     assert.equal(new URL(profile.evidence.rear).protocol, "https:");
-    assert.match(profile.evidence.configuration, /600W/);
+    assert.ok(profile.evidence.configuration.includes(`${expected.watts || 600}W`));
     assert.equal(device.ports.length, expected.endpoints);
     assert.deepEqual(device.ports.slice(0, 2).map((port) => [port.type, port.speedMbps]), [["RJ45_1G", 1000], ["RJ45_1G", 1000]]);
     const bounds = { x: 20, y: 50, width: 690, height: expected.units * 100 };
@@ -80,6 +86,7 @@ for (const expected of cases) {
     }
     assert.deepEqual(device, snapshot);
     device.ports = device.ports.filter((port) => [2, 4, 5].includes(port.portIndex));
+    delete device.faceplate.inventoryRevision;
     assert.deepEqual(buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 200 }, { face: "rear" }).ports.map((box) => box.port.id), ["saved-5", "saved-2"]);
     device.faceplate.inventoryRevision = 8;
     assert.equal(buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 200 }).unmappedPorts.length, 3);
@@ -92,6 +99,48 @@ test("R450's eight carriers follow the documented three-upper/five-lower arrange
   assert.equal(drives.filter((part) => part.y < .4).length, 3);
   assert.equal(drives.filter((part) => part.y >= .4).length, 5);
   assert.equal(profile.faces.front.components.filter((part) => part.kind === "vga").length, 1);
+});
+
+test("R650 and R6525 retain their uneven eight-drive front while R6615 reserves the central ventilation bay", () => {
+  const profiles = ["R650", "R6525", "R6615"].map((model) => resolveEquipmentFaceplate(deviceFor(`PowerEdge ${model}`)));
+  for (const profile of profiles) {
+    assert.deepEqual(profile.faces.rear.components.filter((part) => part.kind === "psu").map((part) => part.variant),
+      ["ac-inlet-right-sideways", "ac-inlet-right-sideways"],
+      "narrow supplies have a sideways C14 inlet with horizontal blades and an orange latch");
+  }
+  for (const profile of profiles.slice(0, 2)) {
+    const drives = profile.faces.front.components.filter((part) => part.kind === "drive-carrier");
+    assert.equal(drives.filter((part) => part.y < .5).length, 3);
+    assert.equal(drives.filter((part) => part.y >= .5).length, 5);
+    assert.equal(profile.faces.rear.components.filter((part) => part.role === "pcie-cover").length, 3);
+  }
+  const r6615 = profiles[2];
+  const drives = r6615.faces.front.components.filter((part) => part.kind === "drive-carrier");
+  assert.equal(drives.filter((part) => part.x < .45).length, 4);
+  assert.equal(drives.filter((part) => part.x > .55).length, 4);
+  assert.ok(drives.every((part) => part.x + part.width < .45 || part.x > .55));
+  assert.equal(r6615.faces.rear.components.filter((part) => part.role === "pcie-cover").length, 2);
+  assert.match(r6615.evidence.configuration, /optional two-port 1GbE LOM installed/);
+});
+
+test("R750, R7525 and R7615 use their own vertical drive and eight-slot rear layouts with wide C20 supplies", () => {
+  const layouts = [];
+  for (const model of ["R750", "R7525", "R7615"]) {
+    const profile = resolveEquipmentFaceplate(deviceFor(`PowerEdge ${model}`));
+    const drives = profile.faces.front.components.filter((part) => part.kind === "drive-carrier");
+    assert.equal(new Set(drives.map((part) => part.y)).size, 1);
+    assert.ok(drives.every((part) => part.width < .05 && part.height > .7));
+    assert.equal(profile.faces.rear.components.filter((part) => part.role === "pcie-cover").length, 8);
+    assert.deepEqual(profile.faces.rear.components.filter((part) => part.kind === "psu").map((part) => part.variant),
+      ["ac-fan-left-c20", "ac-fan-left-c20"]);
+    assert.equal(profile.faces.rear.components.filter((part) => part.role === "ocp-blank").length, 1);
+    assert.ok(profile.faces.rear.components.filter((part) => part.kind === "drive-carrier").every((part) => part.variant === "boss"),
+      "selected rear has boot carriers but no rear storage-drive module");
+    layouts.push(profile.faces.rear.ports.map((port) => [port.x, port.y]));
+    assert.match(profile.evidence.configuration, model === "R7615" ? /BOSS-N1/ : /BOSS-S2/);
+  }
+  assert.notDeepEqual(layouts[0], layouts[1]);
+  assert.notDeepEqual(layouts[1], layouts[2]);
 });
 
 test("R350 fixed serial and model-specific VGA positions differ from optional-serial server chassis", () => {

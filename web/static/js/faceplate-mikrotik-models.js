@@ -1,6 +1,9 @@
 import { canonicalFaceplateDevice } from "./faceplate-profile.js";
 
 const definitions = {
+  CCR1072: { build: ccr1072, guide: "ccr1072-1g-8s-plus", product: "CCR1072-1G-8Splus", photos: [1055, 1056],
+    sku: "CCR1072-1G-8S+",
+    configuration: "CCR1072-1G-8S+ with two hot-swap AC supplies, four fixed rear fans and the front LCD, as pictured in the manufacturer's product gallery." },
   CCR2004: { build: ccr2004, guide: "ccr2004-1g-12s-plus-2xs", product: "ccr2004_1g_12s_2xs", photos: [1937, 1936],
     sku: "CCR2004-1G-12S+2XS",
     configuration: "CCR2004-1G-12S+2XS with two fixed AC inputs, two rear fans and the external rear heatsink, as pictured by the manufacturer. This is the full SKU already identified in the catalog's CCR2004 source." },
@@ -17,7 +20,21 @@ const definitions = {
     drawing: "CRS32824P4S_dimensions_230947.pdf", provisionalRear: true },
   "CRS354-48G-4S+2Q+RM": { build: crs354, guide: "crs354-48g-4s-plus-2q-plus-rm", product: "crs354_48g_4splus2qplusrm", photos: [1901, 1900] },
   "CRS518-16XS-2XQ-RM": { build: crs518, guide: "crs518-16xs-2xq-rm", product: "crs518_16xs_2xq", photos: [2196, 2197] },
+  CRS305: { build: crs305, guide: "crs305-1g-4s-plus-in", product: "crs305_1g_4s_in", photos: [1661, 1660],
+    sku: "CRS305-1G-4S+IN", drawing: "05-1G-4SINproductoutlineanddimensiondrawings_250823.pdf",
+    chassis: { x: .22, y: .04, width: .56, height: .92 },
+    configuration: "CRS305-1G-4S+IN passive desktop chassis with two rear DC jacks. The reset button and status LEDs are on the side, outside these projections. ETH/BOOT accepts PoE input; it does not supply PoE output." },
+  CRS309: { build: crs309, guide: "crs309-1g-8s-plus-in", product: "crs309_1g_8s_in", photos: [1730, 1731],
+    sku: "CRS309-1G-8S+IN", inventoryRevision: 1,
+    chassis: { x: .16, y: .04, width: .68, height: .92 },
+    configuration: "CRS309-1G-8S+IN passive desktop chassis, without the optional rack ears, with rear DC input and external heatsink. Its front RS232 console is DB9. ETH/BOOT accepts PoE input, not output.",
+    discrepancies: ["Revision 1 appends the omitted DB9 serial endpoint at index 10. All nine previous endpoints retain their indices and saved settings."],
+    legacyLayouts: [{ inventoryRevision: 0, portIndexMap: { 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9 } }] },
 };
+for (const [model, sku] of [["CRS317", "CRS317-1G-16S+RM"], ["CRS354", "CRS354-48G-4S+2Q+RM"], ["CRS518", "CRS518-16XS-2XQ-RM"]]) {
+  definitions[model] = { ...definitions[sku], sku,
+    configuration: `Selected ${sku}, the full SKU already named by this catalog entry. Its own photographed panels are reused with the short entry's canonical inventory indices.` };
+}
 const profiles = new Map();
 
 /** Resolve only explicitly traced MikroTik SKUs, retaining canonical port identities. */
@@ -32,6 +49,7 @@ export function resolveMikroTikFaceplate(device) {
     profiles.set(device.model, {
       id: `mikrotik-${device.model.toLowerCase()}`, defaultFace: "front", fidelity: provisional ? "family" : "model",
       ...(definition.sku ? { sku: definition.sku, inventoryComplete: true } : {}),
+      ...(definition.inventoryRevision ? { inventoryRevision: definition.inventoryRevision, legacyLayouts: definition.legacyLayouts } : {}),
       panelFidelity: { front: "model", rear: provisional ? "schematic" : "model" },
       source: `https://manual.mikrotik.com/hardware/${definition.guide}/`,
       sourcePage: `Hardware guide and official product panel photographs ${definition.photos.join(" / ")}`,
@@ -48,11 +66,63 @@ export function resolveMikroTikFaceplate(device) {
       note: definition.configuration || (provisional ? "Front coordinates follow the model dimension drawing. The single rear AC input is documented, but its position awaits a rear illustration."
         : "Model-specific connector order, panel locations and service components traced from official photographs; normalized drawing proportions are not manufacturing dimensions."),
       limitations: provisional ? ["Rear AC position is provisional; side cooling grilles are not rear-panel fans."] : ["Only the front and rear projections are represented; side and top details are omitted."],
-      catalogDiscrepancies: discrepancies(device.model),
-      chassis: { x: 0, y: .04, width: 1, height: .92 }, faces,
+      catalogDiscrepancies: [...discrepancies(definition.sku || device.model), ...(definition.discrepancies || [])],
+      chassis: definition.chassis || { x: 0, y: .04, width: 1, height: .92 }, faces,
     });
   }
   return profiles.get(device.model);
+}
+
+/** Trace the CCR1072's eight low optical cages, horizontal service sockets, LCD and fixed rear fan row. */
+function ccr1072(ports) {
+  const slots = ports.filter((port) => port.type === "SFP_PLUS_10G").map((port, index) =>
+    socket(port, .052 + index * .053 + Math.floor(index / 2) * .018, .72, .036, .24, String(index + 1)));
+  slots.push(socket(ports.find((port) => port.type === "RJ45_1G"), .549, .68, .035, .27, "ETH/BOOT"),
+    { ...socket(ports.find((port) => port.type === "Console"), .614, .68, .035, .27, "CONSOLE"),
+      descriptionAnchor: { x: .614, y: .42 } });
+  return panels([part("vent", .03, .06, .61, .20, undefined, "chevron"),
+    part("usb", .574, .51, .014, .29), part("usb-micro", .662, .84, .025, .07),
+    part("lcd", .729, .16, .098, .65),
+    part("module-bay", .862, .80, .12, .045, undefined, "populated"),
+    part("module-bay", .610, .86, .024, .035, undefined, "populated"),
+    part("button", .699, .72, .01, .07, undefined, "reset"), ...status(.645, ["USR", "FAULT", "PWR2", "PWR1"], .29),
+    part("text", .842, .20, .14, .10, "CCR1072-1G-8S+")], slots,
+  [part("psu", .005, .035, .145, .93, "AC1", "ac-inlet-right"),
+    part("psu", .153, .035, .145, .93, "AC2", "ac-inlet-right"),
+    ...[.465, .56, .665, .76].map((x) => part("fan", x, .075, .087, .82, undefined, "fixed"))]);
+}
+
+/** Trace the CRS305's five connector face and two rear barrel inputs without moving its side controls onto the front. */
+function crs305(ports) {
+  const positions = [.115, .30, .48, .66, .84];
+  const ordered = [ports.find((port) => port.type === "RJ45_1G"), ...ports.filter((port) => port.type === "SFP_PLUS_10G")];
+  const slots = ordered.map((port, index) => ({
+    ...socket(port, positions[index], .50, .13, index ? .40 : .53, index ? String(index) : "ETH/BOOT"),
+    descriptionAnchor: { x: positions[index], y: .88 },
+  }));
+  return panels([], slots, [part("screw", .103, .405, .027, .14),
+    part("power", .205, .325, .065, .35, "DC1", "dc-barrel"),
+    part("power", .530, .325, .065, .35, "DC2", "dc-barrel"),
+    part("vent", .300, .20, .20, .57, undefined, "mesh"),
+    part("vent", .625, .20, .245, .57, undefined, "mesh"),
+    part("handle", .917, .18, .045, .65), part("screw", .925, .43, .026, .15)]);
+}
+
+/** Trace the CRS309's optical row, Ethernet and DB9 serial with its passive rear heatsink. */
+function crs309(ports) {
+  const slots = ports.filter((port) => port.type === "SFP_PLUS_10G").map((port, index) =>
+    socket(port, .095 + index * .074, .70, .056, .29, String(index + 1)));
+  slots.push(socket(ports.find((port) => port.type === "RJ45_1G"), .715, .67, .064, .35, "ETH/BOOT"),
+    { ...socket(ports.find((port) => port.type === "Console"), .820, .68, .105, .31, "CONSOLE"), connectorKind: "db9" });
+  return panels([part("vent", .029, .065, .72, .16, undefined, "mesh"),
+    part("vent", .754, .34, .16, .095, undefined, "mesh"),
+    part("button", .900, .72, .014, .08, undefined, "reset"),
+    ...status(.924, ["USR", "PWR"], .57), part("text", .773, .05, .205, .11, "CRS309-1G-8S+IN")], slots,
+  [part("handle", .029, .45, .12, .17),
+    part("power", .218, .47, .040, .28, "12–57V DC", "dc-barrel"),
+    part("vent", .330, .015, .61, .97, undefined, "fins"),
+    part("screw", .953, .71, .029, .19),
+    part("screw", .074, .06, .021, .14), part("screw", .957, .06, .021, .14)]);
 }
 
 /** Trace the CCR2216's two left QSFPs, six SFP pairs and service stack, with its independently photographed rear modules. */
@@ -194,7 +264,7 @@ function crs354(ports) {
     ...paired(ports.filter((port) => port.type === "QSFP_PLUS_40G"), .913, .035, 1, 0, .043),
     socket(ports.find((port) => port.type === "Console"), .962, .40, .032),
     socket(ports.find((port) => port.label === "MGMT"), .962, .73, .032));
-  return panels([part("text", .035, .06, .18, .10, "CRS354-48G-4S+2Q+"), part("led", .962, .16, .006, .04)], slots,
+  return panels([part("led", .962, .16, .006, .04)], slots,
   [part("fan", .025, .09, .087, .75), part("fan", .12, .09, .087, .75), part("power", .226, .28, .075, .44, "AC1"),
     part("power", .776, .28, .075, .44, "AC2"), part("fan", .874, .09, .087, .75),
     part("vent", .443, .16, .018, .61, undefined, "perforated"), part("vent", .58, .16, .018, .61, undefined, "perforated")]);
