@@ -59,6 +59,19 @@ const GUIDES = {
   "3000G-ds": "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/pdf/fortigate-3000g-series.pdf",
   "3500G-ds": "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/pdf/fortigate-3500g-series.pdf",
   "3800G-ds": "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/pdf/fortigate-3800g-series.pdf",
+  "4200F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/cd72e3b6-d679-11ea-96b9-00505692583a/FortiGate-4200F-Series-QSG-Supplement.pdf",
+  "4400F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/5f9f3bd6-13c6-11eb-96b9-00505692583a/FortiGate-4400F-Series-Supplement.pdf",
+  "4800F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/5fa8d4ee-9cd4-11ed-8e6d-fa163e15d75b/FG-4800F-Series-QSG.pdf",
+  "1100E-qsg": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/8505790d-a81f-11e9-81a4-00505692583a/FortiGate-1100E-ACDC-Series-Supplement-QSG.pdf",
+  "1800F-qsg": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/1891095c-72e5-11ea-9384-00505692583a/FortiGate-1800F-Series-Supplement.pdf",
+  "2600F-qsg": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/c1ff9041-55c1-11eb-b9ad-00505692583a/FortiGate-2600F-Series-QSG.pdf",
+  "3000F-qsg": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/db9d59f7-e1f0-11ec-bb32-fa163e15d75b/FG-3000F-QSG.pdf",
+  "200E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/da490160-1a0a-11e9-9685-f8bc1258b856/FortiGate-200E-201E-QSG.pdf",
+  "300E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/ef689af9-1a12-11e9-9685-f8bc1258b856/FortiGate_300E-301E_Supplement.pdf",
+  "400E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/8a2023c9-299c-11e9-94bf-00505692583a/FortiGate_400_401E_ACDC_Supplement_QSG.pdf",
+  "500E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/f10f67a8-1a12-11e9-9685-f8bc1258b856/FortiGate_500E-501E_Supplement.pdf",
+  "600E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/186de9b7-1a21-11e9-9685-f8bc1258b856/FG-600E-Series-QSG.pdf",
+  "50G-5G": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/3a955901-cdf9-11ef-91d4-7a9b9721b752/FG-50G-5G-Series-QSG.pdf",
 };
 
 /** Resolve Fortinet catalog panels without treating unverified variants as exact hardware. */
@@ -172,10 +185,19 @@ function buildFortinetProfile({ catalog, device }) {
   else if (/^FortiGate 300[01]G$/.test(model)) add3000G(profile, device);
   else if (/^FortiGate 350[01]G$/.test(model)) add3500G(profile, device);
   else if (/^FortiGate 380[01]G$/.test(model)) add3800G(profile, device);
+  else if (/^FortiGate (?:420[01]F|440[01]F)(?:-DC)?$/.test(model)) add42004400F(profile, device);
+  else if (/^FortiGate 480[01]F(?:-DC)?(?:-NEBS)?$/.test(model)) add4800F(profile, device);
+  else if (/^FortiGate (?:1100E|180[01]F|260[01]F|300[01]F)-DC$/.test(model)) addTerminalDC(profile, device);
+  else if (/^FortiGate 20[01]E$/.test(model)) add200E(profile, device);
+  else if (/^FortiGate (?:[3456]0[01]E|401E-DC)$/.test(model)) addLegacyRackE(profile, device);
+  else if (/^FortiGate 5[01]G-5G$/.test(model)) add50GCellular(profile, device);
   if (/^FortiGate (?:180[01]F(?:-DC)?|350[01]F)$/.test(model)) profile.legacyLayouts = [{ inventoryRevision: 0,
     portIndexMap: Object.fromEntries(device.ports.map((port) => [port.portIndex, port.portIndex])) }];
   if (/^FortiGate 300[01](?:G|F(?:-(?:ACDC|DC))?)$/.test(model)) profile.legacyLayouts = [{ inventoryRevision: 0,
     portIndexMap: Object.fromEntries(device.ports.map((port) => [port.portIndex <= 18 ? port.portIndex : port.portIndex + 2, port.portIndex])) }];
+  if (/^FortiGate 420[01]F(?:-DC)?$/.test(model)) profile.legacyLayouts = [{ inventoryRevision: 0,
+    portIndexMap: Object.fromEntries(device.ports.filter((port) => ![21, 22].includes(port.portIndex))
+      .map((port) => [port.portIndex > 22 ? port.portIndex - 2 : port.portIndex, port.portIndex])) }];
   const units = Math.max(1, Number(catalog.units) || 1);
   for (const face of Object.values(profile.faces)) {
     for (const port of face.ports) port.height = Math.min(port.height, .24 / units);
@@ -1385,4 +1407,264 @@ function add3800G(profile, device) {
     element("module-bay", .009, .71, .044, .28, "SSD1", "blank"),
     element("module-bay", .054, .71, .044, .28, "SSD2", "blank")];
   profile.limitations.push("Panel coordinates are traced from the official hardware photograph. The storage sled covers are represented closed, without asserting installed capacity.");
+}
+
+/** Reproduce the separately illustrated 4200F, 4400F and 4800F supply populations and three-fan rear assemblies. */
+function hyperscaleFRear(units, dc, fourDC = false) {
+  const short = units === 3;
+  const supplied = short || dc && !fourDC ? 2 : 4;
+  const positions = short ? [.388, .687] : [.035, .275, .515, .755];
+  const height = short ? .290 : .230;
+  const fanY = short ? .077 : .300;
+  const fanHeight = short ? .900 : .685;
+  const coverY = short ? .117 : .325;
+  const coverHeight = short ? .753 : .574;
+  return [
+    element("handle", .006, .13, .018, .54), element("handle", .977, .13, .018, .54),
+    ...positions.map((y, index) => !short && index < 4 - supplied ?
+      element("module-bay", .030, y, .124, height, "", "blank") :
+      element("psu", .030, y, .124, height, `PSU${positions.length - index}`, dc ? "dc-keyed2" : "ac")),
+    ...(short ? [element("module-bay", .030, .058, .124, .323, "", "blank")] :
+      [element("module-bay", .261, .088, .655, .148, "", "blank")]),
+    element("module-bay", .174, coverY, .086, coverHeight, "", "blank"),
+    ...[.184, .224].map((x, index) => element("text", x - .012, coverY - .063, .034, .047, `SSD${index + 1}`)),
+    ...[.184, .224].map((x) => element("vent", x, coverY + .08, .024, coverHeight - .16, undefined, "slots")),
+    ...[.264, .497, .730].map((x, index) => element("fan", x, fanY, .231, fanHeight, `FAN${index + 1}`, "removable")),
+    element("text", .967, .90, .030, .045, "GND"),
+  ];
+}
+
+/** Trace the low connector strip and upper perforated grilles shared explicitly by the 4200F and 4400F drawings. */
+function hyperscaleFControls(model, units) {
+  const short = units === 3;
+  const stripY = short ? .662 : .740;
+  const lightY = short ? .785 : .848;
+  const lightStep = short ? .039 : .026;
+  return [
+    element("text", .042, .087, .143, .070, model),
+    element("vent", .029, short ? .25 : .22, .175, short ? .353 : .474, undefined, "perforated"),
+    ...[.224, .422, .620, .818].map((x) => element("vent", x, .038, .177, short ? .565 : .656, undefined, "perforated")),
+    element("vent", .039, stripY, .933, .043, undefined, "slots"),
+    element("usb", short ? .090 : .084, short ? .905 : .924, .032, short ? .033 : .026, undefined, "a"),
+    element("vent", .188, short ? .740 : .801, .025, short ? .183 : .147, undefined, "slots"),
+    ...["STATUS", "ALARM", "HA", "PWR"].flatMap((label, index) => [
+      element("led", .072, lightY + index * lightStep, .004, short ? .016 : .012),
+      element("text", .030, lightY - .004 + index * lightStep, .036, short ? .028 : .020, label),
+    ]),
+  ];
+}
+
+/** Trace all twenty SFP28 sockets and the differing QSFP banks of the 4200F and 4400F AC/DC models. */
+function add42004400F(profile, device) {
+  const short = device.model.startsWith("FortiGate 420");
+  const dc = device.model.endsWith("-DC");
+  inspected(profile, short ? "4200F" : "4400F", dc ? "3, 5 (front; DC rear)" : "3–4 (front; AC rear)");
+  notePhysicalLabels(profile);
+  const sfpColumns = short ? [.238, .271, .326, .360, .392, .426, .475, .508, .542, .575] :
+    [.233, .266, .323, .356, .390, .423, .477, .510, .543, .576];
+  const qsfpColumns = short ? [.634, .676, .753, .796] : [.632, .677, .754, .800, .868, .915];
+  const height = short ? .080 : .060;
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (port.type === "Console") return namedSlot(port, "CONSOLE", short ? .106 : .100, short ? .827 : .866, .032, height);
+    const y = index % 2 ? short ? .89 : .914 : short ? .79 : .83;
+    if (index < 2) return namedSlot(port, `MGMT${index + 1}`, short ? .158 : .150, y, .032, height);
+    if (index < 22) return namedSlot(port, index < 4 ? `HA${index - 1}` : index < 6 ? `AUX${index - 3}` : String(index - 5),
+      sfpColumns[Math.floor((index - 2) / 2)], y, .029, height);
+    return namedSlot(port, String(index - 5), qsfpColumns[Math.floor((index - 22) / 2)], y, .038, height);
+  });
+  profile.faces.front.components = [...hyperscaleFControls(short ? "FortiGate 4200F" : "FortiGate 4400F", short ? 3 : 4),
+    ...(short ? [element("vent", .825, .740, .145, .183, undefined, "slots")] : [])];
+  profile.faces.rear.components = hyperscaleFRear(short ? 3 : 4, dc);
+  profile.limitations.push("The guide's standard PSU population is shown. Storage sled covers remain closed; installed capacity differs between storage variants.");
+  if (short) profile.limitations.push("Inventory revision 1 includes twenty SFP28 sockets. Revision-0 endpoints retain their IDs and configuration; an explicit index map keeps saved QSFP and console connections separate from the two added optical slots.");
+}
+
+/** Trace the 2026 4800F AC/DC/NEBS guide, including split upper ventilation and the full QSFP-DD bank. */
+function add4800F(profile, device) {
+  const dc = device.model.includes("-DC");
+  inspected(profile, "4800F", dc ? "9, 11 (front; DC rear)" : "9–10 (front; AC rear)");
+  notePhysicalLabels(profile);
+  profile.hardwareRevision = "QuickStart Guide June 23, 2026; all six AC/DC/NEBS SKUs explicitly listed";
+  const sfpColumns = [.218, .251, .301, .334, .368, .401];
+  const qsfpColumns = [.455, .501, .555, .602, .654, .700];
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (port.type === "Console") return namedSlot(port, "CONSOLE", .104, .878, .032, .060);
+    const y = index % 2 ? .922 : .832;
+    if (index < 2) return namedSlot(port, `MGMT${index + 1}`, .153, y, .032, .060);
+    if (index < 14) return namedSlot(port, index < 4 ? `HA${index - 1}` : index < 6 ? `AUX${index - 3}` : String(index - 5),
+      sfpColumns[Math.floor((index - 2) / 2)], y, .029, .060);
+    if (index < 26) return namedSlot(port, String(index - 5), qsfpColumns[Math.floor((index - 14) / 2)], y, .038, .060);
+    return namedSlot(port, String(index - 5), .759 + Math.floor((index - 26) / 2) * .055, y, .043, .060);
+  });
+  profile.faces.front.components = [element("text", .040, .093, .143, .070, "FortiGate 4800F"),
+    element("vent", .015, .230, .186, .460, undefined, "perforated"),
+    ...[.212, .409, .606].map((x) => element("vent", x, .050, .181, .640, undefined, "perforated")),
+    element("vent", .802, .050, .077, .230, undefined, "perforated"),
+    element("module-bay", .891, .050, .094, .230, "", "blank"),
+    element("vent", .802, .308, .183, .382, undefined, "perforated"),
+    element("vent", .027, .735, .950, .040, undefined, "slots"),
+    element("vent", .181, .80, .014, .144, undefined, "slots"),
+    element("usb", .088, .938, .032, .026, undefined, "a"),
+    element("button", .022, .921, .008, .024, undefined, "reset"),
+    element("text", .012, .954, .030, .022, "BLE"),
+    ...["STATUS", "ALARM", "HA", "PWR"].flatMap((label, index) => [
+      element("led", .071, .842 + index * .028, .004, .012),
+      element("text", .035, .840 + index * .028, .032, .022, label),
+    ])];
+  profile.faces.rear.components = hyperscaleFRear(4, dc, true);
+  profile.limitations.push("The current guide's closed front grille and rear storage cover arrangement is shown. NEBS models have the filter preinstalled; installed storage capacity is not inferred from cover artwork.");
+}
+
+/** Apply the explicitly shared front drawings and separately traced terminal-powered DC rears from four model guides. */
+function addTerminalDC(profile, device) {
+  const model = device.model;
+  if (model.startsWith("FortiGate 1100")) {
+    add1100E(profile, device);
+    inspected(profile, "1100E-qsg", "3–4 (shared front; separate DC rear)");
+    profile.faces.rear.components = [
+      ...[.034, .219, .403].map((x, index) => element("fan", x, .10, .179, .85, `FAN${index + 1}`, "fixed")),
+      element("psu", .692, .497, .133, .483, "PWR1", "dc-terminal2"),
+      element("psu", .842, .497, .133, .483, "PWR2", "dc-terminal2")];
+  } else if (model.startsWith("FortiGate 300")) {
+    add3000F(profile, device);
+    inspected(profile, "3000F-qsg", "6–7 (shared front; separate AC/DC rears)");
+    for (const component of profile.faces.rear.components) if (component.kind === "psu") component.variant = "dc-terminal2";
+    profile.limitations.push("Inventory revision 1 corrects the former extra copper endpoints. The explicit revision map preserves saved optical and console connections without changing IDs or configuration.");
+  } else {
+    const is1800 = model.startsWith("FortiGate 180");
+    if (is1800) add1800F(profile, device);
+    else add2600F(profile, device);
+    inspected(profile, is1800 ? "1800F-qsg" : "2600F-qsg", is1800 ? "3, 5 (shared front; DC rear)" : "4, 6 (shared front; DC rear)");
+    profile.faces.rear.components = [
+      ...[.054, .255, .456].map((x, index) => element("fan", x, .105, .170, .80, `FAN${index + 1}`, "fixed")),
+      element("psu", .719, .405, .111, .46, "PSU2", "dc-terminal2"),
+      element("psu", .833, .405, .111, .46, "PSU1", "dc-terminal2")];
+    if (is1800) profile.limitations.push("Inventory revision 1 has one console. The old extra console endpoint remains preserved and unmapped.");
+  }
+  notePhysicalLabels(profile);
+  profile.limitations.push("The model guide explicitly includes the DC SKU and illustrates its two supplies with separate positive, negative and grounding screw terminals.");
+}
+
+/** Draw the separately verified standard rear populations of the 300/400/500/600E enclosures. */
+function legacyRackERear(generation, dc) {
+  const fourFans = generation === 400 || generation === 600;
+  return [
+    ...Array.from({ length: fourFans ? 4 : 3 }, (_, index) => element("fan", (fourFans ? .089 : .107) + index * .098,
+      .10, .088, .80, `FAN${index + 1}`, "fixed")),
+    element("module-bay", fourFans ? .699 : .707, .025, .121, .95, "PWR2 OPTIONAL", "blank"),
+    element("psu", fourFans ? .842 : .852, .025, .121, .95, "PWR1", dc ? "dc-terminal2" : "ac"),
+  ];
+}
+
+/** Trace the distinct high-port-count and 10GE-uplink E-series panels using each model's own guide. */
+function addLegacyRackE(profile, device) {
+  const generation = Number(device.model.match(/ ([3456])0/)[1]) * 100;
+  const dense = generation <= 400;
+  inspected(profile, `${generation}E`, "3–4 (front; standard rear)");
+  notePhysicalLabels(profile);
+  const copperColumns = dense ? [.361, .394, .427, .460, .510, .543, .575, .607] : [.580, .613, .662, .695];
+  const opticalColumns = dense ? [.655, .689, .723, .757, .798, .832, .865, .899] : [.769, .802, .849, .883];
+  const copperEnd = dense ? 18 : 10;
+  const opticalEnd = dense ? 34 : 18;
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (port.type === "Console") return namedSlot(port, "CONSOLE", dense ? .218 : .367, .64, .032, .22);
+    const y = index % 2 ? .70 : .39;
+    if (index < 2) return namedSlot(port, dense ? index ? "HA" : "MGMT" : index ? "MGMT" : "HA",
+      dense ? index ? .307 : .263 : .417, dense ? .64 : y, .032, .22);
+    if (index < copperEnd) return namedSlot(port, String(index - 1), copperColumns[Math.floor((index - 2) / 2)], y, .027, .22);
+    if (index < opticalEnd) return namedSlot(port, index >= opticalEnd - 2 ? `VW${index - opticalEnd + 3}` :
+      index >= opticalEnd - 4 ? `S${index - opticalEnd + 5}` : String(index - 1), opticalColumns[Math.floor((index - copperEnd) / 2)], y, .029, .22);
+    return namedSlot(port, `X${index - opticalEnd + 1}`, .942, y, .030, .22);
+  });
+  profile.faces.front.components = [element("text", .020, .115, .122, .11, device.model.replace(/-DC$/, "")),
+    element("vent", .015, dense ? .55 : .56, dense ? .098 : .210, .29, undefined, "perforated"),
+    ...(dense ? [element("vent", .160, .10, .165, .18, undefined, "perforated")] : [
+      element("vent", .167, .10, .060, .36, undefined, "perforated"),
+      element("vent", .304, .10, .082, .18, undefined, "perforated"),
+      element("vent", .448, .12, .090, .70, undefined, "perforated")]),
+    ...[.44, .68].map((y) => element("usb", dense ? .161 : .304, y, .028, .11, undefined, "a")),
+    ...["STATUS", "ALARM", "HA", "PWR"].flatMap((label, index) => [
+      element("led", dense ? .143 : .250, .43 + index * .105, .004, .035),
+      element("text", dense ? .112 : .260, .42 + index * .105, .027, .065, label),
+    ])];
+  profile.faces.rear.components = legacyRackERear(generation, device.model.endsWith("-DC"));
+  profile.limitations.push("The guide's standard configuration has one installed power supply and the optional second bay blank. The 300/500E rear has three fans; the separately illustrated 400/600E rear has four.");
+}
+
+/** Trace the 200E/201E's WAN bank, storage-only status indicator and fourteen-contact rear RPS inlet. */
+function add200E(profile, device) {
+  inspected(profile, "200E", "3 (front; rear; separate 201E indicator drawing)");
+  notePhysicalLabels(profile);
+  const dataColumns = [.509, .541, .577, .610, .644, .687, .720];
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (port.type === "Console") return namedSlot(port, "CONSOLE", .370, .47, .032, .22);
+    const y = index % 2 ? .64 : .34;
+    if (index < 2) return namedSlot(port, index ? "MGMT" : "HA", .423, y, .032, .22);
+    if (index < 4) return namedSlot(port, `WAN${index - 1}`, .475, y, .032, .22);
+    if (index < 18) return namedSlot(port, String(index - 3), dataColumns[Math.floor((index - 4) / 2)], y, .029, .22);
+    return namedSlot(port, String(index - 3), index < 20 ? .831 : .864, y, .030, .22);
+  });
+  profile.faces.front.components = [element("text", .025, .17, .132, .11, device.model),
+    element("vent", .018, .54, .255, .33, undefined, "perforated"),
+    element("vent", .181, .10, .085, .41, undefined, "perforated"),
+    element("vent", .895, .09, .085, .80, undefined, "perforated"),
+    element("usb", .354, .690, .032, .10, undefined, "a"),
+    ...["STATUS", "ALARM", "HA", "PWR"].flatMap((label, index) => [
+      element("led", .320, .46 + index * .087, .004, .027),
+      element("text", .327, .45 + index * .087, .025, .060, label),
+    ]),
+    ...(device.model === "FortiGate 201E" ? [element("led", .290, .721, .004, .027),
+      element("text", .276, .62, .030, .070, "HDD")] : [])];
+  profile.faces.rear.components = [element("vent", .122, .20, .208, .69, undefined, "perforated"),
+    element("vent", .378, .20, .107, .69, undefined, "perforated"),
+    { ...element("power", .620, .43, .080, .40, undefined, "dc-multipin"), columns: 7 },
+    element("text", .612, .18, .096, .10, "RPS 12V"),
+    element("power", .880, .28, .050, .52, undefined, "iec"),
+    element("switch", .936, .30, .035, .50, undefined, "power")];
+}
+
+/** Trace the cellular 50G/51G's five exposed SMA sockets, separate BLE cap and rear-only Ethernet bank. */
+function add50GCellular(profile, device) {
+  inspected(profile, "50G-5G", "5–6 (front; rear), cover explicitly lists FG-50G-5G and FG-51G-5G");
+  notePhysicalLabels(profile);
+  profile.defaultFace = "rear";
+  profile.faces.front.ports = [];
+  profile.faces.rear.ports = device.ports.map((port, index) => port.type === "Console" ?
+    namedSlot(port, "CONSOLE", .201, .578, .067, .24) :
+    namedSlot(port, ["WAN", "A", "3", "2", "1"][index], .653 + index * .065, .578, .060, .24));
+  profile.faces.front.components = [
+    element("text", .137, .48, .22, .11, "FortiGate 50G-5G"),
+    ...[.035, .922].map((x) => element("coax", x, .14, .045, .25)),
+    ...[.035, .922].map((x) => element("text", x, .43, .045, .075, "5G")),
+    element("coax", .878, .49, .039, .22, undefined, "capped"),
+    element("text", .873, .77, .050, .075, "BLE"),
+    element("button", .049, .680, .010, .040, undefined, "reset"),
+    element("text", .025, .78, .067, .065, "BLE/RESET"),
+    element("led", .095, .72, .008, .045),
+    element("text", .087, .81, .030, .065, "BLE"),
+    element("led", .205, .76, .008, .045),
+    element("text", .171, .85, .09, .070, "SIGNED FW"),
+    ...[0, 1, 2].map((index) => element("led", .365 + index * .024, .723, .008, .045)),
+    element("text", .320, .641, .119, .070, "PWR STATUS HA"),
+    ...["SVC", "5G"].flatMap((label, index) => [
+      element("led", .460, .572 + index * .151, .008, .045),
+      element("text", .450, .496 + index * .151, .030, .070, label),
+    ]),
+    ...[.572, .723].flatMap((y) => Array.from({ length: 5 }, (_, index) => element("led", .580 + index * .024, y, .008, .045))),
+    element("text", .568, .48, .131, .070, "1 2 3 A WAN"),
+    element("text", .699, .562, .060, .070, "LINK/ACT"),
+    element("text", .699, .713, .060, .070, "SPEED"),
+  ];
+  profile.faces.rear.components = [
+    ...[.013, .477, .941].map((x) => element("coax", x, .075, .045, .25)),
+    ...["5G", "GPS", "5G"].map((label, index) => element("text", [.013, .477, .941][index], .338, .045, .075, label)),
+    element("vent", .082, .090, .383, .20, undefined, "slots"),
+    element("vent", .531, .090, .390, .20, undefined, "slots"),
+    element("power", .067, .350, .030, .415, undefined, "dc-keyed2"),
+    element("usb", .115, .410, .028, .350, undefined, "a"),
+    element("module-bay", .258, .526, .035, .46, "", "blank"),
+    element("text", .246, .350, .065, .120, "SIGNED FW"),
+    element("vent", .312, .409, .285, .398, undefined, "slots"),
+  ];
+  profile.limitations.push("Five exposed SMA sockets are shown separately from the BLE antenna cap. The signed-firmware switch is under its illustrated rear access cover; external antenna rods and internal SIM slots are outside the panel view.");
 }

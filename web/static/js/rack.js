@@ -92,7 +92,8 @@ export function findRackLanding(topology, device, proposedPosition, rackFaces = 
   return findLanding(topology, device, proposedPosition, targets);
 }
 
-export function findRackFaceLanding(topology, device, proposedPosition, rackFaceBoxes) {
+/** Find a rendered rack elevation using the dragged body's actual display height. */
+export function findRackFaceLanding(topology, device, proposedPosition, rackFaceBoxes, { sourceHeight } = {}) {
   const targets = [...(rackFaceBoxes || [])].reverse().map((box) => ({
     rack: box.rack,
     rackFace: normalizeRackFace(box.face),
@@ -100,13 +101,15 @@ export function findRackFaceLanding(topology, device, proposedPosition, rackFace
     y: box.y,
     width: box.width || RACK_WIDTH,
   }));
-  return findLanding(topology, device, proposedPosition, targets);
+  return findLanding(topology, device, proposedPosition, targets, sourceHeight);
 }
 
-function findLanding(topology, device, proposedPosition, targets) {
+/** Use visual bounds for containment while reserving rack slots by physical units. */
+function findLanding(topology, device, proposedPosition, targets, sourceHeight) {
   const units = Math.max(1, Number(device.faceplate?.unitsU) || 1);
   const centerX = proposedPosition.x + RACK_MOUNTED_DEVICE_WIDTH / 2;
-  const centerY = proposedPosition.y + units * RACK_UNIT_HEIGHT / 2;
+  const displayHeight = Number.isFinite(sourceHeight) && sourceHeight > 0 ? sourceHeight : units * RACK_UNIT_HEIGHT;
+  const centerY = proposedPosition.y + displayHeight / 2;
   for (const target of targets) {
     const { rack, rackFace } = target;
     const visualRack = { ...rack, positionX: target.x, positionY: target.y };

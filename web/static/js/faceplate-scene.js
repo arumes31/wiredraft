@@ -4,6 +4,13 @@ import { faceplateConnectorSize, portDescriptionPlacement } from "./termination.
 
 const modelSlotIndexes = new WeakMap();
 
+/** Keep unmounted round and square AP sockets readable without changing rack occupancy. */
+export function faceplateDisplaySize(device, { mounted = false, width = 690 } = {}) {
+  const height = Math.max(100, (device.faceplate?.unitsU || 1) * 100);
+  const shape = !mounted && device.category === "AccessPoint" ? resolveModelFaceplate(device)?.chassis.shape : null;
+  return { width, height: shape === "square" || shape === "circle" ? Math.max(height, width / 2) : height };
+}
+
 /** Convert a normalized model rectangle into world coordinates. */
 function worldRectangle(rect, bounds) {
   return {

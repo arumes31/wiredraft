@@ -110,7 +110,15 @@ test("all 541 catalog models render both panels with identical Canvas and SVG po
             const label = [...svgHost.querySelectorAll(".port-label")].find((node) => node.textContent === "WWW");
             const placement = scene.ports.find((box) => box.port.id === device.ports[0].id).labelPlacement;
             verify(label?.hasAttribute("textLength"), "wide short names require a persistent SVG width constraint");
-            verify(label.getComputedTextLength() <= placement.maxWidth + .1, "wide short name exceeds its reserved socket label width");
+            verify(Number(label.getAttribute("textLength")) <= placement.maxWidth + .1, "wide short name exceeds its reserved advance width");
+            // Linux WebKit reports the natural advance from getComputedTextLength even after glyph scaling.
+            // Rendered bounds also account for browser-specific glyph overhang inside the plate's padding.
+            const labelBounds = label.getBoundingClientRect();
+            const plate = label.previousElementSibling;
+            verify(plate?.getAttribute("data-layer") === "port-description", "socket label has no background plate");
+            const plateBounds = plate.getBoundingClientRect();
+            verify(labelBounds.left >= plateBounds.left - .1 && labelBounds.right <= plateBounds.right + .1,
+              `wide short name renders outside its reserved socket label plate: text ${labelBounds.left}–${labelBounds.right}, plate ${plateBounds.left}–${plateBounds.right}`);
           }
           renderedPanels++;
         }

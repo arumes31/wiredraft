@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { hardwareCatalog, instantiateProfile } from "./static/js/catalog.js";
 import { resolveEnterpriseFaceplate } from "./static/js/faceplate-enterprise-models.js";
+import { buildFaceplateScene } from "./static/js/faceplate-scene.js";
 
 const vendors = ["Cisco", "HPE Aruba", "Juniper", "Dell", "Arista", "Extreme", "Ruckus", "Palo Alto", "Sophos", "Check Point"];
 const profiles = hardwareCatalog.filter((profile) => vendors.includes(profile.vendor)
@@ -37,9 +38,10 @@ for (const catalog of profiles) {
     assert.equal(slots.filter((slot) => slot.portIndex === port.portIndex && slot.type === port.type).length, 1,
       `${device.model} ${port.portIndex}/${port.type}: requires exactly one stable typed slot`);
   }
-  assert.ok(slots.every((slot) => slot.height * device.faceplate.unitsU <= .230001),
-    `${device.model}: rack-unit height cannot stretch a socket into a giant connector`);
   for (const [face, panel] of Object.entries(profile.faces)) {
+    const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: device.faceplate.unitsU * 100 }, { face });
+    assert.ok(scene.ports.every((port) => port.height <= 23.0001),
+      `${device.model}: actual socket height must stay bounded after scaling its chassis and title strip`);
     assert.ok(panel.components.length, `${device.model} ${face} requires authored panel components`);
     const boxes = panel.ports.map((slot) => ({ ...slot, x: slot.x - slot.width / 2, y: slot.y - slot.height / 2 }));
     for (const item of [...boxes, ...panel.components]) {
@@ -72,9 +74,9 @@ assert.equal(resolveEnterpriseFaceplate(deviceFor("Secure Firewall 1010")).faces
   "the 1010 front has no connectors or status indicators");
 
 const ex3400 = resolveEnterpriseFaceplate(deviceFor("EX3400-24P"));
-assert.equal(ex3400.faces.rear.ports.filter((slot) => slot.type === "QSFP28_100G").length, 2,
+assert.equal(ex3400.faces.rear.ports.filter((slot) => slot.type === "QSFP_PLUS_40G").length, 2,
   "EX3400 rear Virtual Chassis uplinks must remain available on the rear face");
-assert.ok(ex3400.inventoryNotes.some((note) => note.includes("QSFP+")), "catalog's encoded QSFP28 type is disclosed");
+assert.ok(ex3400.catalogDiscrepancies.some((note) => note.includes("QSFP28")), "the historical QSFP28 inventory correction is disclosed");
 const arista7050 = resolveEnterpriseFaceplate(deviceFor("7050SX3-48YC8"));
 const arista7060 = resolveEnterpriseFaceplate(deviceFor("7060CX2-32S"));
 assert.ok(arista7050.faces.rear.ports.some((slot) => slot.type === "Console"));

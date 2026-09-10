@@ -2010,17 +2010,17 @@ async function installRack(event) {
   requestAnimationFrame(() => canvas.fit());
 }
 
+/** Install catalog hardware below existing devices without changing their saved positions. */
 async function installDevice(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
-  const index = state.topology.devices.length;
 	const catalog = await loadCatalogModule();
 	const profile = catalog.hardwareCatalog.find((candidate) => candidate.vendor === form.get("vendor") && candidate.model === form.get("model"));
 	if (!profile) throw new Error("Select a hardware catalog profile");
-	const device = catalog.instantiateProfile(profile, String(form.get("name")), {
-		x: 100 + (index % 2) * 730,
-		y: 100 + Math.floor(index / 2) * (profile.units * 100 + 50),
-	});
+	const device = catalog.instantiateProfile(profile, String(form.get("name")), { x: 0, y: 0 });
+  const position = canvas.nextDevicePosition(device);
+  device.positionX = position.x;
+  device.positionY = position.y;
 	device.faceplate.vendorColor = String(form.get("color"));
   await updateFrom(() => api.createDevice(state.topology.id, device), true, "Device installed");
   elements["device-dialog"].close();
@@ -2042,18 +2042,18 @@ async function loadCatalogModule() {
   return catalogModule;
 }
 
+/** Place a configured server below existing free hardware, including taller access points. */
 async function installStaticServer(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const units = Number(form.get("units"));
-  const index = state.topology.devices.length;
   const server = instantiateGenericServerBack({
     name: form.get("name"), model: form.get("model"), units, color: form.get("color"),
     cards: pendingServerCards.map(({ typeKey, label, portCount }) => ({ typeKey, label, portCount })),
-  }, {
-    x: 100 + (index % 2) * 730,
-    y: 100 + Math.floor(index / 2) * (units * 100 + 50),
-  });
+  }, { x: 0, y: 0 });
+  const position = canvas.nextDevicePosition(server);
+  server.positionX = position.x;
+  server.positionY = position.y;
   await updateFrom(() => api.createDevice(state.topology.id, server), true, "Generic server back installed");
   elements["static-server-dialog"].close();
 }
@@ -2105,17 +2105,17 @@ function renderPatchPanelMiniature() {
   ).join("");
 }
 
+/** Place a new patch panel after existing free hardware without overlapping larger panels. */
 async function installPatchPanel(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
-  const index = state.topology.devices.length;
   const catalog = await loadCatalogModule();
   const profile = catalog.patchPanelProfiles().find((candidate) => candidate.model === form.get("model"));
   if (!profile) throw new Error("Select a patch-panel model");
-  const panel = catalog.instantiateProfile(profile, String(form.get("name")), {
-    x: 100 + (index % 2) * 730,
-    y: 100 + Math.floor(index / 2) * (profile.units * 100 + 50),
-  });
+  const panel = catalog.instantiateProfile(profile, String(form.get("name")), { x: 0, y: 0 });
+  const position = canvas.nextDevicePosition(panel);
+  panel.positionX = position.x;
+  panel.positionY = position.y;
   panel.faceplate.vendorColor = String(form.get("color"));
   const topology = await updateFrom(() => api.createDevice(state.topology.id, panel), true, "Patch panel installed");
   if (topology) elements["patch-panel-dialog"].close();

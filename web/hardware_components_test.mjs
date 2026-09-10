@@ -230,3 +230,33 @@ test("right-inlet power supplies and grounding studs retain their actual physica
   const stud = hardwarePrimitives({ ...bounds, width: 20, height: 20, kind: "screw" });
   assert.deepEqual(stud.map((part) => part.kind), ["circle", "circle", "line", "line"]);
 });
+
+test("DC supplies distinguish a keyed pair from screw terminals and their separate grounding stud", () => {
+  const bounds = { x: 0, y: 0, width: 100, height: 100, kind: "psu" };
+  const keyed = hardwarePrimitives({ ...bounds, variant: "dc-keyed2" });
+  const keyedContacts = keyed.filter((part) => part.kind === "circle" && part.fill === "#b9c3c4");
+  assert.equal(keyedContacts.length, 2);
+  assert.equal(keyedContacts[0].cy, keyedContacts[1].cy);
+  const terminal = hardwarePrimitives({ ...bounds, variant: "dc-terminal2" });
+  const screws = terminal.filter((part) => part.kind === "circle" && part.fill === "#b9c3c4");
+  assert.equal(screws.length, 3);
+  assert.equal(screws.filter((part) => part.cy > 50).length, 2);
+  assert.equal(screws.filter((part) => part.cy < 50).length, 1);
+  assert.equal(terminal.filter((part) => part.fill === "#d7b76c").length, 0);
+});
+
+test("fixed chassis fans retain a circular grille without a removable square housing", () => {
+  const bounds = { x: 0, y: 0, width: 40, height: 40, kind: "fan" };
+  const fixed = hardwarePrimitives({ ...bounds, variant: "fixed" });
+  assert.equal(fixed.filter((part) => part.kind === "rect").length, 0);
+  assert.ok(fixed.some((part) => part.kind === "circle"));
+  assert.ok(hardwarePrimitives(bounds).some((part) => part.kind === "rect"));
+});
+
+test("covered antenna fittings have no exposed center contact", () => {
+  const component = { x: 0, y: 0, width: 20, height: 20, kind: "coax" };
+  const covered = hardwarePrimitives({ ...component, variant: "capped" });
+  assert.equal(covered.filter((part) => part.fill === "#d7b76c").length, 0);
+  assert.equal(covered.length, 2);
+  assert.equal(hardwarePrimitives(component).filter((part) => part.fill === "#d7b76c").length, 1);
+});

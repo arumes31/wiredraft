@@ -739,7 +739,7 @@ export function buildSVGDocument(topology, engine) {
     const textWidth = Math.min(label.maxWidth, portLabelWidth(label, engine.ctx));
     const width = Math.min(label.boxMaxWidth ?? Infinity, Math.max(12, textWidth + 6));
     parts.push(`<rect data-layer="port-description" x="${x - width / 2}" y="${y - 5.5}" width="${width}" height="11" rx="2" fill="${label.template.surface}" opacity=".94" stroke="${label.template.ink}" stroke-opacity=".35"/>`);
-    parts.push(`<text class="port-label" data-layer="port-description" x="${x}" y="${y}" font-size="${label.fontSize}" fill="${label.template.ink}"${label.boxMaxWidth && textWidth > 0 ? ` textLength="${textWidth}" lengthAdjust="spacingAndGlyphs"` : ""}>${escapeXML(label.label)}</text>`);
+    parts.push(`<text class="port-label" data-layer="port-description" x="${x}" y="${y}" font-size="${label.fontSize}" font-family="'Bahnschrift Condensed',sans-serif" font-weight="700" text-anchor="middle" dominant-baseline="middle" fill="${label.template.ink}"${label.boxMaxWidth && textWidth > 0 ? ` textLength="${textWidth}" lengthAdjust="spacingAndGlyphs"` : ""}>${escapeXML(label.label)}</text>`);
   }
   for (const annotation of topology.annotations || []) {
     const x1 = annotation.x1 + offsetX; const y1 = annotation.y1 + offsetY;

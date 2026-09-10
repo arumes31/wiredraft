@@ -78,6 +78,11 @@ manufacturing measurements. Application identity and connections on hidden
 panels occupy a title strip outside the physical body. Round or square access
 point chassis retain their aspect ratio. Port labels have bounded space shared
 by Canvas and SVG; exported widths remain constrained across font substitution.
+Unmounted round and square access points receive enough display height to keep
+their sockets readable. Rack occupancy still uses the saved physical rack units.
+New hardware is placed below existing devices in its canvas column; saved device
+positions remain unchanged. Drag ghosts, picking, routing and exports use the
+same display bounds.
 
 Run `npm run test:coverage` for unit and compatibility checks and the existing
 80% coverage gates. `e2e/faceplate-catalog.spec.mjs` renders both panels of the

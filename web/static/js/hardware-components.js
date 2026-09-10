@@ -62,7 +62,7 @@ export function hardwarePrimitives(component, palette = {}) {
   } else if (kind === "vent") {
     addVent(art, component, colors);
   } else if (kind === "fan") {
-    addFan(art, colors);
+    addFan(art, colors, component.variant);
   } else if (kind === "handle") {
     addHandle(art, colors);
   } else if (kind === "psu") {
@@ -164,6 +164,7 @@ function addSocket(art, kind, colors, variant, portrait, columns) {
   if (kind === "coax") {
     art.circle(.5, .5, .46, colors.surfaceDark, stroke);
     art.circle(.5, .5, .34, colors.surface, stroke);
+    if (variant === "capped") return;
     art.circle(.5, .5, .2, fill, stroke);
     art.circle(.5, .5, .045, "#d7b76c");
     return;
@@ -262,8 +263,8 @@ function addVent(art, component, colors) {
 }
 
 /** Draw a fan grille with concentric guards, support ribs, and a center hub. */
-function addFan(art, colors) {
-  art.rect(.025, .035, .95, .93, colors.surfaceDark, colors.ink, .055);
+function addFan(art, colors, variant) {
+  if (variant !== "fixed") art.rect(.025, .035, .95, .93, colors.surfaceDark, colors.ink, .055);
   art.circle(.5, .5, .43, "#122327", "#a7b2b5");
   for (const radius of [.34, .25, .16]) art.circle(.5, .5, radius, undefined, "#708389");
   art.line(.5, .09, .5, .91, "#a7b2b5");
@@ -284,6 +285,10 @@ function addHandle(art, colors) {
 function addPowerSupply(art, component, colors) {
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
+  if (component.variant === "dc-keyed2" || component.variant === "dc-terminal2") {
+    addTwoContactDCSupply(art, component, colors);
+    return;
+  }
   if (component.variant === "ac-fan-left") {
     art.circle(.31, .48, .34, "#122327", "#a7b2b5");
     art.circle(.31, .48, .24, colors.surfaceDark, "#708389");
@@ -307,6 +312,35 @@ function addPowerSupply(art, component, colors) {
   art.rect(.83 + handleOffset, .28, .035, .44, colors.surface, colors.ink, .02);
   art.circle(.94, .22, .035, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
   if (component.variant !== "fixed") art.rect(.78 + handleOffset, .73, .08, .1, colors.accent, colors.ink, .02);
+}
+
+/** Distinguish removable two-contact DC inlets from exposed terminal blocks and protective earth. */
+function addTwoContactDCSupply(art, component, colors) {
+  for (let row = 0; row < 2; row++) {
+    for (let column = 0; column < 5; column++) {
+      art.rect(.08 + column * .115, .12 + row * .12, .095, .085, colors.surfaceDark);
+    }
+  }
+  if (component.variant === "dc-keyed2") {
+    art.rect(.08, .43, .51, .39, "#0d1c21", colors.ink, .08);
+    art.rect(.08, .49, .51, .27, "#132125", colors.ink, .06);
+    art.rect(.30, .43, .07, .055, colors.surfaceDark);
+    art.rect(.30, .765, .07, .055, colors.surfaceDark);
+    for (const x of [.23, .44]) art.circle(x, .635, .032, "#b9c3c4", colors.ink);
+  } else {
+    for (const x of [.21, .46]) {
+      art.rect(x - .10, .51, .20, .27, "#15252a", colors.ink, .015);
+      art.circle(x, .65, .063, "#b9c3c4", colors.ink);
+      art.line(x - .038, .65, x + .038, .65, colors.ink);
+      art.line(x, .612, x, .688, colors.ink);
+    }
+    art.circle(.58, .23, .067, "#b9c3c4", colors.ink);
+    art.line(.54, .23, .62, .23, colors.ink);
+    art.line(.58, .19, .58, .27, colors.ink);
+  }
+  art.rect(.70, .12, .12, .75, colors.surfaceDark, colors.ink, .05);
+  art.rect(.81, .77, .12, .09, colors.accent, colors.ink, .02);
+  art.circle(.89, .22, .035, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
 }
 
 /** Paint shared primitives without retaining changes to the caller's Canvas state. */

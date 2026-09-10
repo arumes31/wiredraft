@@ -83,7 +83,7 @@ assert.deepEqual(instantiatedLabels("Fortinet", "FortiGate 100F").slice(0, 6), [
 assert.ok(instantiatedLabels("Fortinet", "FortiGate 200F").includes("X4"));
 assert.ok(instantiatedLabels("Fortinet", "FortiGate 6000F").includes("MGMT3"));
 assert.deepEqual(instantiatedLabels("Palo Alto", "PA-440 / PA-450").slice(0, 2), ["ethernet1/1", "ethernet1/2"]);
-assert.equal(instantiatedLabels("Cisco", "Catalyst C9200L-24P-4X").at(-1), "CONSOLE");
+assert.deepEqual(instantiatedLabels("Cisco", "Catalyst C9200L-24P-4X").slice(-3), ["CONSOLE", "USB CONSOLE", "MGMT"]);
 assert.ok(hardwareCatalog.every((profile) => profile.portLayout?.source && profile.portLayout?.fidelity));
 assert.ok(hardwareCatalog.every((profile) => profile.portLayout?.labelFidelity && profile.portLayout?.positionFidelity && profile.portLayout?.sourceScope));
 for (const model of ["FortiGate 2200E", "FortiGate 2600F", "FortiGate 3200F", "FortiGate 4200F", "FortiGate 7081F"]) {

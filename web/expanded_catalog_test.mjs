@@ -141,9 +141,9 @@ assert.deepEqual(catalogDevice("XGS 4300").device.ports.slice(-3).map((port) => 
 for (const [model, portCount, units] of [
   ["Quantum 1600", 22, 1], ["Quantum 1800", 27, 1],
   ["Quantum 3600", 8, 1], ["Quantum 3800", 8, 1],
-  ["Quantum 6200", 12, 1], ["Quantum 6400", 12, 1],
-  ["Quantum 6600", 12, 1], ["Quantum 6700", 12, 1],
-  ["Quantum 6900", 12, 1], ["Quantum 7000", 12, 1],
+  ["Quantum 6200", 13, 1], ["Quantum 6400", 13, 1],
+  ["Quantum 6600", 13, 1], ["Quantum 6700", 13, 1],
+  ["Quantum 6900", 13, 1], ["Quantum 7000", 13, 1],
   ["Quantum 16000", 12, 2], ["Quantum 26000", 12, 2],
   ["Quantum 28000", 8, 2],
 ]) {
@@ -159,9 +159,9 @@ assert.equal(catalogDevice("Quantum 1500").device.ports.length, 12);
 assert.deepEqual(catalogDevice("Quantum 3600").device.ports.slice(-3).map((port) => [port.label, port.type]), [
   ["MGMT", "RJ45_1G"], ["CONSOLE", "Console"], ["USB-C", "USB_C_CONSOLE"],
 ]);
-assert.deepEqual(catalogDevice("Quantum 6200").device.ports.slice(-4).map((port) => port.label),
-  ["MGMT", "SYNC", "CONSOLE", "USB-C"]);
-assert.ok(catalogDevice("Quantum 6200").device.ports.slice(-4).every((port) => port.faceplateX >= .22 && port.faceplateX <= .31),
+assert.deepEqual(catalogDevice("Quantum 6200").device.ports.slice(-5).map((port) => port.label),
+  ["MGMT", "SYNC", "CONSOLE", "USB-C", "LOM"]);
+assert.ok(catalogDevice("Quantum 6200").device.ports.slice(-5).every((port) => port.faceplateX >= .22 && port.faceplateX <= .31),
   "dense management clusters must stay clear of the product identity and data-port regions");
 assert.equal(catalogDevice("Quantum 28000").device.ports.filter((port) => port.type === "SFP_PLUS_10G").length, 4);
 

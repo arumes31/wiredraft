@@ -4,7 +4,7 @@ import { hardwareCatalog, instantiateProfile, upgradeInstalledPhysicalPorts } fr
 import { resolveArubaFaceplate } from "./static/js/faceplate-aruba-models.js";
 import { buildFaceplateScene } from "./static/js/faceplate-scene.js";
 
-const models = ["CX 6100 24G 4SFP+", "CX 6100 48G 4SFP+", "CX 6200F 24G 4SFP+", "CX 6200F 48G 4SFP+", "CX 8325-48Y8C"];
+const models = ["CX 6100 24G 4SFP+", "CX 6100 48G 4SFP+", "CX 6200F 24G 4SFP+", "CX 6200F 48G 4SFP+", "CX 6300M 48G", "CX 8325-48Y8C"];
 
 /** Build uniquely identified catalog inventory for scene and compatibility assertions. */
 function deviceFor(model) {
@@ -20,8 +20,11 @@ test("Aruba exact profiles retain model-specific evidence and separate all front
     const profile = resolveArubaFaceplate(device);
     assert.equal(profile.fidelity, "model");
     assert.match(profile.sku, /^JL/);
-    assert.match(profile.evidence.front, /^https:\/\/arubanetworking.hpe.com\//);
-    assert.match(profile.evidence.rear, /^https:\/\/arubanetworking.hpe.com\//);
+    for (const reference of [profile.evidence.front, profile.evidence.rear]) {
+      const url = new URL(reference);
+      assert.equal(url.protocol, "https:");
+      assert.equal(url.hostname, "arubanetworking.hpe.com");
+    }
     assert.equal(profile.faces.front.ports.length, device.ports.length, model);
     const bounds = { x: 20, y: 30, width: 690, height: 100 };
     const front = buildFaceplateScene(device, bounds, { face: "front" });
@@ -60,6 +63,23 @@ test("8325 has three-row SFP28 numbering, two-row QSFP28, six fans and both cons
   assert.equal(ports[58].connectorKind, "usb-micro");
   assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, 6);
   assert.equal(profile.faces.rear.components.filter((part) => part.kind === "psu").length, 2);
+});
+
+test("6300M JL661A separates its four rear fans in two trays from dual AC supplies", () => {
+  const device = deviceFor("CX 6300M 48G");
+  const profile = resolveArubaFaceplate(device);
+  assert.equal(profile.sku, "JL661A");
+  assert.equal(device.ports.length, 54);
+  assert.equal(device.ports[52].type, "USB_C_CONSOLE");
+  assert.equal(device.ports[53].label, "MGMT");
+  assert.ok(device.ports.slice(0, 48).every((port) => port.type === "RJ45_1G" && port.isPoe));
+  assert.ok(profile.faces.front.ports.slice(48, 52).every((port) => port.type === "SFP56_50G" && port.x > .85));
+  const rear = profile.faces.rear.components;
+  assert.equal(rear.filter((part) => part.kind === "fan").length, 4);
+  assert.equal(rear.filter((part) => part.kind === "module-bay").length, 2);
+  assert.equal(rear.filter((part) => part.kind === "psu").length, 2);
+  assert.ok(rear.filter((part) => part.kind === "fan").every((part) => part.x + part.width < .62));
+  assert.match(profile.limitations.join(" "), /two fan trays/);
 });
 
 test("historical Aruba console types and renamed endpoint identities survive the catalog corrections", () => {

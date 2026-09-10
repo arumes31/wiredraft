@@ -327,8 +327,8 @@ const profiles = [
     g("management", 1, "USB_C_CONSOLE", 0, "CONSOLE", false, ["USB-C"]),
   ], verified("https://www.checkpoint.com/downloads/products/1600-1800-security-gateway-datasheet.pdf")),
   profile("Check Point", "Quantum 1800", "Firewall", 1, "#442839", [
-    g("access", 16, "RJ45_1G", 1000, "LAN", false, labels(1, 16).map((label) => `LAN${label}`)),
-    g("access", 2, "RJ45_MGIG", 2500, "LAN", false, ["LAN17", "LAN18"]),
+    g("access", 2, "RJ45_MGIG", 2500, "LAN", false, ["LAN1", "LAN2"]),
+    g("access", 16, "RJ45_1G", 1000, "LAN", false, labels(3, 16).map((label) => `LAN${label}`)),
     g("access", 2, "RJ45_1G", 1000, "WAN", false, ["WAN1", "WAN2"]),
     g("uplink", 2, "SFP_1G", 1000, "WAN", false, ["WAN1-SFP", "WAN2-SFP"]),
     g("access", 1, "RJ45_10G", 10000, "DMZ", false, ["DMZ"]),
@@ -336,7 +336,7 @@ const profiles = [
     g("management", 1, "RJ45_1G", 1000, "MGMT", false, ["MGMT"]),
     g("management", 1, "Console", 0, "CONSOLE", false, ["CONSOLE"]),
     g("management", 1, "USB_C_CONSOLE", 0, "CONSOLE", false, ["USB-C"]),
-  ], verified("https://www.checkpoint.com/downloads/products/1600-1800-security-gateway-datasheet.pdf")),
+  ], { ...verified("https://www.checkpoint.com/downloads/products/1600-1800-security-gateway-datasheet.pdf"), inventoryRevision: 1 }),
   ...["Quantum 3600", "Quantum 3800"].map((model) => profile("Check Point", model, "Firewall", 1, "#442839", [
     g("access", 5, "RJ45_1G", 1000, "", false, labels(1, 5)),
     g("management", 1, "RJ45_1G", 1000, "MGMT", false, ["MGMT"]),
@@ -349,7 +349,8 @@ const profiles = [
     g("management", 1, "RJ45_1G", 1000, "SYNC", false, ["SYNC"]),
     g("management", 1, "Console", 0, "CONSOLE", false, ["CONSOLE"]),
     g("management", 1, "USB_C_CONSOLE", 0, "CONSOLE", false, ["USB-C"]),
-  ], verified(`https://www.checkpoint.com/downloads/products/${model.slice(-4)}-security-gateway-datasheet.pdf`))),
+    g("management", 1, "RJ45_1G", 1000, "LOM", false, ["LOM"]),
+  ], { ...verified(`https://www.checkpoint.com/downloads/products/${model.slice(-4)}-security-gateway-datasheet.pdf`), inventoryRevision: 1 })),
   ...["Quantum 16000", "Quantum 26000"].map((model) => profile("Check Point", model, "Firewall", 2, "#442839", [
     g("access", 8, "RJ45_1G", 1000, "", false, labels(1, 8)),
     g("management", 1, "RJ45_1G", 1000, "MGMT", false, ["MGMT"]),

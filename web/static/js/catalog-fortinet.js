@@ -110,7 +110,11 @@ add(["FortiGate 3500F", "FortiGate 3501F"], "Firewall", 2, [tenT(2), sfp28(32), 
 add(["FortiGate 3500G", "FortiGate 3501G"], "Firewall", 2, [tenT(2), sfp28(30), qsfp100(4), qsfp400(2), consolePort()], { lifecycle: "current" });
 add(["FortiGate 3700F", "FortiGate 3701F"], "Firewall", 2, [tenT(2), sfp28(4, "ULL-SFP28"), sfp56(20), qsfp400(4), consolePort()], { lifecycle: "current" });
 add(["FortiGate 3800G", "FortiGate 3801G"], "Firewall", 3, [tenT(2), sfp56(18), qsfp200(6), qsfp400(4), consolePort()], { lifecycle: "current" });
-add(["FortiGate 4200F", "FortiGate 4201F"], "Firewall", 3, [ge(2), sfp28(18), qsfp100(8), consolePort()], { lifecycle: "current" });
+add(["FortiGate 4200F", "FortiGate 4201F"], "Firewall", 3, [ge(2), sfp28(20), qsfp100(8), consolePort()], {
+  lifecycle: "current", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/cd72e3b6-d679-11ea-96b9-00505692583a/FortiGate-4200F-Series-QSG-Supplement.pdf",
+  note: "PDF page 3 identifies twenty SFP28 sockets: two HA, two AUX and sixteen data. An explicit revision map preserves older saved optical and console endpoints.",
+});
 add(["FortiGate 4400F", "FortiGate 4401F"], "Firewall", 4, [ge(2), sfp28(20), qsfp100(12), consolePort()], { lifecycle: "current" });
 add(["FortiGate 4800F", "FortiGate 4801F", "FortiGate 4801F-NEBS"], "Firewall", 4, [tenT(2), sfp56(12), qsfp200(12), qsfp400(8), consolePort()], { lifecycle: "current" });
 

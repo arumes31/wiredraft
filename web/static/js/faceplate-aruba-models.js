@@ -3,6 +3,7 @@ import { canonicalFaceplateDevice } from "./faceplate-profile.js";
 const guides = {
   "6100": "https://arubanetworking.hpe.com/techdocs/hardware/switches/6100/IGSG/igsg_6000-6100.pdf",
   "6200": "https://arubanetworking.hpe.com/techdocs/Switches/Aruba_6200/5200-6885/index.html",
+  "6300": "https://arubanetworking.hpe.com/techdocs/hardware/switches/6300/IGSG/igsg_6300.pdf",
   "8325": "https://arubanetworking.hpe.com/techdocs/hardware/switches/8325/IGSG/Aruba_8325_IGSG_en_us.pdf",
 };
 
@@ -11,6 +12,7 @@ const models = new Map([
   ["CX 6100 48G 4SFP+", { sku: "JL676A", series: "6100", copper: 48 }],
   ["CX 6200F 24G 4SFP+", { sku: "JL725A", series: "6200", copper: 24 }],
   ["CX 6200F 48G 4SFP+", { sku: "JL727A", series: "6200", copper: 48 }],
+  ["CX 6300M 48G", { sku: "JL661A", series: "6300", copper: 48 }],
   ["CX 8325-48Y8C", { sku: "JL624A", series: "8325" }],
 ]);
 const cache = new Map();
@@ -25,27 +27,30 @@ export function resolveArubaFaceplate(device) {
     const { sku, series, copper } = definition;
     const originalCount = copper ? copper + 5 : 57;
     const source = guides[series];
-    const front = series === "6200" ? source.replace("index.html", "tov_001.png") : `${source}#page=${series === "6100" ? 7 : 10}`;
-    const rear = series === "6200" ? source.replace("index.html", "tel_026.png") : `${source}#page=${series === "6100" ? 13 : 22}`;
+    const panelPages = { "6100": [7, 13], "6300": [9, 23], "8325": [10, 22] }[series];
+    const front = series === "6200" ? source.replace("index.html", "tov_001.png") : `${source}#page=${panelPages[0]}`;
+    const rear = series === "6200" ? source.replace("index.html", "tel_026.png") : `${source}#page=${panelPages[1]}`;
     cache.set(device.model, {
       id: `aruba-${sku.toLowerCase()}`, sku, defaultFace: "front", fidelity: "model",
       panelFidelity: { front: "model", rear: "model" }, inventoryComplete: true,
-      source, sourcePage: series === "6200" ? "Front and rear panel illustrations" : `Front ${series === "6100" ? "7–10" : "10, 18"}; rear ${series === "6100" ? 13 : "22–23"}`,
+      source, sourcePage: series === "6200" ? "Front and rear panel illustrations" : `PDF front ${panelPages[0]}; rear ${panelPages[1]}`,
       evidence: { models: [device.model, sku], front, rear }, inventoryRevision: 1,
       legacyLayouts: [{ inventoryRevision: 0,
         portIndexMap: Object.fromEntries(Array.from({ length: originalCount }, (_, index) => [index + 1, index + 1])),
         portLabels: { [originalCount]: "CONSOLE1" } }],
       note: `The ${sku} front and rear are traced from the manufacturer's installation guide.`,
       limitations: [series === "6200" ? `The selected ${sku} is the 370W Class 4 PoE configuration; the catalog title omits its power suffix.`
+        : series === "6300" ? "The selected JL661A is the Class 4 PoE chassis with two fan trays (four fans) and two AC power supplies installed. A second fan tray and power supply are optional; the catalog title omits the PoE suffix."
         : series === "8325" ? "The selected JL624A bundle has front-to-back airflow, six fans and two AC power supplies; DC bundles use different inlets."
           : `The selected ${sku} is the non-PoE chassis.`,
         "Side ventilation and top details are outside the front/rear projection."],
       catalogDiscrepancies: [series === "8325"
         ? "Older inventories omit OOB Ethernet and the Micro-USB console. New instances include both, with the existing RJ45 console index retained."
         : "The physical console is USB-C. Older Console endpoint types remain unchanged; their socket artwork follows the actual USB-C inlet.",
-        ...(series === "6200" ? ["Older inventories omit the dedicated OOB Ethernet socket. New instances append it without shifting the original console index."] : [])],
+        ...(["6200", "6300"].includes(series) ? ["Older inventories omit the dedicated OOB Ethernet socket. New instances append it without shifting the original console index."] : [])],
       chassis: { x: .025, y: .04, width: .95, height: .92 },
-      faces: series === "8325" ? corePanels(canonical.device.ports) : accessPanels(canonical.device.ports, definition),
+      faces: series === "8325" ? corePanels(canonical.device.ports)
+        : series === "6300" ? modularAccessPanels(canonical.device.ports) : accessPanels(canonical.device.ports, definition),
     });
   }
   return cache.get(device.model);
@@ -107,5 +112,28 @@ function corePanels(ports) {
     ...Array.from({ length: 8 }, (_, index) => part("led", .701 + Math.floor(index / 2) * .049, index % 2 ? .29 : .12, .004, .03))];
   const rear = [part("psu", .025, .055, .135, .88, "PS2", "ac-inlet-right"), part("psu", .84, .055, .135, .88, "PS1", "ac-inlet-right"),
     ...Array.from({ length: 6 }, (_, index) => part("fan", .175 + index * .11, .08, .10, .84, String(6 - index)))];
+  return { front: { ports: frontPorts, components: front }, rear: { ports: [], components: rear } };
+}
+
+/** Trace JL661A's 48-port PoE panel and the selected two-tray, dual-AC rear configuration. */
+function modularAccessPanels(ports) {
+  const frontPorts = ports.slice(0, 48).map((port, index) => {
+    const column = Math.floor(index / 2);
+    return socket(port, .035 + column * .033 + Math.floor(column / 6) * .011,
+      index % 2 ? .73 : .40, .027, .235, String(index + 1));
+  });
+  frontPorts.push(...ports.slice(48, 52).map((port, index) => socket(port,
+    .868 + Math.floor(index / 2) * .036, index % 2 ? .74 : .39, .026, .205, String(index + 49))));
+  frontPorts.push(socket(ports[52], .952, .13, .025, .09, "CONSOLE", "usb-c"),
+    socket(ports[53], .962, .48, .030, .25, "MGMT", "rj45"));
+  const front = [part("vent", .015, .015, .81, .06, undefined, "perforated"),
+    part("usb", .947, .735, .030, .105), part("button", .975, .13, .007, .06, undefined, "reset"),
+    ...Array.from({ length: 6 }, (_, index) => part("led", .69 + index * .025, .16, .004, .035)),
+    ...Array.from({ length: 4 }, (_, index) => part("led", .838, .33 + index * .13, .004, .035))];
+  const rear = [part("module-bay", .018, .045, .29, .91, "FAN 1", "populated"),
+    part("module-bay", .315, .045, .29, .91, "FAN 2", "populated"),
+    ...[.035, .175, .33, .47].map((x) => part("fan", x, .12, .105, .74)),
+    part("psu", .62, .045, .18, .91, "PS1", "ac-fan-left"),
+    part("psu", .81, .045, .18, .91, "PS2", "ac-fan-left")];
   return { front: { ports: frontPorts, components: front }, rear: { ports: [], components: rear } };
 }

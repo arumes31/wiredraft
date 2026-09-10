@@ -20,8 +20,11 @@ test("Standard switches retain their actual banks and fanless rear power arrange
   for (const profile of [small, large]) {
     assert.equal(profile.fidelity, "model");
     assert.equal(profile.panelsVerified, true);
-    assert.match(profile.evidence.front, /ui\.com/);
-    assert.match(profile.evidence.rear, /ui\.com/);
+    for (const reference of [profile.evidence.front, profile.evidence.rear]) {
+      const url = new URL(reference);
+      assert.equal(url.protocol, "https:");
+      assert.equal(url.hostname, "dl.ui.com");
+    }
     assert.equal(profile.faces.rear.ports.length, 0);
     assert.equal(profile.faces.rear.components.filter((part) => part.kind === "power").length, 1);
     assert.ok(!profile.faces.rear.components.some((part) => ["fan", "psu"].includes(part.kind)));

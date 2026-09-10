@@ -9,7 +9,7 @@ import {
 } from "./canvas-navigation.js";
 import { commentPreviewLines } from "./plan-comments.js";
 import { resolveFaceplateTemplate } from "./faceplate.js";
-import { buildFaceplateScene } from "./faceplate-scene.js";
+import { buildFaceplateScene, faceplateDisplaySize } from "./faceplate-scene.js";
 import { resolveModelFaceplate } from "./faceplate-models.js";
 import { drawHardwareComponent } from "./hardware-components.js";
 import { groupAccent, linkGroupPortBadges, peerLinkIDs, summarizeLinkGroup } from "./link-group-display.js";
@@ -415,17 +415,17 @@ export class CanvasEngine {
     };
   }
 
+  /** Preserve the original visible footprint while a dragged device changes mounting state. */
   drawDragGhosts(ctx) {
     if (this.drag?.active) {
       for (const original of this.drag.originals.values()) {
-        const height = Math.max(UNIT_HEIGHT, (original.device.faceplate.unitsU || 1) * UNIT_HEIGHT);
         ctx.save();
         ctx.globalAlpha = .24;
         ctx.fillStyle = original.device.faceplate.vendorColor || "#42d9c8";
         ctx.strokeStyle = "#8ff4e8";
         ctx.setLineDash([10 / this.camera.zoom, 6 / this.camera.zoom]);
-        ctx.fillRect(original.x, original.y, DEVICE_WIDTH, height);
-        ctx.strokeRect(original.x, original.y, DEVICE_WIDTH, height);
+        ctx.fillRect(original.x, original.y, original.width, original.height);
+        ctx.strokeRect(original.x, original.y, original.width, original.height);
         ctx.restore();
       }
     }
@@ -447,8 +447,8 @@ export class CanvasEngine {
 
   /** Register shared physical sockets and hidden-panel routing anchors. */
   addVisibleDevice(device, rack, position) {
-    const height = Math.max(UNIT_HEIGHT, (device.faceplate.unitsU || 1) * UNIT_HEIGHT);
-    const deviceBox = { device, rack, x: position.x, y: position.y, width: DEVICE_WIDTH, height };
+    const size = faceplateDisplaySize(device, { mounted: Boolean(rack), width: DEVICE_WIDTH });
+    const deviceBox = { device, rack, x: position.x, y: position.y, ...size };
     this.deviceBoxes.push(deviceBox);
     this.routingDeviceBoxes.push(deviceBox);
     this.deviceBoxByID.set(device.id, deviceBox);
@@ -1984,6 +1984,7 @@ export class CanvasEngine {
     ctx.restore();
   }
 
+  /** Select the clicked entity and capture its current geometry before a drag begins. */
   pointerDown(event) {
     this.invalidate();
     this.canvas.setPointerCapture(event.pointerId);
@@ -2055,6 +2056,8 @@ export class CanvasEngine {
           this.drag.originals.set(selectedID, {
             x: selectedBox.x,
             y: selectedBox.y,
+            width: selectedBox.width,
+            height: selectedBox.height,
             device: structuredClone(selected),
           });
         }
@@ -2087,6 +2090,7 @@ export class CanvasEngine {
     }
   }
 
+  /** Update navigation, cabling or drag placement from the current pointer position. */
   pointerMove(event) {
     this.invalidate();
     const screen = this.eventPoint(event);
@@ -2142,7 +2146,9 @@ export class CanvasEngine {
         device.rackFace = "";
         device.positionX = proposed.x;
         device.positionY = proposed.y;
-        const landing = findRackFaceLanding(this.state.topology, device, proposed, this.rackFaceBoxes);
+        const landing = findRackFaceLanding(this.state.topology, device, proposed, this.rackFaceBoxes, {
+          sourceHeight: faceplateDisplaySize(device).height,
+        });
         if (!landing) continue;
         this.rackDropPreview = { ...landing, device };
         if (!landing.isValid) {
@@ -2468,6 +2474,18 @@ export class CanvasEngine {
   deviceRectangles() {
     this.layoutScene();
     return this.deviceBoxes.map((box) => ({ ...box }));
+  }
+
+  /** Place a new device below free devices in its column without moving saved positions. */
+  nextDevicePosition(device) {
+    const size = faceplateDisplaySize(device);
+    const x = 100 + ((this.state.topology?.devices.length || 0) % 2) * (DEVICE_WIDTH + 40);
+    let y = 100;
+    for (const box of this.deviceRectangles()) {
+      if (box.rack || box.x >= x + size.width || box.x + box.width <= x) continue;
+      y = Math.max(y, box.y + box.height + 50);
+    }
+    return { x, y };
   }
 
   renderExport() {
