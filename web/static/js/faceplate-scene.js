@@ -73,8 +73,13 @@ function fitPortDescriptions(ports, bounds, chassis) {
   const rows = new Map();
   for (const port of ports) {
     const label = portDescriptionPlacement(port, bounds);
+    const defaultFontSize = label.fontSize;
     // Some service columns reserve caption space beyond their adjacent storage/display hardware.
     if (port.descriptionAnchor) Object.assign(label, port.descriptionAnchor, { side: "anchored" });
+    label.fontSize = Number.isFinite(label.fontSize) ? Math.max(5.5, Math.min(8, label.fontSize))
+      : defaultFontSize;
+    label.boxHeight = Number.isFinite(label.boxHeight)
+      ? Math.max(7, label.fontSize + 1.5, Math.min(11, label.boxHeight)) : 11;
     label.boxMaxWidth = Math.max(4, Math.min(label.x - chassis.x, chassis.x + chassis.width - label.x) * 2 - 2);
     port.labelPlacement = label;
     const row = Math.floor(label.y / 11);
@@ -85,7 +90,7 @@ function fitPortDescriptions(ports, bounds, chassis) {
     const neighbors = [...labels, ...(rows.get(row + 1) || [])].sort((a, b) => a.x - b.x);
     for (let index = 1; index < neighbors.length; index++) {
       const left = neighbors[index - 1]; const right = neighbors[index];
-      if (Math.abs(left.y - right.y) >= 11 || right.x - left.x < 1) continue;
+      if (Math.abs(left.y - right.y) >= (left.boxHeight + right.boxHeight) / 2 || right.x - left.x < 1) continue;
       const available = Math.max(4, right.x - left.x - 2);
       left.boxMaxWidth = Math.min(left.boxMaxWidth, available);
       right.boxMaxWidth = Math.min(right.boxMaxWidth, available);
@@ -158,6 +163,8 @@ export function buildFaceplateScene(device, bounds, { face } = {}) {
     ...(slot.descriptionAnchor ? { descriptionAnchor: {
       x: chassis.x + slot.descriptionAnchor.x * chassis.width,
       y: chassis.y + slot.descriptionAnchor.y * chassis.height,
+      ...(slot.descriptionAnchor.fontSize !== undefined ? { fontSize: slot.descriptionAnchor.fontSize } : {}),
+      ...(slot.descriptionAnchor.boxHeight !== undefined ? { boxHeight: slot.descriptionAnchor.boxHeight } : {}),
     } } : {}),
     displayLabel: slot.physicalLabel && port.label === (legacyLayout?.portLabels?.[port.portIndex] ?? slot.label)
       ? slot.physicalLabel : port.label });

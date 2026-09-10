@@ -32,6 +32,11 @@ const usbMiniConsole = () => group("management", 1, "USB_MINI_CONSOLE", 0, "USB-
 const managementRJ45 = (count, prefix = "MGMT") => group("management", count, "RJ45_1G", 1000, prefix);
 const dsl = (count = 1) => group("access", count, "DSL_RJ11", 1000, "DSL");
 
+/** Qualify modular endpoint labels by card so identically numbered sockets remain distinguishable. */
+function modularLabels(groups) {
+  return groups.map((item) => ({ ...item, labels: Array.from({ length: item.count }, (_, index) => `${item.prefix}${index + 1}`) }));
+}
+
 /** Add explicit Fortinet SKUs while retaining the revision needed to interpret saved port indices. */
 function add(models, category, units, groups, options = {}) {
   for (const entry of models) {
@@ -211,7 +216,20 @@ add(["FortiGate 6001F", "FortiGate 6300F", "FortiGate 6301F", "FortiGate 6500F",
     source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/ffef9904-1a11-11e9-9685-f8bc1258b856/fortigate-6000F-system-guide.pdf",
     note: "PDF pages 7–8 and 13: twenty-four SFP28, four QSFP28, two RJ45 management, three SFP+ management/HA and one console. Revision 1 preserves existing indices and corrects management media; a surplus saved second console remains unmapped.",
   });
-add(["FortiGate 7000E", "FortiGate 7000F", "FortiGate 7030E", "FortiGate 7040E", "FortiGate 7060E", "FortiGate 7081F"], "Firewall", 12, [ge(2, "MGMT"), consolePort(2)], { lifecycle: "supported", fidelity: "modular", source: FORTIGATE_MATRIX, note: "Modular chassis; data interfaces depend on installed FIM/FPM modules." });
+add(["FortiGate 7000E", "FortiGate 7000F", "FortiGate 7060E", "FortiGate 7081F"], "Firewall", 12, [ge(2, "MGMT"), consolePort(2)], { lifecycle: "supported", fidelity: "modular", source: FORTIGATE_MATRIX, note: "Modular chassis; data interfaces depend on installed FIM/FPM modules." });
+add(["FortiGate 7030E"], "Firewall", 6, modularLabels([managementRJ45(1, "SMM-MGMT"), consolePort(2),
+  managementRJ45(4, "FIM1-MGMT"), sfpp(2, "FIM1-M"), sfpp(32, "FIM1-A")]), {
+  lifecycle: "supported", fidelity: "modular", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/496f257b-1a0a-11e9-9685-f8bc1258b856/fortigate-7030E-system-guide.pdf",
+  note: "6U; illustrated SFP10G configuration: FIM-7901E in slot1, FPM-7620E in slots3/4, sealed slot2 and three AC PSUs. Other FIM configurations require a different inventory. Saved 12U allocations and endpoints are retained.",
+});
+add(["FortiGate 7040E"], "Firewall", 6, modularLabels([managementRJ45(1, "SMM-MGMT"), consolePort(2),
+  managementRJ45(4, "FIM1-MGMT"), sfpp(2, "FIM1-M"), qsfp100(4, "FIM1-C"),
+  managementRJ45(4, "FIM2-MGMT"), sfpp(2, "FIM2-M"), qsfp100(4, "FIM2-C")]), {
+  lifecycle: "supported", fidelity: "modular", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/18bec63c-1a0a-11e9-9685-f8bc1258b856/fortigate-7040E-system-guide.pdf",
+  note: "6U; illustrated configuration: FIM-7920E in slots1/2, FPM-7630E in slots3/4 and three AC PSUs. Other installed modules require their own inventories. Saved 12U allocations and endpoints are retained.",
+});
 add(["FortiGate 7121F"], "Firewall", 16, [ge(2, "MGMT"), consolePort(2)], { lifecycle: "supported", fidelity: "modular", source: FORTIGATE_MATRIX, note: "Modular chassis; data interfaces depend on installed FIM/FPM modules." });
 
 // DC and ACDC SKUs use the same connector faceplate as their base model.

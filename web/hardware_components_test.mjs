@@ -427,7 +427,8 @@ test("drive carriers distinguish the front release/status strip from compact rea
 test("new connector, carrier and mesh-fan adapters retain finite bounded geometry", () => {
   const configurations = [{ kind: "vga" }, { kind: "db9" }, { kind: "drive-carrier" },
     { kind: "drive-carrier", variant: "boss" }, { kind: "fan", variant: "mesh-handle" },
-    { kind: "terminal", variant: "pluggable", pins: 9 }, { kind: "led", variant: "bar" }, { kind: "service-jack" }];
+    { kind: "terminal", variant: "pluggable", pins: 9 }, { kind: "led", variant: "bar" }, { kind: "service-jack" },
+    { kind: "fan", variant: "mesh-dual" }, { kind: "psu", variant: "ac-compact-c14" }];
   for (const configuration of configurations) for (const [width, height] of [[80, 30], [30, 80], [12, 12]]) {
     const component = { ...configuration, x: -10, y: 20, width, height };
     const parts = hardwarePrimitives(component);
@@ -493,4 +494,45 @@ test("service jacks have a recessed aperture without power contacts or an illumi
   assert.ok(parts[0].r > parts[1].r);
   assert.equal(parts[1].fill, "#07151a");
   assert.ok(!parts.some((part) => ["#b9c3c4", "#d7b76c", "#22a0ab"].includes(part.fill)));
+});
+
+test("dual mesh trays retain two rotors, square guards and side pull handles from the chassis guide", () => {
+  const component = { kind: "fan", variant: "mesh-dual", x: 0, y: 0, width: 200, height: 330 };
+  const parts = hardwarePrimitives(component);
+  const rotors = parts.filter((part) => part.kind === "circle" && part.fill === "#122327");
+  assert.equal(rotors.length, 2);
+  assert.equal(rotors[0].cx, rotors[1].cx);
+  assert.ok(rotors[0].cy + rotors[0].r < rotors[1].cy - rotors[1].r, "the two rotors remain separate");
+  const handles = parts.filter((part) => part.kind === "rect" && part.fill === "#708389");
+  assert.equal(handles.length, 2);
+  assert.ok(handles[0].x + handles[0].width < rotors[0].cx - rotors[0].r);
+  assert.ok(handles[1].x > rotors[0].cx + rotors[0].r);
+  const leds = parts.filter((part) => part.fill === "#42d98b");
+  assert.equal(leds.length, 2);
+  assert.deepEqual(leds.map((part) => part.cy), rotors.map((part) => part.cy));
+  assert.ok(leds.every((part) => part.cx > rotors[0].cx + rotors[0].r));
+  const guards = parts.filter((part) => part.kind === "rect" && part.fill === "#a7b2b5");
+  const vertical = guards.filter((part) => part.height > part.width);
+  const horizontal = guards.filter((part) => part.width > part.height);
+  assert.ok(Math.abs((vertical[1].x - vertical[0].x) - (horizontal[1].y - horizontal[0].y)) < 1e-8);
+  assert.ok(!hardwarePrimitives({ ...component, active: false }).some((part) => part.fill === "#42d98b"));
+});
+
+test("compact C14 supplies keep a broad three-contact inlet left of the pull bar", () => {
+  const component = { kind: "psu", variant: "ac-compact-c14", x: 0, y: 0, width: 90, height: 92 };
+  const parts = hardwarePrimitives(component);
+  const contacts = parts.filter((part) => part.kind === "rect" && part.fill === "#b9c3c4");
+  assert.equal(contacts.length, 3);
+  assert.ok(contacts[0].y < contacts[1].y && contacts[1].y === contacts[2].y);
+  const inlet = parts.find((part) => part.kind === "rect" && part.fill === "#07151a");
+  const handle = parts.find((part) => part.kind === "rect" && part.fill === "#708389" && part.height > part.width * 4);
+  assert.ok(inlet.width > inlet.height, "the C14 aperture is broad even in a nearly square PSU allocation");
+  assert.ok(handle.x > inlet.x + inlet.width);
+  assert.ok(contacts.every((part) => part.x > inlet.x && part.x + part.width < inlet.x + inlet.width));
+  assert.ok(parts.some((part) => part.kind === "rect" && part.fill === "#53b454" && part.x > handle.x + handle.width));
+  const led = parts.find((part) => part.fill === "#42d98b");
+  assert.ok(led.cx > handle.x + handle.width && led.cy > component.height * .75);
+  assert.ok(!hardwarePrimitives({ ...component, active: false }).some((part) => part.fill === "#42d98b"));
+  const ordinary = hardwarePrimitives({ ...component, variant: "ac" });
+  assert.ok(!ordinary.some((part) => part.fill === "#53b454"), "existing generic PSU variants retain their prior artwork");
 });

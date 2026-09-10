@@ -4,6 +4,7 @@ import { resolveOmadaFaceplate } from "./faceplate-omada-models.js";
 import { resolveNetgearFaceplate } from "./faceplate-netgear-models.js";
 import { resolveAccessPointFaceplate } from "./faceplate-access-point-models.js";
 import { resolveDellServerFaceplate } from "./faceplate-dell-server-models.js";
+import { resolveTeltonikaFaceplate } from "./faceplate-teltonika-models.js";
 
 // Panel roles follow the cited hardware guides. Family and configurable layouts
 // preserve the catalog's representative inventory rather than asserting SKU dimensions.
@@ -69,6 +70,8 @@ const networkDiscrepancies = {
 
 /** Resolve known equipment panels, or an explicitly configured Static server's current inventory. */
 export function resolveEquipmentFaceplate(device) {
+  const teltonika = resolveTeltonikaFaceplate(device);
+  if (teltonika) return teltonika;
   const dellServer = resolveDellServerFaceplate(device);
   if (dellServer) return dellServer;
   const accessPoint = resolveAccessPointFaceplate(device);

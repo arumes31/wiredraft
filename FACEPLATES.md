@@ -80,7 +80,11 @@ point chassis retain their aspect ratio. Port labels have bounded space shared
 by Canvas and SVG; exported widths remain constrained across font substitution.
 An individual slot can reserve a caption with `descriptionAnchor: { x, y }` in
 normalized chassis coordinates when nearby service hardware blocks the default
-placement. Keep the complete caption plate inside the device bounds and verify its
+placement. Dense panels may also supply `fontSize` and `boxHeight`, measured in
+scene pixels. Fonts are bounded to 5.5–8 pixels and plates to 7–11 pixels, with at
+least 1.5 pixels beyond the font size. Omitted or invalid dimensions retain the
+default font or 11-pixel plate. Both renderers use these same dimensions when
+fitting adjacent captions. Keep the complete caption plate inside the device bounds and verify its
 clearance in both renderers; the anchor never changes the socket or cable position.
 Unmounted round and square access points receive enough display height to keep
 their sockets readable. Rack occupancy still uses the saved physical rack units.

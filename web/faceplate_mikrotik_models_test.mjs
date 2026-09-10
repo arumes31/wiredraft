@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { hardwareCatalog, instantiateProfile } from "./static/js/catalog.js";
 import { resolveMikroTikFaceplate } from "./static/js/faceplate-mikrotik-models.js";
+import { buildFaceplateScene } from "./static/js/faceplate-scene.js";
 
 test("new CRS354 and CRS518 management endpoints use the documented 10/100 link speed", () => {
   for (const model of ["CRS354-48G-4S+2Q+RM", "CRS518-16XS-2XQ-RM"]) {
@@ -32,7 +33,7 @@ test("the five full SKUs preserve every typed port while shorter family names re
     assert.equal(resolveMikroTikFaceplate(device), profile);
     assert.equal(profile.faces.front.ports.some((port) => port.label === "Edited logical name"), false);
   }
-  for (const model of ["CRS317", "CRS326", "CRS328", "CCR2004"]) assert.equal(fixture(model).profile, null);
+  for (const model of ["CRS317", "CRS326", "CRS328"]) assert.equal(fixture(model).profile, null);
   assert.equal(resolveMikroTikFaceplate({}), null);
   assert.equal(resolveMikroTikFaceplate({ model: "CRS317-1G-16S+RM", faceplate: { vendor: "Other" } }), null);
 });
@@ -100,3 +101,86 @@ test("CRS328's verified front does not hide its unresolved rear illustration gap
   assert.equal(profile.faces.rear.components.filter((part) => part.kind === "power").length, 1);
   assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, 0);
 });
+
+test("CCR2216 resolves its explicit 1G-12XS-2XQ configuration with independently numbered optical banks", () => {
+  const { device, profile } = fixture("CCR2216");
+  assert.ok(profile);
+  assert.equal(profile.fidelity, "model");
+  assert.equal(profile.sku, "CCR2216-1G-12XS-2XQ");
+  assert.ok(profile.inventoryComplete);
+  assert.match(profile.evidence.configuration, /two.*AC/i);
+  const optical = profile.faces.front.ports.filter((slot) => slot.type === "SFP28_25G");
+  const qsfp = profile.faces.front.ports.filter((slot) => slot.type === "QSFP28_100G");
+  assert.equal(optical.length, 12);
+  assert.equal(qsfp.length, 2);
+  assert.deepEqual(qsfp.map((slot) => slot.physicalLabel), ["1", "2"]);
+  for (let index = 0; index < 12; index += 2) {
+    assert.equal(optical[index].x, optical[index + 1].x);
+    assert.ok(optical[index].y > optical[index + 1].y, "odd SFP28 ports occupy the bottom row");
+  }
+  assert.ok(qsfp.every((slot) => slot.x < optical[0].x));
+  const serial = profile.faces.front.ports.find((slot) => slot.type === "Console");
+  const ethernet = profile.faces.front.ports.find((slot) => slot.type === "RJ45_1G");
+  assert.equal(serial.x, ethernet.x);
+  assert.ok(serial.y < ethernet.y && serial.x > optical.at(-1).x);
+  assert.equal(profile.faces.front.ports.length, 16);
+  assert.equal(profile.faces.rear.ports.length, 0);
+  const fans = profile.faces.rear.components.filter((part) => part.kind === "fan");
+  const supplies = profile.faces.rear.components.filter((part) => part.kind === "psu");
+  assert.equal(fans.length, 4);
+  assert.equal(supplies.length, 2);
+  assert.ok(supplies.every((part) => part.variant === "ac-inlet-right" && part.x < fans[0].x));
+  assert.equal(profile.faces.front.components.some((part) => part.kind === "usb"), false);
+  device.ports.forEach((port) => { port.id = `ccr-${port.portIndex}`; });
+  device.ports[0].label = "Transit";
+  device.ports[0].nativeVlan = 48;
+  device.ports.reverse();
+  const before = structuredClone(device);
+  const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 });
+  assert.equal(scene.unmappedPorts.length, 0);
+  assert.equal(scene.ports.length, 16);
+  assert.equal(scene.ports.find((box) => box.port.id === "ccr-1").displayLabel, "Transit");
+  assert.deepEqual(device, before);
+});
+
+for (const [model, sku, count, fanCount] of [["CCR2004", "CCR2004-1G-12S+2XS", 16, 2], ["CCR2116", "CCR2116-12G-4S+", 18, 4]]) {
+  test(`${model} uses its selected chassis and retains all saved endpoint identities`, () => {
+    const { device, profile } = fixture(model);
+    assert.ok(profile);
+    assert.equal(profile.sku, sku);
+    assert.equal(profile.fidelity, "model");
+    assert.equal(profile.inventoryComplete, true);
+    assert.equal(profile.faces.front.ports.length, count);
+    assert.equal(profile.faces.rear.ports.length, 0);
+    assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, fanCount);
+    assert.equal(profile.faces.rear.components.filter((part) => part.kind === "power").length, 2);
+    assert.equal(profile.faces.rear.components.filter((part) => part.kind === "psu").length, 0, "fixed rear inlets are not hot-swap supply modules");
+    const serial = profile.faces.front.ports.find((slot) => slot.type === "Console");
+    const management = profile.faces.front.ports.find((slot) => slot.portIndex === count - 1);
+    assert.equal(serial.x, management.x);
+    assert.ok(serial.y < management.y);
+    if (model === "CCR2004") {
+      const sfp = profile.faces.front.ports.filter((slot) => slot.type === "SFP_PLUS_10G");
+      const sfp28 = profile.faces.front.ports.filter((slot) => slot.type === "SFP28_25G");
+      assert.equal(new Set(sfp.map((slot) => slot.y)).size, 1);
+      assert.equal(sfp28[0].x, sfp28[1].x);
+      assert.ok(sfp28[0].x < sfp[0].x && sfp28[0].y > sfp28[1].y);
+      assert.ok(profile.faces.rear.components.some((part) => part.variant === "fins"));
+    } else {
+      const copper = profile.faces.front.ports.filter((slot) => slot.portIndex <= 12);
+      assert.equal(new Set(copper.map((slot) => slot.y)).size, 1);
+      assert.ok(copper[4].x - copper[3].x > copper[1].x - copper[0].x);
+      assert.ok(profile.faces.front.components.some((part) => part.kind === "usb" && part.width < part.height));
+    }
+    device.ports.forEach((port) => { port.id = `saved-${port.portIndex}`; });
+    device.ports[0].label = "Customer transit";
+    device.ports[0].nativeVlan = 97;
+    device.ports.reverse();
+    const before = structuredClone(device);
+    const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 });
+    assert.equal(scene.unmappedPorts.length, 0);
+    assert.equal(scene.ports.length, count);
+    assert.equal(scene.ports.find((box) => box.port.id === "saved-1").displayLabel, "Customer transit");
+    assert.deepEqual(device, before);
+  });
+}

@@ -76,7 +76,6 @@ assert.deepEqual(catalogDevice("GS748T").device.ports.slice(-4).map((port) => po
 
 for (const [model, portCount] of [
   ["CCR1009", 11], ["CCR1016", 13], ["CCR1036", 17], ["CCR1072", 10],
-  ["CCR2004", 16], ["CCR2116", 18], ["CCR2216", 16],
   ["CRS305", 5], ["CRS309", 9], ["CRS310", 10], ["CRS312", 17],
   ["CRS317", 18], ["CRS326", 27], ["CRS328", 29], ["CRS354", 56],
   ["CRS504", 6], ["CRS518", 20],
@@ -84,6 +83,12 @@ for (const [model, portCount] of [
   const { profile, device } = catalogDevice(model);
   assert.equal(device.ports.length, portCount, `${model} representative connector count must match its cited chassis`);
   assert.equal(profile.portLayout.sourceScope, "family", `${model} shorthand must not claim exact-SKU evidence`);
+}
+for (const [model, sku, count] of [["CCR2004", "CCR2004-1G-12S+2XS", 16], ["CCR2116", "CCR2116-12G-4S+", 18], ["CCR2216", "CCR2216-1G-12XS-2XQ", 16]]) {
+  const { profile, device } = catalogDevice(model);
+  assert.equal(device.ports.length, count);
+  assert.equal(profile.portLayout.sourceScope, "model");
+  assert.ok(profile.note.startsWith(`Selected ${sku} chassis`));
 }
 for (const model of ["CRS354", "CRS518", "CRS354-48G-4S+2Q+RM", "CRS518-16XS-2XQ-RM"]) {
   const types = catalogDevice(model).device.ports.slice(-2).map((port) => port.type);

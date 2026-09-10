@@ -499,3 +499,56 @@ for (const model of ["6001F", "6501F-DC", "Rugged 70F", "Rugged 70G", "Rugged 50
     assert.ok(!covered, `${model} caption ${port.port.portIndex} covers socket ${covered?.port.portIndex}`);
   }
 }
+
+for (const [model, count, fimCount] of [["7030E", 41, 1], ["7040E", 23, 2]]) {
+  const device = deviceFor(`FortiGate ${model}`);
+  const profile = resolveFortinetFaceplate(device);
+  assert.equal(profile.fidelity, "model");
+  assert.equal(profile.inventoryComplete, true);
+  assert.equal(device.faceplate.unitsU, 6, "new instances use the guide's six rack units");
+  assert.equal(device.ports.length, count);
+  assert.equal(profile.faces.front.ports.length, count, "a generic module placeholder cannot overwrite verified sockets");
+  assert.equal(profile.faces.rear.ports.length, 0);
+  assert.match(profile.evidence.configuration, /FIM-79[02][01]E/);
+  assert.match(profile.evidence.front, /#page=6$/);
+  assert.deepEqual(profile.faces.front.ports.slice(0, 3).map((port) => port.physicalLabel), ["MGMT", "CONSOLE1", "CONSOLE2"]);
+  assert.deepEqual(profile.faces.front.ports.slice(0, 3).map((port) => port.type), ["RJ45_1G", "Console", "Console"]);
+  assert.equal(new Set(device.ports.map((port) => port.label)).size, count, "module-qualified endpoint names are unique");
+  assert.ok(profile.faces.front.ports.filter((port) => /^MGMT/.test(port.physicalLabel)).every((port) => port.type === "RJ45_1G"));
+  assert.ok(profile.faces.front.ports.filter((port) => /^M\d/.test(port.physicalLabel)).every((port) => port.type === "SFP_PLUS_10G"));
+  assert.equal(profile.faces.front.components.filter((item) => item.kind === "usb").length, fimCount);
+  const esd = profile.faces.front.components.find((item) => item.role === "esd");
+  assert.equal(esd.kind, "service-jack", "the ESD wrist-strap jack is not a DC power connector");
+  assert.equal(hardwarePrimitives({ ...esd, x: 0, y: 0, width: 15, height: 15 }).length, 2);
+  const trays = profile.faces.rear.components.filter((item) => item.kind === "fan");
+  assert.equal(trays.length, 3);
+  assert.ok(trays.every((item) => item.variant === "mesh-dual"), "each tray has two source-visible rotors, not one fan");
+  assert.deepEqual(profile.faces.rear.components.filter((item) => item.kind === "psu").map((item) => item.label), ["PWR4", "PWR2", "PWR1"]);
+  assert.ok(profile.faces.rear.components.filter((item) => item.kind === "psu").every((item) => item.variant === "ac-compact-c14"));
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "module-bay" && item.label === "PWR3").length, 1);
+  const sealed = profile.faces.front.components.find((item) => item.label === "SEALED PANEL");
+  assert.equal(Boolean(sealed), model === "7030E");
+  const data = profile.faces.front.ports.filter((port) => /^[AC]\d+$/.test(port.physicalLabel));
+  assert.equal(data.length, model === "7030E" ? 32 : 8);
+  if (model === "7030E") {
+    assert.equal(data[0].x, data[1].x);
+    assert.ok(data[0].y < data[1].y, "odd SFP numbers occupy the upper row");
+    assert.ok(data[16].x - data[14].x > data[2].x - data[0].x, "the two sixteen-port banks have a physical gap");
+  } else {
+    assert.deepEqual(data.slice(0, 4).map((port) => port.x), data.slice(4).map((port) => port.x));
+    assert.ok(data[4].y > data[0].y, "the second FIM occupies its separate lower slot");
+  }
+  verifyLegacyE(model, [["RJ45_1G", 2], ["Console", 2]], model === "7030E" ? { 1: 35, 3: 36, 4: 37 } : { 1: 13, 3: 14, 4: 15 });
+  const saved = structuredClone(device);
+  saved.faceplate.unitsU = 12;
+  const before = structuredClone(saved);
+  assert.equal(upgradeInstalledPhysicalPorts({ devices: [saved] }), false);
+  assert.deepEqual(saved, before, "existing twelve-unit rack allocations are never silently resized");
+  const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 600 });
+  for (const port of scene.ports) {
+    const placement = port.labelPlacement;
+    const width = Math.min(placement.boxMaxWidth, Math.max(12, placement.maxWidth + 6));
+    const caption = { x: placement.x - width / 2, y: placement.y - 5.5, width, height: 11 };
+    assert.ok(!scene.ports.some((other) => overlaps(caption, other)), `${model} FIM caption ${port.port.portIndex} covers a socket`);
+  }
+}

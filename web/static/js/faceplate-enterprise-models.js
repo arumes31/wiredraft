@@ -11,6 +11,8 @@ import { buildJuniperEXModelFaceplate } from "./faceplate-juniper-ex-models.js";
 import { buildCheckPointModelFaceplate } from "./faceplate-checkpoint-models.js";
 import { resolveAristaFaceplate } from "./faceplate-arista-models.js";
 import { buildDellModelFaceplate } from "./faceplate-dell-models.js";
+import { buildRuckusModelFaceplate } from "./faceplate-ruckus-models.js";
+import { resolveExtremeFaceplate } from "./faceplate-extreme-models.js";
 
 // Individual vendor drawings take precedence over intermediate family layouts.
 // Remaining fitted compositions retain family fidelity until their SKU panels
@@ -242,6 +244,8 @@ export function resolveEnterpriseFaceplate(device) {
     || buildCheckPointModelFaceplate(canonical.device)
     || resolveAristaFaceplate(canonical.device)
     || buildDellModelFaceplate(canonical.device)
+    || buildRuckusModelFaceplate(canonical.device)
+    || resolveExtremeFaceplate(canonical.device)
     || buildProfile(canonical.device, definition));
   return layouts.get(key);
 }

@@ -72,6 +72,7 @@ export function hardwarePrimitives(component, palette = {}) {
     addVent(art, component, colors);
   } else if (kind === "fan") {
     if (component.variant === "mesh-handle") addMeshHandleFan(art, component, colors);
+    else if (component.variant === "mesh-dual") addMeshDualFan(art, component, colors);
     else addFan(art, colors, component.variant);
   } else if (kind === "drive-carrier") {
     addDriveCarrier(art, component, colors);
@@ -329,6 +330,43 @@ function addMeshHandleFan(art, component, colors) {
   art.circle(.5, .945, .023, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
 }
 
+/** Draw the 7030E/7040E tray's two guarded rotors, two side handles and separate status indicators. */
+function addMeshDualFan(art, component, colors) {
+  const scale = Math.min(component.width, component.height);
+  const cell = Math.min(component.width * .69 / 7, component.height * .43 / 7);
+  const grilleWidth = cell * 7 / component.width;
+  const grilleHeight = cell * 7 / component.height;
+  const left = .44 - grilleWidth / 2;
+  const bar = cell * .12;
+  art.rect(.012, .012, .976, .976, colors.surface, colors.ink, .04);
+  for (const center of [.267, .735]) {
+    const top = center - grilleHeight / 2;
+    art.rect(left, top, grilleWidth, grilleHeight, "#07151a", colors.ink, .01);
+    art.circle(.44, center, cell * 3.4 / scale, "#122327", colors.surfaceDark);
+    art.circle(.44, center, cell * 1.8 / scale, colors.surfaceDark, "#a7b2b5");
+    for (let line = 0; line <= 7; line++) {
+      art.rect(left + line * cell / component.width - bar / component.width / 2, top,
+        bar / component.width, grilleHeight, "#a7b2b5", undefined, 0);
+      art.rect(left, top + line * cell / component.height - bar / component.height / 2,
+        grilleWidth, bar / component.height, "#a7b2b5", undefined, 0);
+    }
+    art.circle(.83, center, .020, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
+    for (const x of [.145, .755]) for (const y of [top + .008, top + grilleHeight - .008]) {
+      art.circle(x, y, .031, colors.surfaceDark, colors.ink);
+      art.circle(x, y, .021, "#a7b2b5", colors.ink);
+    }
+  }
+  for (const x of [.036, .804]) {
+    art.rect(x, .357, .057, .29, "#708389", colors.ink, .04);
+    art.line(x + .018, .385, x + .018, .616, "#b9c3c4");
+  }
+  for (const x of [.052, .953]) for (const y of [.138, .862]) {
+    art.circle(x, y, .031, colors.surfaceDark, colors.ink);
+    art.line(x - .014, y - .009, x + .014, y + .009, "#a7b2b5");
+    art.line(x - .014, y + .009, x + .014, y - .009, "#a7b2b5");
+  }
+}
+
 /** Distinguish a front drive's release/status strip and grille from the compact rear BOSS pull tray. */
 function addDriveCarrier(art, component, colors) {
   if (component.variant === "boss") {
@@ -420,6 +458,10 @@ function addHandle(art, colors) {
 function addPowerSupply(art, component, colors) {
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
+  if (component.variant === "ac-compact-c14") {
+    addCompactACSupply(art, component, colors);
+    return;
+  }
   if (component.variant === "dc-keyed3-inlet-right" || component.variant === "dc-recessed3-inlet-right") {
     addThreeContactDCSupply(art, component, colors);
     return;
@@ -449,6 +491,29 @@ function addPowerSupply(art, component, colors) {
   art.rect(.83 + handleOffset, .28, .035, .44, colors.surface, colors.ink, .02);
   art.circle(.94, .22, .035, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
   if (component.variant !== "fixed") art.rect(.78 + handleOffset, .73, .08, .1, colors.accent, colors.ink, .02);
+}
+
+/** Draw the 7030E/7040E supply's broad C14 inlet, square grille, right pull bar and green latch. */
+function addCompactACSupply(art, component, colors) {
+  for (let row = 0; row < 7; row++) for (let column = 0; column < 10; column++) {
+    art.rect(.055 + column * .088, .105 + row * .11, .071, .083, colors.surfaceDark, undefined, .005);
+  }
+  const physicalWidth = Math.min(component.width * .59, component.height * .69 * 1.18);
+  const width = physicalWidth / component.width;
+  const height = physicalWidth / 1.18 / component.height;
+  const left = .075;
+  const top = .48 - height / 2;
+  art.rect(left, top, width, height, "#708389", colors.ink, .055);
+  art.rect(left + width * .095, top + height * .12, width * .81, height * .77, "#07151a", colors.ink, .055);
+  art.line(left + width * .095, top + height * .29, left + width * .24, top + height * .12, "#a7b2b5");
+  art.line(left + width * .76, top + height * .12, left + width * .905, top + height * .29, "#a7b2b5");
+  for (const [x, y] of [[.5, .40], [.30, .65], [.70, .65]]) {
+    art.rect(left + width * (x - .031), top + height * (y - .090), width * .062, height * .18, "#b9c3c4", undefined, .005);
+  }
+  art.rect(.720, .105, .088, .78, "#708389", colors.ink, .04);
+  art.line(.742, .145, .742, .845, "#b9c3c4");
+  art.circle(.858, .82, .025, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
+  art.rect(.907, .655, .055, .295, "#53b454", colors.ink, .012);
 }
 
 /** Draw three-contact DC modules with a retained metal inlet or a recessed keyed opening. */

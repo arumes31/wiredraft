@@ -1810,6 +1810,7 @@ export class CanvasEngine {
     return "";
   }
 
+  /** Draw the shared caption geometry, including compact plates on source-constrained panels. */
   drawPortDescriptions(ctx) {
     for (const box of this.portBoxes) {
       const deviceBox = this.deviceBoxByID?.get(box.device.id) || this.deviceBoxes.find((candidate) => candidate.device.id === box.device.id);
@@ -1822,7 +1823,8 @@ export class CanvasEngine {
       ctx.font = `700 ${placement.fontSize}px Bahnschrift Condensed, sans-serif`;
       const label = box.displayLabel ?? box.port.label;
       const textWidth = Math.min(placement.maxWidth, ctx.measureText(label).width);
-      const width = Math.min(placement.boxMaxWidth ?? Infinity, Math.max(12, textWidth + 6)); const height = 11;
+      const width = Math.min(placement.boxMaxWidth ?? Infinity, Math.max(12, textWidth + 6));
+      const height = placement.boxHeight ?? 11;
       const x = placement.x - width / 2; const y = placement.y - height / 2;
       ctx.globalAlpha = .94; ctx.fillStyle = template.surface; ctx.strokeStyle = hovered || selected ? "#42d9c8" : template.ink;
       ctx.lineWidth = hovered || selected ? 1.2 : .55;

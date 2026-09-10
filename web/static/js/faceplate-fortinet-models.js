@@ -94,6 +94,9 @@ const GUIDES = {
   "R70G": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/5351b79e-423d-11f0-a9d0-d2b0d2e22f7d/FGR-70G-QSG.pdf",
   "R50G-cell": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/2418bdeb-8b25-11ef-989d-ae5dfae880d6/FGR-50G-5G-QSG.pdf",
   "R70G-dual": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/a1edabaa-6ec8-11ef-8355-fa163e15d75b/FGR-70G-5G-DUAL-QSG.pdf",
+  "7030E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/496f257b-1a0a-11e9-9685-f8bc1258b856/fortigate-7030E-system-guide.pdf",
+  "7040E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/18bec63c-1a0a-11e9-9685-f8bc1258b856/fortigate-7040E-system-guide.pdf",
+  "FIM7901E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/279bdb1a-1a0a-11e9-9685-f8bc1258b856/fim-7901E-guide.pdf",
 };
 
 /** Resolve Fortinet catalog panels without treating unverified variants as exact hardware. */
@@ -227,6 +230,7 @@ function buildFortinetProfile({ catalog, device }) {
   else if (/^FortiGate Rugged 70F(?:-3G4G)?$/.test(model)) addRugged70F(profile, device);
   else if (model === "FortiGate Rugged 70G") addRugged70G(profile, device);
   else if (/^FortiGate Rugged (?:50G-5G|70G-5G-Dual)$/.test(model)) addRuggedGCellular(profile, device);
+  else if (/^FortiGate 70[34]0E$/.test(model)) add70307040E(profile, device);
   if (/^FortiGate (?:180[01]F(?:-DC)?|350[01]F)$/.test(model)) profile.legacyLayouts = [{ inventoryRevision: 0,
     portIndexMap: Object.fromEntries(device.ports.map((port) => [port.portIndex, port.portIndex])) }];
   if (/^FortiGate 300[01](?:G|F(?:-(?:ACDC|DC))?)$/.test(model)) profile.legacyLayouts = [{ inventoryRevision: 0,
@@ -240,7 +244,7 @@ function buildFortinetProfile({ catalog, device }) {
   for (const face of Object.values(profile.faces)) {
     for (const port of face.ports) port.height = Math.min(port.height, .24 / (units * profile.chassis.height));
   }
-  if (catalog.fidelity === "modular") addModularRegion(profile, device, units);
+  if (catalog.fidelity === "modular" && !profile.panelsVerified) addModularRegion(profile, device, units);
   if (profile.panelsVerified) recordMissingPorts(profile, device);
   return profile;
 }
@@ -2345,4 +2349,127 @@ function addRuggedGCellular(profile, device) {
       portIndexMap: Object.fromEntries(device.ports.filter((port) => port.portIndex < 10).map((port) => [port.portIndex, port.portIndex])) }];
     profile.limitations.push("Inventory revision 1 appends the missing serial RJ45 endpoint at index 10; saved indices 1–9 and their connection identities are unchanged.");
   }
+}
+
+/** Frame one installed 7000E blade without painting decorative metal over its interactive sockets. */
+function blade7000EFrame(y, name, processor = false) {
+  const labels = processor ? ["STATUS", "ALARM", "POWER"] : ["STATUS", "ALARM", "HA", "POWER"];
+  return [element("chassis", .030, y, .940, .003), element("chassis", .030, y + .166, .940, .003),
+    element("text", .050, y + .010, .070, .016, name),
+    ...[.018, .966].map((x) => element("handle", x, y + .078, .024, .078)),
+    ...[.040, .946].map((x) => element("screw", x, y + .023, .012, .016)),
+    ...[.038, .842].map((x) => element("chassis", x, y + .154, .120, .010)),
+    ...labels.flatMap((label, index) => [
+      element("led", .093, y + .075 + index * .020, .006, .009),
+      element("text", .047, y + .074 + index * .020, .042, .013, label),
+    ]),
+    element("button", .133, y + .128, .007, .010, undefined, "reset"),
+    element("button", .133, y + .149, .006, .008, undefined, "reset"),
+    ...(processor ? [element("vent", .145, y + .007, .777, .143, undefined, "mesh")] :
+      [element("usb", .076, y + .111, .010, .041, undefined, "a"),
+        element("vent", .143, y + .007, .066, .143, undefined, "mesh")]),
+  ];
+}
+
+/** Trace the FIM-7901E SFP banks or FIM-7920E QSFP row in its documented installed slot. */
+function interface7000E(ports, y, qsfp) {
+  const components = blade7000EFrame(y, qsfp ? "FIM-7920E" : "FIM-7901E");
+  const sockets = ports.map((port, index) => {
+    if (index < 4) return namedSlot(port, `MGMT${index + 1}`, (qsfp ? .249 : .232) + Math.floor(index / 2) * .039,
+      y + (index % 2 ? .128 : .075), .028, .038);
+    if (index < 6) return namedSlot(port, `M${index - 3}`, qsfp ? .334 : .318,
+      y + (index % 2 ? .128 : .075), .030, .038);
+    if (qsfp) return namedSlot(port, `C${index - 5}`, .459 + (index - 6) * .115, y + .130, .042, .035);
+    const data = index - 6;
+    const column = Math.floor(data / 2);
+    return namedSlot(port, `A${data + 1}`, .373 + column * .0347 + Math.floor(column / 8) * .012,
+      y + (data % 2 ? .128 : .075), .029, .038);
+  });
+  for (const port of sockets) port.descriptionAnchor = {
+    x: port.x, y: y + (qsfp && /^C/.test(port.physicalLabel) ? .087 : port.y < y + .1 ? .038 : .161),
+  };
+  components.push(element("vent", .213, y + .008, .700, .020, undefined, "mesh"));
+  if (qsfp) {
+    components.push(element("vent", .370, y + .036, .547, .035, undefined, "mesh"));
+    for (const x of [.487, .602, .717, .832]) components.push(element("vent", x, y + .100, .061, .051, undefined, "mesh"));
+    for (const x of [.459, .574, .689, .804]) components.push(element("led", x - .003, y + .098, .006, .009));
+  }
+  return { ports: sockets, components };
+}
+
+/** Trace the fixed SMM Ethernet, two selectable consoles, status fields and selection buttons. */
+function management70307040E(ports) {
+  const components = [element("text", .511, .018, .058, .013, "STATUS"),
+    ...[.510, .949].map((x) => element("screw", x, .055, .012, .016)),
+    ...Array.from({ length: 4 }, (_, index) => element("led", .551, .035 + index * .012, .006, .008)),
+    ...Array.from({ length: 3 }, (_, index) => element("led", .580 + index * .013, .047, .006, .008)),
+    ...Array.from({ length: 4 }, (_, index) => element("led", .580 + index * .013, .069, .006, .008)),
+    element("text", .572, .025, .046, .012, "FAN / PSU"),
+    element("button", .675, .064, .007, .010, undefined, "reset"), element("led", .676, .084, .005, .007),
+    element("chassis", .500, .008, .002, .100), element("chassis", .500, .108, .462, .003),
+  ];
+  for (const x of [.760, .885]) {
+    for (let index = 0; index < 4; index++) components.push(element("led", x, .035 + index * .012, .006, .008));
+    components.push(element("button", x + .035, .062, .010, .014));
+  }
+  const sockets = ports.map((port, index) => ({
+    ...namedSlot(port, index ? `CONSOLE${index}` : "MGMT", [.646, .711, .836][index], .066, .031, .037),
+    descriptionAnchor: { x: [.646, .714, .839][index], y: .099 },
+  }));
+  return { ports: sockets, components };
+}
+
+/** Trace the separately illustrated 7030E and 7040E rear: three dual-fan trays and PWR1/2/4 installed. */
+function rear70307040E() {
+  return [
+    ...[.030, .344, .658].map((x) => element("fan", x, .044, .309, .778, undefined, "mesh-dual")),
+    ...[[.030, "PWR4"], [.712, "PWR2"], [.842, "PWR1"]].map(([x, name]) => element("psu", x, .835, .128, .158, name, "ac-compact-c14")),
+    element("module-bay", .162, .835, .126, .158, "PWR3", "blank"),
+    element("text", .429, .888, .130, .041, "DISCONNECT ALL POWER CORDS"),
+    element("screw", .608, .872, .019, .025), element("screw", .608, .929, .019, .025),
+    ...[.039, .495, .950].map((x) => element("screw", x, .005, .012, .016)),
+    ...[.008, .978].flatMap((x) => [.140, .343, .546, .749, .954].map((y) => element("screw", x, y, .012, .016))),
+  ];
+}
+
+/** Collect a FIM's typed groups without assuming that catalog zone order equals the front-panel order. */
+function installed7000EPorts(ports, number) {
+  return ["MGMT", "M", "A", "C"].flatMap((suffix) => ports.filter((port) => port.group === `FIM${number}-${suffix}`));
+}
+
+/** Trace two 6U chassis using the exact populated configurations printed in their own system guides. */
+function add70307040E(profile, device) {
+  const model = device.model.slice("FortiGate ".length);
+  const twoFIMs = model === "7040E";
+  inspected(profile, model, twoFIMs ? "6 front, 9 rear; 7 module inventory; 44 SMM" : "6 front, 8 rear; 39 SMM; FIM-7901E guide 5–7");
+  const configuration = twoFIMs ? "Two FIM-7920E in slots 1/2 and two FPM-7630E in slots 3/4, with PWR1/2/4 AC supplies installed" :
+    "SFP10G version with one FIM-7901E in slot 1, sealed slot 2, two FPM-7620E in slots 3/4, and PWR1/2/4 AC supplies installed";
+  profile.chassis = { x: 0, y: 0, width: 1, height: 1 };
+  profile.evidence = { scope: "model", models: [device.model], configuration,
+    front: `${GUIDES[model]}#page=6`, rear: `${GUIDES[model]}#page=${twoFIMs ? 9 : 8}`,
+    supplemental: [`${GUIDES.FIM7901E}#page=5`, `${GUIDES["7030E"]}#page=23`] };
+  const smmPorts = device.ports.filter((port) => ["SMM-MGMT", "CONSOLE"].includes(port.group));
+  profile.legacyLayouts = [{ inventoryRevision: 0,
+    portIndexMap: { 1: smmPorts[0].portIndex, 3: smmPorts[1].portIndex, 4: smmPorts[2].portIndex },
+    portLabels: { 1: "MGMT1", 3: "CONSOLE1", 4: "CONSOLE2" } }];
+  profile.catalogDiscrepancies = ["New instances use the documented 6U height and all connectors in the selected installed module configuration. Historical 12U allocations are preserved.",
+    "The old generic MGMT1 and two consoles map to the fixed SMM; old MGMT2 has no unique physical equivalent and remains an unmapped saved endpoint."];
+  profile.limitations = [`Selected configuration: ${configuration}. Other FIM/FPM populations and DC supplies require their corresponding configuration.`,
+    "The sealed 7030E slot-2 panel and the populated 7040E slot-2 interface are distinct. Each rear tray contains two visible rotors, and the optional PWR3 bay is covered."];
+  const smm = management70307040E(smmPorts);
+  const fim1 = interface7000E(installed7000EPorts(device.ports, 1), .291, twoFIMs);
+  const fim2 = twoFIMs ? interface7000E(installed7000EPorts(device.ports, 2), .472, true) : { ports: [], components: [
+    element("module-bay", .026, .472, .948, .174, "SEALED PANEL", "blank"),
+    ...[.046, .285, .510, .735].flatMap((x) => [.490, .621].map((y) => element("vent", x, y, .213, .012, undefined, "mesh"))),
+  ] };
+  profile.faces.front = { ports: [...smm.ports, ...fim1.ports, ...fim2.ports], components: [
+    element("text", .067, .023, .159, .068, device.model),
+    ...smm.components, ...blade7000EFrame(.115, twoFIMs ? "FPM-7630E" : "FPM-7620E", true),
+    ...fim1.components, ...fim2.components, ...blade7000EFrame(.655, twoFIMs ? "FPM-7630E" : "FPM-7620E", true),
+    ...[.075, .291, .516, .744].map((x) => element("vent", x, .864, .182, .083, undefined, "mesh")),
+    { ...element("service-jack", .940, .892, .018, .024), role: "esd" },
+    element("text", .928, .922, .042, .016, "ESD"),
+    ...[.013, .050, .266, .493, .723, .977].flatMap((x) => [.850, .970].map((y) => element("screw", x, y, .012, .016))),
+  ] };
+  profile.faces.rear = { ports: [], components: rear70307040E() };
 }

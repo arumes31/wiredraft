@@ -1,6 +1,15 @@
 import { canonicalFaceplateDevice } from "./faceplate-profile.js";
 
 const definitions = {
+  CCR2004: { build: ccr2004, guide: "ccr2004-1g-12s-plus-2xs", product: "ccr2004_1g_12s_2xs", photos: [1937, 1936],
+    sku: "CCR2004-1G-12S+2XS",
+    configuration: "CCR2004-1G-12S+2XS with two fixed AC inputs, two rear fans and the external rear heatsink, as pictured by the manufacturer. This is the full SKU already identified in the catalog's CCR2004 source." },
+  CCR2116: { build: ccr2116, guide: "ccr2116-12g-4s-plus", product: "ccr2116_12g_4splus", photos: [2625, 2116],
+    sku: "CCR2116-12G-4S+",
+    configuration: "CCR2116-12G-4S+ with two fixed AC inputs and four rear fans; the current manufacturer front photograph includes a storage USB-A socket. This is the full SKU already identified in the catalog's CCR2116 source." },
+  CCR2216: { build: ccr2216, guide: "ccr2216-1g-12xs-2xq", product: "ccr2216_1g_12xs_2xq", photos: [2123, 2124],
+    sku: "CCR2216-1G-12XS-2XQ", drawing: "CCR2216_DIMENSION_220238.pdf",
+    configuration: "CCR2216-1G-12XS-2XQ with two installed AC supplies and four removable fan trays, as pictured by the manufacturer. This is the full SKU already identified in the catalog's CCR2216 source." },
   "CRS317-1G-16S+RM": { build: crs317, guide: "crs317-1g-16s-plus-rm", product: "crs317_1g_16s_rm", photos: [1324, 2055] },
   "CRS326-24G-2S+RM": { build: crs326, guide: "crs326-24g-2s-plus-rm", product: "CRS326-24G-2SplusRM", photos: [1301, 1941],
     drawing: "CRS_CSS326-24G-2S_dimensions_230943.pdf" },
@@ -22,22 +31,83 @@ export function resolveMikroTikFaceplate(device) {
     const provisional = Boolean(definition.provisionalRear);
     profiles.set(device.model, {
       id: `mikrotik-${device.model.toLowerCase()}`, defaultFace: "front", fidelity: provisional ? "family" : "model",
+      ...(definition.sku ? { sku: definition.sku, inventoryComplete: true } : {}),
       panelFidelity: { front: "model", rear: provisional ? "schematic" : "model" },
       source: `https://manual.mikrotik.com/hardware/${definition.guide}/`,
       sourcePage: `Hardware guide and official product panel photographs ${definition.photos.join(" / ")}`,
-      evidence: [
+      evidence: definition.sku ? { models: [device.model, definition.sku], scope: "model", reviewed: "2026-09-10",
+        front: `https://cdn.mikrotik.com/web-assets/rb_images/${definition.photos[0]}_hi_res.png`,
+        rear: `https://cdn.mikrotik.com/web-assets/rb_images/${definition.photos[1]}_hi_res.png`,
+        supplemental: definition.drawing ? `https://cdn.mikrotik.com/web-assets/product_files/${definition.drawing}`
+          : `https://mikrotik.com/product/${definition.product}`,
+        configuration: definition.configuration } : [
         `https://mikrotik.com/product/${definition.product}`,
         ...definition.photos.map((id) => `https://cdn.mikrotik.com/web-assets/rb_images/${id}_hi_res.png`),
         ...(definition.drawing ? [`https://cdn.mikrotik.com/web-assets/product_files/${definition.drawing}`] : []),
       ],
-      note: provisional ? "Front coordinates follow the model dimension drawing. The single rear AC input is documented, but its position awaits a rear illustration."
-        : "Model-specific connector order, panel locations and service components traced from official photographs; normalized drawing proportions are not manufacturing dimensions.",
+      note: definition.configuration || (provisional ? "Front coordinates follow the model dimension drawing. The single rear AC input is documented, but its position awaits a rear illustration."
+        : "Model-specific connector order, panel locations and service components traced from official photographs; normalized drawing proportions are not manufacturing dimensions."),
       limitations: provisional ? ["Rear AC position is provisional; side cooling grilles are not rear-panel fans."] : ["Only the front and rear projections are represented; side and top details are omitted."],
       catalogDiscrepancies: discrepancies(device.model),
       chassis: { x: 0, y: .04, width: 1, height: .92 }, faces,
     });
   }
   return profiles.get(device.model);
+}
+
+/** Trace the CCR2216's two left QSFPs, six SFP pairs and service stack, with its independently photographed rear modules. */
+function ccr2216(ports) {
+  const slots = paired(ports.filter((port) => port.type === "SFP28_25G"), .175, .0485, 6, 0, .035, [.72, .36]);
+  slots.push(...ports.filter((port) => port.type === "QSFP28_100G").map((port, index) =>
+    socket(port, .053 + index * .058, .72, .044, .24, String(index + 1))),
+  socket(ports.find((port) => port.type === "Console"), .481, .36, .034, .26, "CONSOLE"),
+  socket(ports.find((port) => port.type === "RJ45_1G"), .481, .72, .034, .26, "MGMT"));
+  const rear = [part("psu", .008, .035, .147, .93, "AC1", "ac-inlet-right"),
+    part("psu", .157, .035, .147, .93, "AC2", "ac-inlet-right")];
+  for (let index = 0; index < 4; index++) {
+    const x = .357 + index * .157;
+    rear.push(part("module-bay", x, .035, .14, .93, undefined, "populated"),
+      part("fan", x + .039, .105, .091, .78, undefined, "fixed"),
+      part("handle", x + .019, .12, .015, .70));
+  }
+  return panels([part("vent", .005, .015, .98, .13, undefined, "chevron"),
+    part("button", .511, .76, .011, .08, undefined, "reset"), ...status(.528),
+    part("text", .80, .22, .18, .13, "CCR2216-1G-12XS-2XQ")], slots, rear);
+}
+
+/** Trace the selected CCR2004's left SFP28 stack, single SFP+ row and rear heatsink between two fans. */
+function ccr2004(ports) {
+  const slots = ports.filter((port) => port.type === "SFP_PLUS_10G").map((port, index) =>
+    socket(port, .095 + index * .045, .72, .034, .23, `SFP+${index + 1}`));
+  slots.push(...paired(ports.filter((port) => port.type === "SFP28_25G"), .047, .04, 1, 0, .034, [.72, .38]),
+    socket(ports.find((port) => port.type === "Console"), .646, .38, .034, .25, "CONSOLE"),
+    socket(ports.find((port) => port.type === "RJ45_1G"), .646, .72, .034, .25, "MGMT/BOOT"));
+  const front = [part("vent", .023, .035, .645, .10, undefined, "louver"), ...status(.692),
+    part("button", .675, .76, .011, .08, undefined, "reset"),
+    part("text", .78, .15, .19, .10, "CCR2004-1G-12S+2XS")];
+  return panels(front, slots, [part("power", .030, .28, .075, .45, "AC1"),
+    part("power", .211, .28, .075, .45, "AC2"),
+    part("fan", .340, .055, .089, .86, undefined, "fixed"),
+    part("vent", .458, .030, .365, .94, undefined, "fins"),
+    part("fan", .828, .055, .089, .86, undefined, "fixed")]);
+}
+
+/** Trace the selected CCR2116's four left SFPs, three copper banks and its distinct fixed-power rear panel. */
+function ccr2116(ports) {
+  const slots = ports.filter((port) => port.type === "RJ45_1G" && port.portIndex <= 12).map((port, index) =>
+    socket(port, .119 + index * .0378 + Math.floor(index / 4) * .011, .72, .035, .25, String(index + 1)));
+  slots.push(...paired(ports.filter((port) => port.type === "SFP_PLUS_10G"), .035, .034, 2, 0, .030, [.72, .36]),
+    socket(ports.find((port) => port.portIndex === 18), .603, .36, .034, .26, "CONSOLE"),
+    socket(ports.find((port) => port.portIndex === 17), .603, .72, .034, .26, "ETH/BOOT"));
+  const front = [part("vent", .094, .035, .482, .12, undefined, "chevron"),
+    part("usb", .629, .515, .016, .34),
+    part("button", .653, .740, .011, .08, undefined, "reset"),
+    part("button", .676, .740, .011, .08, undefined, "reset"), ...status(.699),
+    part("text", .815, .15, .160, .10, "CCR2116-12G-4S+")];
+  return panels(front, slots, [part("power", .025, .26, .072, .48, "AC1"),
+    part("power", .222, .26, .072, .48, "AC2"),
+    part("ring", .112, .075, .093, .84), part("vent", .129, .24, .059, .49, undefined, "mesh"),
+    ...[.46, .55, .64, .73].map((x) => part("fan", x, .06, .087, .87, undefined, "fixed"))]);
 }
 
 /** Record printed-label and management-speed differences without editing saved inventory. */
