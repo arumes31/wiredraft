@@ -6,6 +6,7 @@ import { resolveAccessPointFaceplate } from "./faceplate-access-point-models.js"
 import { resolveDellServerFaceplate } from "./faceplate-dell-server-models.js";
 import { resolveHPEServerFaceplate } from "./faceplate-hpe-server-models.js";
 import { resolveTeltonikaFaceplate } from "./faceplate-teltonika-models.js";
+import { resolveAdtranFaceplate } from "./faceplate-adtran-models.js";
 
 // Panel roles follow the cited hardware guides. Family and configurable layouts
 // preserve the catalog's representative inventory rather than asserting SKU dimensions.
@@ -71,6 +72,8 @@ const networkDiscrepancies = {
 
 /** Resolve known equipment panels, or an explicitly configured Static server's current inventory. */
 export function resolveEquipmentFaceplate(device) {
+  const adtran = resolveAdtranFaceplate(device);
+  if (adtran) return adtran;
   const hpeServer = resolveHPEServerFaceplate(device);
   if (hpeServer) return hpeServer;
   const teltonika = resolveTeltonikaFaceplate(device);

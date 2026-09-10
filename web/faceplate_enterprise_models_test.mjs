@@ -8,6 +8,8 @@ const profiles = hardwareCatalog.filter((profile) => vendors.includes(profile.ve
   && ["Switch", "Firewall", "Router"].includes(profile.category));
 const verifiedAliasModels = new Map([
   ["PA-440 / PA-450", ["PA-440", "PA-450"]],
+  ["PA-1400 family", ["PA-1410"]],
+  ["PA-1410 / PA-1420", ["PA-1410"]],
   ["XGS 126 / 136", ["XGS 126"]],
   ["XGS 2100 / 2300", ["XGS 2100"]],
   ["Quantum 6200 / 6600", ["Quantum 6200"]],

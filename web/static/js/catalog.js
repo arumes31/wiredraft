@@ -120,7 +120,11 @@ const profiles = [
     { zone: "management", count: 1, type: "USB_MICRO_CONSOLE", speed: 0, poe: false, prefix: "CONSOLE", labels: ["MICRO-USB"] },
     { ...m(1), labels: ["CONSOLE"] },
   ], { inventoryRevision: 1 }),
-  p("Palo Alto", "PA-1410 / PA-1420", "Firewall", 1, "#304047", [r(12, "RJ45_1G", 1000, false, "ETH"), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(2)]),
+  p("Palo Alto", "PA-1410 / PA-1420", "Firewall", 1, "#304047", [r(8, "RJ45_1G", 1000, false, "ETH"),
+    r(4, "RJ45_MGIG", 5000, true, "ETH"), u(6, "SFP_1G", 1000, "SFP"), u(4, "SFP_PLUS_10G", 10000, "SFP+"),
+    { ...m(1), type: "SFP_PLUS_10G", speed: 10000, prefix: "HSCI", labels: ["HSCI"] },
+    { ...m(3), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["HA1-A", "HA1-B", "MGT"] },
+    { ...m(1), labels: ["CONSOLE"] }, { ...m(1), type: "USB_MICRO_CONSOLE", labels: ["MICRO-USB"] }], { inventoryRevision: 1 }),
   p("Sophos", "XGS 126 / 136", "Firewall", 1, "#21466a", [
     { ...r(10, "RJ45_1G", 1000, false, "GE"), labels: Array.from({ length: 10 }, (_, index) => String(index + 1)) },
     { ...r(2, "RJ45_1G", 1000, true, "GE"), labels: ["11", "12"] },

@@ -9,6 +9,9 @@ const models = new Map([
 
 /** Resolve only individually verified Palo Alto models and their canonical inventory. */
 export function buildPaloAltoModelFaceplate(device) {
+  if (device?.faceplate?.vendor === "Palo Alto" && ["PA-1400 family", "PA-1410 / PA-1420"].includes(device.model)) {
+    return rack1410Profile(device);
+  }
   const sharedAlias = device?.model === "PA-440 / PA-450";
   const definition = models.get(sharedAlias ? "PA-440" : device?.model);
   if (!definition || device.faceplate?.vendor !== "Palo Alto") return null;
@@ -116,4 +119,83 @@ function rack850(device) {
     part("fan", .619, .09, .084, .81), part("fan", .766, .09, .084, .81), part("fan", .878, .09, .084, .81),
   ] };
   return { front, rear };
+}
+
+/** Select PA-1410 explicitly while retaining the two historical aliases' distinct identity namespaces. */
+function rack1410Profile(device) {
+  const reference = `${HARDWARE}pa-1400-hardware-reference/`;
+  const front = `${reference}pa-1400-series-overview/front-panel-1400-series`;
+  const rear = `${reference}pa-1400-series-overview/back-panel-1400-series`;
+  const family = device.model === "PA-1400 family";
+  const retained = family ? [...Array.from({ length: 12 }, (_, index) => index + 1), 17, 18, 19, 20, 21, 22, 27]
+    : Array.from({ length: 16 }, (_, index) => index + 1);
+  return {
+    id: `enterprise-palo-alto-${family ? "1400-family" : "1410-1420"}`, family: device.model,
+    sku: "PA-1410 · dual AC power supplies", fidelity: "model", panelFidelity: { front: "model", rear: "model" },
+    inventoryComplete: true, inventoryRevision: 1,
+    legacyLayouts: [{ inventoryRevision: 0,
+      portIndexMap: Object.fromEntries(retained.map((index) => [index, index])),
+      portLabels: Object.fromEntries(retained.map((index) => [index, index === 27 ? "CONSOLE" : `ethernet1/${index}`])),
+    }],
+    source: front, sourcePage: "PA-1400 front/back component illustrations, PA-1410 speed table and physical specifications",
+    evidence: { models: ["PA-1410"], selectedModel: "PA-1410", catalogAlias: device.model, scope: "model", reviewed: "2026-09-10",
+      front, rear, frontImage: "https://docs.paloaltonetworks.com/content/dam/techdocs/en_US/dita/_graphics/uv/hardware/pa-1400/PA-1420-front.png",
+      rearImage: "https://docs.paloaltonetworks.com/content/dam/techdocs/en_US/dita/_graphics/uv/hardware/pa-1400/PA-1420-back.png",
+      physical: `${reference}pa-1400-series-specifications/physical-specs-pa-1400-series`,
+      power: `${reference}service-pa-1400-series-firewall/replace-power-supply-pa-1400-series/replace-power-supply-ac-pa-1400-series`,
+      indicators: `${reference}service-pa-1400-series-firewall/interpret-leds-pa-1400-series`,
+      configuration: "PA-1410, 1U, with optional PS1 installed beside the supplied PS2 for dual AC power; port 1 ZTP sticker removed and no inserted transceivers or USB storage. PA-1410 is printed on the chassis.",
+      sharedChassis: "The manufacturer names PA-1410 and PA-1420 in the same front illustration and confirms identical back panels. Port-speed tables differ; this selection uses only PA-1410 ratings.",
+      dimensionsMM: { width: 434.9, height: 43.2, depth: 361.4 },
+    },
+    limitations: ["This catalog alias selects PA-1410, not PA-1420 performance. Perforated grilles are simplified; the five fixed rear fans remain behind the grille rather than appearing as exposed rotors. Product/claim labels omit unique serial values. Status lights depict powered standalone operation, not live telemetry."],
+    catalogDiscrepancies: [
+      family
+        ? "Older family records used 2U, 16 copper sockets, eight 25G optical sockets and two undifferentiated MGMT ports. Saved height and settings remain unchanged. Copper 13–16, surplus optical 23/24 and ambiguous MGMT 25/26 stay in unmapped inventory; numbered data 1–12 and 17–22 plus the unique RJ45 CONSOLE 27 retain their physical identities."
+        : "Older combined records omitted data 17–22 and all named HA/management sockets, while two Console-typed entries did not identify RJ45 versus micro-USB. Numbered data 1–16 retain their identities; ambiguous old CONSOLE1/2 at 17/18 remain unmapped rather than binding to unrelated optical or service sockets.",
+      "New PA-1410 inventory has 1G copper 1–8, 5G PoE copper 9–12, 1G SFP 13–18 and 10G SFP+ 19–22. Known older optical speed/type mismatches keep saved settings while the drawing uses the documented SFP cage. HSCI, HA1-A/B, MGT and both console connectors are separate endpoints; the USB-A storage/bootstrap host is ancillary hardware.",
+    ],
+    defaultFace: "front", chassis: { x: 0, y: .075, width: 1, height: .85 }, faces: rack1410(device),
+  };
+}
+
+/** Trace the two separated copper banks, paired optical cages and offset service cluster. */
+function rack1410(device) {
+  const copper = [...networkBank(device, 1, [.095, .1285, .1615, .194], .0305, [.36, .68]),
+    ...networkBank(device, 9, [.2505, .2825], .0305, [.36, .68])];
+  const optical = networkBank(device, 13, [.336, .369, .4025, .436, .469], .031, [.314, .669]);
+  const ports = [...copper.map((slot) => ({ ...slot, height: .251, connectorKind: "rj45",
+    ...(slot.portIndex >= 9 ? { compatibleTypes: ["RJ45_1G"] } : {}) })),
+  ...optical.map((slot) => ({ ...slot, connectorKind: "sfp",
+    compatibleTypes: slot.portIndex <= 18 ? ["SFP_PLUS_10G", "SFP28_25G"] : ["SFP28_25G"] }))];
+  for (const slot of ports) slot.descriptionAnchor = { x: slot.x, y: slot.portIndex % 2 ? .13 : .91, fontSize: 5.5, boxHeight: 7.5 };
+  ports.push(socket(device, "HSCI", .669, .69, .034, .235),
+    socket(device, "HA1-A", .725, .354, .034, .251), socket(device, "HA1-B", .725, .669, .034, .251),
+    socket(device, "MGT", .776, .354, .034, .251), socket(device, "CONSOLE", .776, .669, .034, .251),
+    socket(device, "MICRO-USB", .853, .765, .018, .065));
+  for (const slot of ports.slice(22)) {
+    slot.descriptionAnchor = { x: slot.x, y: [24, 26].includes(slot.portIndex) ? .13 : .91, fontSize: 5.5, boxHeight: 7.5 };
+  }
+  const components = [
+    part("text", .006, .015, .067, .13, "paloalto"), part("text", .007, .825, .058, .115, "PA-1410"),
+    part("vent", .006, .23, .067, .47, undefined, "mesh"),
+    part("vent", .491, .10, .207, .40, undefined, "mesh"),
+    part("vent", .491, .50, .151, .23, undefined, "mesh"),
+    part("vent", .914, .11, .075, .62, undefined, "mesh"), part("vent", .95, .73, .039, .18, undefined, "mesh"),
+    { ...part("usb", .814, .457, .016, .32), role: "storage-bootstrap-host" },
+    ...[.662, .677].map((x) => ({ ...part("led", x - .0015, .49, .003, .023), role: "hsci-link", active: false })),
+  ];
+  for (const [column, labels] of [["service", "power", "status", "ha", "temperature"], ["alarm", "fans", "ps1", "ps2"]].entries()) {
+    for (const [row, label] of labels.entries()) components.push({
+      ...part("led", .875 + column * .011, .285 + (row + column) * .10, .0045, .026),
+      role: `status-${label}`, active: !["service", "alarm", "ha"].includes(label), color: "#42d98b",
+    });
+  }
+  return { front: { ports, components }, rear: { ports: [], components: [
+    { ...part("vent", .015, .05, .613, .90, undefined, "mesh"), role: "fixed-fan-grille", fanCount: 5, fieldReplaceable: false },
+    { ...part("screw", .635, .325, .014, .14), role: "ground" },
+    ...[.11, .24, .355].map((x, index) => ({ ...part("text", x, .825, .058, .13, ["ASSY REV", "SERIAL", "CLAIM"][index]), fontSize: 5.5 })),
+    { ...part("psu", .687, .01, .13, .97, undefined, "pa-1400-ac"), role: "PS2" },
+    { ...part("psu", .844, .01, .128, .97, undefined, "pa-1400-ac"), role: "PS1" },
+  ] } };
 }

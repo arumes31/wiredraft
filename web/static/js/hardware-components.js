@@ -15,6 +15,10 @@ export function hardwarePrimitives(component, palette = {}) {
     art.label(component.text ?? component.label ?? "", .5, .5, component.fontSize ?? 9);
     return art.parts;
   }
+  if (kind === "power" && component.variant === "c14-diagonal") {
+    addDiagonalC14(art, component, colors);
+    return art.parts;
+  }
   if (kind === "chassis") {
     art.rect(.01, .025, .98, .95, colors.surface, colors.ink, .04);
     art.line(.025, .06, .975, .06, "#ffffff", .45);
@@ -40,6 +44,8 @@ export function hardwarePrimitives(component, palette = {}) {
       if (vertical) art.line(.42, cy, .58, cy, "#a7b2b5");
       else art.line(cx, .42, cx, .58, "#a7b2b5");
     }
+  } else if (kind === "lcd" && component.variant === "seven-segment") {
+    addSevenSegmentDisplay(art, component, colors);
   } else if (kind === "lcd") {
     art.rect(.01, .015, .98, .97, "#17262d", colors.ink, .08);
     art.rect(.12, .1, .76, .76, "#123a53", "#607d8b", .025);
@@ -69,12 +75,14 @@ export function hardwarePrimitives(component, palette = {}) {
       undefined, .1);
   } else if (kind === "led") {
     art.circle(.5, .5, .43, colors.surfaceDark, colors.ink);
-    art.circle(.5, .5, .27, component.active === false ? colors.surfaceDark : colors.accent);
+    art.circle(.5, .5, .27, component.active === false ? colors.surfaceDark : component.color ?? colors.accent);
     art.circle(.43, .38, .07, "#ffffff", undefined, .5);
   } else if (kind === "vent") {
     addVent(art, component, colors);
   } else if (kind === "fan") {
-    if (component.variant === "mesh-handle") addMeshHandleFan(art, component, colors);
+    if (component.variant === "dell-dual-horizontal") addDellDualFan(art, component, colors);
+    else if (component.variant === "dell-single-handle") addDellSingleFan(art, component, colors);
+    else if (component.variant === "mesh-handle") addMeshHandleFan(art, component, colors);
     else if (component.variant === "mesh-dual") addMeshDualFan(art, component, colors);
     else if (["mesh-dual-end-top", "mesh-dual-end-bottom", "mesh-triple-end", "mesh-dual-7060e"].includes(component.variant)) addEndHandleFan(art, component, colors);
     else addFan(art, colors, component.variant);
@@ -114,6 +122,96 @@ export function hardwarePrimitives(component, palette = {}) {
   }
   if (component.label) art.label(component.label, .5, .87, 8);
   return art.parts;
+}
+
+/** Trace the GE104 inlet at a fixed physical angle within either square or narrow allocations. */
+function addDiagonalC14(art, component, colors) {
+  const scale = Math.min(component.width, component.height);
+  /** Rotate inlet coordinates toward the upper right without changing their physical aspect. */
+  const point = (x, y) => [.5 + (x + y) * Math.SQRT1_2 * scale / component.width,
+    .5 + (y - x) * Math.SQRT1_2 * scale / component.height];
+  art.polygon([[-.45, -.16], [-.36, -.23], [.36, -.23], [.45, -.16],
+    [.45, .16], [.36, .23], [-.36, .23], [-.45, .16]].map(([x, y]) => point(x, y)), "#172125", colors.ink);
+  art.polygon([[-.27, -.10], [-.19, -.18], [.19, -.18], [.27, -.10], [.27, .18], [-.27, .18]]
+    .map(([x, y]) => point(x, y)), "#07151a", "#708389");
+  for (const [x, y] of [[0, -.06], [-.13, .055], [.13, .055]]) {
+    art.polygon([[x - .015, y - .045], [x + .015, y - .045], [x + .015, y + .045], [x - .015, y + .045]]
+      .map(([cx, cy]) => point(cx, cy)), "#b9c3c4");
+  }
+  for (const x of [-.37, .37]) {
+    const [cx, cy] = point(x, 0);
+    art.circle(cx, cy, .045, "#a7b2b5", colors.ink);
+    const start = point(x - .021, 0); const end = point(x + .021, 0);
+    art.line(start[0], start[1], end[0], end[1], "#515e62");
+  }
+}
+
+/** Draw unlit segment outlines without assigning a live stack number to the device. */
+function addSevenSegmentDisplay(art, component, colors) {
+  const digits = component.digits === 2 ? 2 : 1;
+  const cellWidth = .84 / digits;
+  const thickness = Math.min(component.width * cellWidth * .11, component.height * .075);
+  const tx = thickness / component.width;
+  const ty = thickness / component.height;
+  art.rect(.055, .045, .89, .91, "#07151a", colors.ink, .035);
+  for (let index = 0; index < digits; index++) {
+    const left = .08 + index * cellWidth + cellWidth * .14;
+    const width = cellWidth * .72;
+    for (const top of [.13, .465, .80]) art.rect(left + tx, top, width - tx * 2, ty, "#708389", undefined, .005);
+    for (const top of [.13 + ty * 1.3, .465 + ty * 1.3]) {
+      for (const x of [left, left + width - tx]) art.rect(x, top, tx, .335 - ty * 1.6, "#708389", undefined, .005);
+    }
+  }
+}
+
+/** Trace the S5048 tray's square guard, center pull bar with red grip and left orange latch. */
+function addDellSingleFan(art, component, colors) {
+  const scale = Math.min(component.width, component.height);
+  const cell = Math.min(component.width * .72, component.height * .82) / 7;
+  const width = cell * 7 / component.width;
+  const height = cell * 7 / component.height;
+  const left = .55 - width / 2;
+  const top = .5 - height / 2;
+  art.rect(.02, .025, .96, .95, colors.surfaceDark, colors.ink, .035);
+  art.circle(.55, .5, cell * 3.3 / scale, "#122327", "#708389");
+  art.circle(.55, .5, cell * 1.15 / scale, colors.surfaceDark);
+  const bar = cell * .1;
+  for (let index = 0; index <= 7; index++) {
+    art.rect(left + index * cell / component.width - bar / component.width / 2, top,
+      bar / component.width, height, "#a7b2b5", undefined, 0);
+    art.rect(left, top + index * cell / component.height - bar / component.height / 2,
+      width, bar / component.height, "#a7b2b5", undefined, 0);
+  }
+  for (const x of [.18, .91]) for (const y of [.085, .915]) {
+    art.circle(x, y, .025, colors.surfaceDark, "#708389");
+    art.line(x - .012, y, x + .012, y, "#a7b2b5");
+  }
+  art.rect(.505, .09, .09, .82, "#e0e5e6", colors.ink, .035);
+  art.rect(.475, .39, .15, .22, "#bb2634", "#708389", .008);
+  art.rect(.045, .35, .075, .30, "#d68c40", "#a7b2b5", .008);
+}
+
+/** Trace the S4048 fan tray's side-by-side rotors, diagonal grip and right release hardware. */
+function addDellDualFan(art, component, colors) {
+  const scale = Math.min(component.width, component.height);
+  const radius = Math.min(component.width * .185, component.height * .34);
+  art.rect(.01, .025, .98, .95, colors.surfaceDark, colors.ink, .025);
+  for (const center of [.245, .675]) {
+    art.circle(center, .52, radius / scale, "#122327", "#708389");
+    art.circle(center, .52, radius * .72 / scale, undefined, "#708389");
+    art.circle(center, .52, radius * .36 / scale, colors.surfaceDark);
+    for (let index = 0; index < 8; index++) {
+      const angle = index * Math.PI / 4;
+      const dx = Math.cos(angle) * radius / component.width;
+      const dy = Math.sin(angle) * radius / component.height;
+      art.line(center + dx * .38, .52 + dy * .38, center + dx * .94, .52 + dy * .94, "#708389");
+    }
+  }
+  for (const offset of [-.012, 0, .012]) art.line(.43 + offset, .85, .54 + offset, .14, "#b9c3c4");
+  art.circle(.54, .14, .028, colors.surfaceDark, "#a7b2b5");
+  art.circle(.43, .85, .028, colors.surfaceDark, "#a7b2b5");
+  art.rect(.916, .36, .055, .35, "#d68c40", "#a7b2b5", .008);
+  art.circle(.944, .15, .025, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
 }
 
 /** Trace the Rugged108F rear rail plate, slotted fixings and left spring-release wire. */
@@ -170,6 +268,11 @@ function primitiveBuilder(component, colors) {
     line(x1, y1, x2, y2, stroke, opacity = 1) {
       parts.push({ kind: "line", x1: x + x1 * width, y1: y + y1 * height,
         x2: x + x2 * width, y2: y + y2 * height, stroke, strokeWidth, opacity });
+    },
+    /** Add a closed polygon using the same absolute vertices in both renderers. */
+    polygon(points, fill, stroke) {
+      parts.push({ kind: "polygon", points: points.map(([left, top]) => [x + left * width, y + top * height]),
+        fill, stroke, strokeWidth, opacity: 1 });
     },
     /** Fit a centered label inside the component rather than spilling onto adjacent hardware. */
     label(value, left, top, requestedSize) {
@@ -585,6 +688,10 @@ function addHandle(art, colors) {
 function addPowerSupply(art, component, colors) {
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
+  if (component.variant === "pa-1400-ac") {
+    addPA1400Supply(art, component, colors);
+    return;
+  }
   if (component.variant === "hpe-flexslot-800") {
     addHPEFlexSlotSupply(art, component, colors);
     return;
@@ -638,6 +745,30 @@ function addPowerSupply(art, component, colors) {
   art.rect(.83 + handleOffset, .28, .035, .44, colors.surface, colors.ink, .02);
   art.circle(.94, .22, .035, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
   if (component.variant !== "fixed") art.rect(.78 + handleOffset, .73, .08, .1, colors.accent, colors.ink, .02);
+}
+
+/** Trace the PA-1400 supply's broad C14 inlet, upright pull grip, paired lamps and toothed latch. */
+function addPA1400Supply(art, component, colors) {
+  for (let column = 0; column < 5; column++) {
+    art.rect(.085 + column * .105, .13, .09, .04, "#07151a", undefined, 0);
+    for (const top of [.78, .855]) art.rect(.085 + column * .105, top, .09, .06, "#07151a", undefined, 0);
+  }
+  for (let row = 0; row < 6; row++) {
+    art.rect(.865, .13 + row * .115, .045, .09, "#07151a", undefined, 0);
+    if (row > 2) art.rect(.755, .13 + row * .115, .09, .09, "#07151a", undefined, 0);
+  }
+  art.rect(.075, .195, .53, .545, "#07151a", "#708389", .09);
+  art.line(.095, .295, .175, .22, "#708389");
+  art.line(.505, .22, .585, .295, "#708389");
+  for (const [cx, cy] of [[.34, .40], [.215, .50], [.465, .50]]) art.rect(cx - .013, cy - .045, .026, .09, "#d0d6d8", undefined, .003);
+  art.rect(.655, .13, .075, .78, "#a7b2b5", colors.ink, .07);
+  art.line(.677, .19, .677, .85, "#e0e5e6");
+  for (const cy of [.29, .47]) {
+    art.circle(.805, cy, .047, colors.surfaceDark, "#708389");
+    art.circle(.805, cy, .026, component.active === false ? colors.surfaceDark : "#42d98b");
+  }
+  art.rect(.86, .68, .095, .26, "#56ada4", "#708389", .014);
+  for (let tooth = 0; tooth < 6; tooth++) art.line(.92, .713 + tooth * .034, .947, .713 + tooth * .034, "#708389");
 }
 
 /** Trace the 800W HPE Flex Slot supply's horizontal fan handle and sideways C14 inlet. */
@@ -930,6 +1061,11 @@ export function drawHardwareComponent(ctx, component, palette = {}) {
     ctx.beginPath();
     if (part.kind === "rect") ctx.roundRect(part.x, part.y, part.width, part.height, part.rx);
     else if (part.kind === "circle") ctx.arc(part.cx, part.cy, part.r, 0, Math.PI * 2);
+    else if (part.kind === "polygon") {
+      ctx.moveTo(...part.points[0]);
+      for (const point of part.points.slice(1)) ctx.lineTo(...point);
+      ctx.closePath();
+    }
     else {
       ctx.moveTo(part.x1, part.y1);
       ctx.lineTo(part.x2, part.y2);
@@ -952,6 +1088,7 @@ function primitiveSVG(part) {
   if (part.kind === "rect") Object.assign(attributes, { x: part.x, y: part.y, width: part.width, height: part.height, rx: part.rx });
   else if (part.kind === "circle") Object.assign(attributes, { cx: part.cx, cy: part.cy, r: part.r });
   else if (part.kind === "line") Object.assign(attributes, { x1: part.x1, y1: part.y1, x2: part.x2, y2: part.y2 });
+  else if (part.kind === "polygon") attributes.points = part.points.map((point) => point.join(",")).join(" ");
   else Object.assign(attributes, { x: part.x, y: part.y, "font-size": part.fontSize,
     "font-family": "ui-monospace, SFMono-Regular, Consolas, monospace", "text-anchor": part.anchor, "dominant-baseline": "central" });
   const serialized = Object.entries(attributes).map(([name, value]) => `${name}="${escapeXML(value)}"`).join(" ");

@@ -3,6 +3,148 @@ import test from "node:test";
 
 import { drawHardwareComponent, hardwareComponentSVG, hardwarePrimitives } from "./static/js/hardware-components.js";
 
+test("GE104 C14 inlet rotates its flange, cavity and three blades together without stretching rectangular consumers", () => {
+  for (const [width, height] of [[52.992, 52.992], [35.328, 52.992], [106, 106]]) {
+    const box = { kind: "power", variant: "c14-diagonal", x: 10, y: 20, width, height };
+    const parts = hardwarePrimitives(box);
+    const polygons = parts.filter((part) => part.kind === "polygon");
+    assert.equal(polygons.length, 5, "flange, keyed cavity and three distinct blades");
+    assert.equal(polygons.filter((part) => part.fill === "#b9c3c4").length, 3);
+    const screws = parts.filter((part) => part.kind === "circle" && part.fill === "#a7b2b5");
+    assert.equal(screws.length, 2);
+    assert.ok(screws[0].cx < screws[1].cx && screws[0].cy > screws[1].cy);
+    assert.ok(Math.abs((screws[1].cx - screws[0].cx) + (screws[1].cy - screws[0].cy)) < 1e-8);
+    for (const part of parts) {
+      const bounds = primitiveBounds(part);
+      assert.ok([bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite));
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y);
+      assert.ok(bounds.x + bounds.width <= box.x + width && bounds.y + bounds.height <= box.y + height);
+      if (part.kind === "polygon") assert.ok(part.points.flat().every(Number.isFinite));
+    }
+    const canvas = recordingContext();
+    drawHardwareComponent(canvas, box);
+    assert.deepEqual(canvas.shapes.map((part) => part.kind), parts.map((part) => part.kind));
+    for (const [index, part] of canvas.shapes.entries()) for (const key of Object.keys(part)) {
+      assert.deepEqual(part[key], parts[index][key]);
+    }
+    const svg = hardwareComponentSVG(box);
+    const vertices = [...svg.matchAll(/<polygon[^>]*points="([^"]+)"/g)].map((match) => match[1].split(" ").map((point) => point.split(",").map(Number)));
+    assert.deepEqual(vertices, polygons.map((part) => part.points));
+    const escaped = hardwareComponentSVG(box, { ink: 'red" onload="bad()' });
+    assert.ok(escaped.includes("&quot;") && !escaped.includes('stroke="red" onload='));
+  }
+});
+
+test("S5048 fan trays retain one square-guarded rotor, center red grip and left orange release latch", () => {
+  const component = { kind: "fan", variant: "dell-single-handle", x: 0, y: 0, width: 60.72, height: 69.75 };
+  const parts = hardwarePrimitives(component);
+  const rotors = parts.filter((part) => part.kind === "circle" && part.fill === "#122327");
+  assert.equal(rotors.length, 1);
+  const rotor = rotors[0];
+  const grip = parts.find((part) => part.fill === "#bb2634");
+  const handle = parts.find((part) => part.fill === "#e0e5e6");
+  const latch = parts.find((part) => part.fill === "#d68c40");
+  assert.ok(handle.height > handle.width * 5 && handle.y < rotor.cy && handle.y + handle.height > rotor.cy);
+  assert.equal(handle.x + handle.width / 2, rotor.cx);
+  assert.equal(grip.x + grip.width / 2, rotor.cx);
+  assert.ok(grip.y < rotor.cy && grip.y + grip.height > rotor.cy);
+  assert.ok(latch.x + latch.width < rotor.cx - rotor.r);
+  const guards = parts.filter((part) => part.kind === "rect" && part.fill === "#a7b2b5");
+  assert.equal(guards.length, 16);
+  const vertical = guards.filter((part) => part.height > part.width);
+  const horizontal = guards.filter((part) => part.width > part.height);
+  assert.ok(Math.abs((vertical[1].x - vertical[0].x) - (horizontal[1].y - horizontal[0].y)) < 1e-8);
+  assert.ok(!hardwarePrimitives({ ...component, variant: undefined }).some((part) => part.fill === "#bb2634"));
+});
+
+test("round status lenses accept an explicit color while retaining their default and inactive artwork", () => {
+  const component = { kind: "led", x: 0, y: 0, width: 8, height: 8 };
+  const defaults = hardwarePrimitives(component);
+  const colored = hardwarePrimitives({ ...component, color: "#123456" });
+  assert.equal(colored[1].fill, "#123456");
+  assert.deepEqual(colored.map((part, index) => index === 1 ? { ...part, fill: defaults[index].fill } : part), defaults);
+  assert.deepEqual(hardwarePrimitives({ ...component, color: undefined }), defaults);
+  assert.deepEqual(hardwarePrimitives({ ...component, active: false, color: "#123456" }), hardwarePrimitives({ ...component, active: false }));
+});
+
+test("PA-1400 supplies retain the broad left C14 inlet, right handle and two separate status lenses", () => {
+  const component = { kind: "psu", variant: "pa-1400-ac", x: 0, y: 0, width: 89, height: 66 };
+  const parts = hardwarePrimitives(component);
+  const inlet = parts.find((part) => part.kind === "rect" && part.fill === "#07151a");
+  const handle = parts.find((part) => part.kind === "rect" && part.fill === "#a7b2b5");
+  const contacts = parts.filter((part) => part.kind === "rect" && part.fill === "#d0d6d8");
+  const lamps = parts.filter((part) => part.fill === "#42d98b");
+  assert.equal(contacts.length, 3);
+  assert.ok(contacts.every((part) => part.height > part.width));
+  assert.ok(contacts[0].y < contacts[1].y && contacts[1].y === contacts[2].y);
+  assert.ok(inlet.width > inlet.height && handle.x > inlet.x + inlet.width && handle.height > handle.width * 5);
+  assert.equal(lamps.length, 2);
+  assert.equal(lamps[0].cx, lamps[1].cx);
+  assert.ok(lamps[0].cx > handle.x + handle.width && lamps[0].cy < lamps[1].cy);
+  assert.ok(!parts.some((part) => part.fill === "#122327"), "the manufacturer rear drawing exposes grille rather than a PSU fan disk");
+  assert.ok(!hardwarePrimitives({ ...component, active: false }).some((part) => part.fill === "#42d98b"));
+});
+
+test("Dell dual fan trays keep two horizontal rotors, a diagonal pull bar and right release hardware", () => {
+  const component = { kind: "fan", variant: "dell-dual-horizontal", x: 0, y: 0, width: 123.51, height: 69.75 };
+  const parts = hardwarePrimitives(component);
+  const rotors = parts.filter((part) => part.kind === "circle" && part.fill === "#122327");
+  assert.equal(rotors.length, 2);
+  assert.equal(rotors[0].cy, rotors[1].cy);
+  assert.ok(rotors[0].cx + rotors[0].r < rotors[1].cx - rotors[1].r);
+  const grip = parts.filter((part) => part.kind === "line" && part.stroke === "#b9c3c4");
+  assert.ok(grip.length >= 2 && grip.every((part) => part.x2 > part.x1 && part.y2 < part.y1));
+  const latch = parts.find((part) => part.fill === "#d68c40");
+  const lamp = parts.find((part) => part.fill === "#42d98b");
+  assert.ok(latch.x > rotors[1].cx + rotors[1].r);
+  assert.ok(lamp.cx > rotors[1].cx + rotors[1].r && lamp.cy < latch.y);
+  assert.ok(!hardwarePrimitives({ ...component, active: false }).some((part) => part.fill === "#42d98b"));
+  assert.ok(!hardwarePrimitives({ ...component, variant: undefined }).some((part) => part.fill === "#d68c40"));
+});
+
+test("stack displays distinguish one or two unlit seven-segment digits without inventing a live stack ID", () => {
+  const component = { kind: "lcd", variant: "seven-segment", x: 0, y: 0, width: 26.22, height: 21 };
+  for (const digits of [1, 2]) {
+    const parts = hardwarePrimitives({ ...component, digits });
+    const segments = parts.filter((part) => part.fill === "#708389");
+    assert.equal(segments.length, digits * 7);
+    assert.equal(segments.filter((part) => part.width > part.height).length, digits * 3);
+    assert.equal(segments.filter((part) => part.height > part.width).length, digits * 4);
+    assert.ok(parts.every((part) => part.kind === "rect"));
+    assert.ok(!parts.some((part) => part.fill === "#22a0ab"));
+  }
+  for (const digits of [undefined, 0, 3, NaN, "2"]) {
+    assert.equal(hardwarePrimitives({ ...component, digits }).filter((part) => part.fill === "#708389").length, 7);
+  }
+});
+
+test("Dell fan and display adapters retain finite bounded geometry at source consumer sizes", () => {
+  for (const component of [
+    { kind: "fan", variant: "dell-dual-horizontal", width: 123.51, height: 69.75 },
+    { kind: "lcd", variant: "seven-segment", digits: 2, width: 26.22, height: 21 },
+    { kind: "lcd", variant: "seven-segment", digits: 1, width: 12.42, height: 22.5 },
+    { kind: "psu", variant: "pa-1400-ac", width: 89, height: 66 },
+    { kind: "fan", variant: "dell-single-handle", width: 60.72, height: 69.75 },
+  ]) for (const scale of [1, 2]) {
+    const box = { ...component, x: 10, y: 20, width: component.width * scale, height: component.height * scale };
+    const parts = hardwarePrimitives(box);
+    for (const part of parts) {
+      assert.ok(Object.values(part).filter((value) => typeof value === "number").every(Number.isFinite));
+      const bounds = primitiveBounds(part);
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y);
+      assert.ok(bounds.x + bounds.width <= box.x + box.width + 1e-8);
+      assert.ok(bounds.y + bounds.height <= box.y + box.height + 1e-8);
+    }
+    assert.equal((hardwareComponentSVG(box).match(/<(?:rect|circle|line|text)\b/g) || []).length, parts.length);
+    const canvas = recordingContext();
+    drawHardwareComponent(canvas, box);
+    assert.deepEqual(canvas.shapes.map((part) => part.kind), parts.map((part) => part.kind));
+    for (const [index, part] of canvas.shapes.entries()) {
+      for (const key of Object.keys(part).filter((key) => key !== "kind")) assert.equal(part[key], parts[index][key] ?? 0);
+    }
+  }
+});
+
 test("oval push controls retain a horizontal rounded aperture without round socket or indicator art", () => {
   const component = { kind: "button", variant: "oval", x: 5, y: 8, width: 34, height: 15 };
   const parts = hardwarePrimitives(component);
@@ -296,6 +438,10 @@ test("invalid component geometry never reaches either renderer", () => {
 
 /** Return the geometric bounds of a neutral drawing primitive. */
 function primitiveBounds(part) {
+  if (part.kind === "polygon") {
+    const xs = part.points.map((point) => point[0]); const ys = part.points.map((point) => point[1]);
+    return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+  }
   if (part.kind === "circle") return { x: part.cx - part.r, y: part.cy - part.r, width: part.r * 2, height: part.r * 2 };
   if (part.kind === "line") return { x: Math.min(part.x1, part.x2), y: Math.min(part.y1, part.y2), width: Math.abs(part.x2 - part.x1), height: Math.abs(part.y2 - part.y1) };
   if (part.kind === "text") return { x: part.x, y: part.y, width: 0, height: 0 };
@@ -308,11 +454,12 @@ function recordingContext() {
     shapes: [], strokeWidths: [], saved: 0, restored: 0,
     save() { this.saved += 1; },
     restore() { this.restored += 1; },
-    beginPath() {},
+    beginPath() { this.path = []; this.shapeStart = this.shapes.length; },
     roundRect(x, y, width, height, rx) { this.shapes.push({ kind: "rect", x, y, width, height, rx }); },
     arc(cx, cy, r) { this.shapes.push({ kind: "circle", cx, cy, r }); },
-    moveTo(x1, y1) { this.pending = { kind: "line", x1, y1 }; },
-    lineTo(x2, y2) { this.shapes.push({ ...this.pending, x2, y2 }); },
+    moveTo(x1, y1) { this.pending = { kind: "line", x1, y1 }; this.path.push([x1, y1]); },
+    lineTo(x2, y2) { this.shapes.push({ ...this.pending, x2, y2 }); this.path.push([x2, y2]); },
+    closePath() { this.shapes.splice(this.shapeStart); this.shapes.push({ kind: "polygon", points: this.path }); },
     fillText(text, x, y) { this.shapes.push({ kind: "text", text, x, y }); },
     fill() {}, stroke() { this.strokeWidths.push(this.lineWidth); },
   };

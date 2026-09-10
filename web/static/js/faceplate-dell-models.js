@@ -1,4 +1,5 @@
 const DOCUMENTS = "https://dl.dell.com/content/";
+const XC_GUIDE = "https://downloads.dell.com/solutions/networking-solution-resources/XC_Series_Networking_Guide_v2.0.pdf";
 const models = new Map([
   ["PowerSwitch N3248TE-ON", { key: "n3248te", guide: "manual27697230-dell-powerswitch-n3200-on-e3200-on-series-installation-guide.pdf", front: 12, rear: 13,
     figures: "Individual N3248TE I/O illustration page 12; explicitly scoped PSU-side illustration page 13; management page 73",
@@ -12,13 +13,24 @@ const models = new Map([
     figures: "Individual S5248F I/O illustration page 8; explicitly scoped PSU-side illustration page 10; management detail page 52",
     supplemental: "https://infohub.delltechnologies.com/en-uk/l/switch-configurations-roce-and-iwarp-reference-guide-1/dell-s5248f-on-port-assignment-recommendations-for-all-tor-switches/",
     configuration: "S5248F-ON with two AC supplies and four fan modules; normal I/O-to-PSU airflow. Each 200G QSFP-DD cage represents two 100G logical interfaces in the documented OS10 numbering." }],
+  ["PowerSwitch S3048", { key: "s3048", sku: "S3048-ON", guide: "manual29602505-dell-powerswitch-s3048-on-installation-guide-february-2024.pdf", front: 6, rear: 6,
+    figures: "Individual S3048-ON front/rear figures page 6; front service detail page 8 and explicit console-top/management-bottom description page 27; optional second AC supply page 24; XC deployment guide page 9 Figure 12 confirms printed port numbering",
+    configuration: "S3048-ON with three fan modules and two AC supplies, including the optional second supply; normal I/O-to-PSU airflow." }],
+  ["PowerSwitch S4048", { key: "s4048", sku: "S4048-ON", guide: "manual30473339-dell-powerswitch-s4048-on-installation-guide-february-2024.pdf", front: 6, rear: 7,
+    figures: "Individual S4048-ON front page 6, rear page 7, USB console access page 33; XC deployment guide page 8 Figure 4 confirms front micro-USB position, single-digit display and numbering; optional second AC supply page 24",
+    supplemental: "https://www.dell.com/support/manuals/en-al/dell-emc-os-9/s4048-on-9.14.2.5-config-pub/stack-groupport-numbers?guid=guid-345879bf-2087-4272-8d54-d43ac5c70db1&lang=en-us",
+    configuration: "S4048-ON with three horizontal dual-rotor fan modules and two AC supplies, including the optional second supply; normal I/O-to-PSU airflow." }],
+  ["PowerSwitch S5048", { key: "s5048", sku: "S5048F-ON", guide: "manual29957947-dell-powerswitch-s5048f-on-installation-guide-june-2023.pdf", front: 7, rear: 8,
+    figures: "Individual S5048F-ON front page 7, rear page 8 and enlarged front/rear services page 9; XC deployment guide page 8 Figure 8 confirms numbering; dual AC supply configuration pages 11/26",
+    configuration: "S5048F-ON with four fan modules and two AC supplies; normal I/O-to-PSU airflow. Each 100G QSFP28 cage is a separate socket; logical breakout interfaces are not extra connectors." }],
 ]);
 
-/** Resolve three individually traced Dell models with explicit power configurations and inventory revisions. */
+/** Resolve individually traced Dell models with explicit power configurations and inventory revisions. */
 export function buildDellModelFaceplate(device) {
   const definition = models.get(device?.model);
   if (!definition || device.faceplate?.vendor !== "Dell") return null;
   const source = `${DOCUMENTS}${definition.guide}?language=en-us`;
+  if (definition.sku) return buildShortDellProfile(device, definition, source);
   return {
     id: `enterprise-dell-${definition.key}`, family: device.model, fidelity: "model", source, sourcePage: definition.figures,
     evidence: { models: [device.model], scope: "model", reviewed: "2026-09-10",
@@ -33,6 +45,51 @@ export function buildDellModelFaceplate(device) {
       : definition.key === "s4148f" ? { front: frontS4148(device), rear: rearS4148(device) }
         : { front: frontS5248(device), rear: rearS5248(device) },
   };
+}
+
+/** Resolve a short catalog name to its disclosed exact SKU without mutating the saved identity or inventory. */
+function buildShortDellProfile(device, definition, source) {
+  const panels = definition.key === "s3048" ? { front: frontS3048(device), rear: rearS3048() }
+    : definition.key === "s4048" ? { front: frontS4048(device), rear: rearS4048(device) }
+      : { front: frontS5048(device), rear: rearS5048(device) };
+  return {
+    id: `enterprise-dell-${definition.key}`, family: device.model, sku: definition.sku,
+    fidelity: "model", source, sourcePage: definition.figures,
+    evidence: { models: [device.model], selectedModel: definition.sku, scope: "model", reviewed: "2026-09-10",
+      front: `${source}#page=${definition.front}`, rear: `${source}#page=${definition.rear}`,
+      supplemental: definition.supplemental, panelDetail: `${XC_GUIDE}#page=${definition.key === "s3048" ? 9 : 8}`,
+      configuration: definition.configuration },
+    inventoryRevision: 1, inventoryComplete: true, rearHardwareVerified: true,
+    legacyLayouts: [shortLegacyInventory(definition.key)],
+    catalogDiscrepancies: [definition.configuration,
+      "The short catalog name selects the full SKU above. Saved endpoint IDs, types, speeds, VLANs, PoE settings and custom labels remain unchanged; corrected inventory applies to newly added devices.",
+      ...shortInventoryNotes(definition.key)],
+    limitations: ["Panel geometry follows the exact model's source illustrations; normalized dimensions are illustrative, not manufacturing measurements."],
+    defaultFace: "front", chassis: { x: 0, y: .05, width: 1, height: .9 }, faces: panels,
+  };
+}
+
+/** Preserve explicit revision-zero physical roles while leaving S3048's two nonexistent legacy uplinks unmapped. */
+function shortLegacyInventory(key) {
+  const portIndexMap = {}; const portLabels = {};
+  for (let index = 1; index <= 56; index++) {
+    if (key === "s3048" && (index === 53 || index === 54)) continue;
+    portIndexMap[index] = key === "s3048" && index >= 55 ? index - 2 : index;
+    portLabels[index] = index === 55 ? "MGMT" : index === 56 ? "CONSOLE" : String(index);
+  }
+  return { inventoryRevision: 0, portIndexMap, portLabels };
+}
+
+/** Record catalog corrections and conflicting generic source prose separately from the model-specific illustrations. */
+function shortInventoryNotes(key) {
+  if (key === "s3048") return ["The former generic 48 SFP28 and six QSFP28 inventory is corrected to 48 copper 1GbE ports and four 10G SFP+ cages. Old data indices 1–52 retain their sequential identities with explicit legacy type compatibility. Old management55 and console56 map to new53/54; obsolete uplinks53/54 stay visible as unmapped connections.",
+    "The five front system lenses and vertical storage USB-A are hardware artwork; the source documents no USB console on this model.",
+    "The installation guide's enlarged service drawing and explicit page27 console-top/management-bottom description establish the serial console above management. XC deployment Figure12 reverses their symbols; the individual installation instructions are used here, while XC verifies numbered data ports."];
+  if (key === "s4048") return ["The former SFP28/100G types are corrected to 10G SFP+ and 40G QSFP+ for new devices. Existing data1–54, management55 and console56 retain their identities with explicit legacy type compatibility; new micro-USB console57 is not added to saved devices automatically.",
+    "The installation guide's generic prose incorrectly calls the data sockets RJ45 and lists the rear management/serial sockets on the I/O side. Its individually captioned SFP+/QSFP+ front and PSU-side illustrations establish the physical connectors and faces.",
+    "The installation illustration omits the documented micro-USB socket and draws a two-digit display. The exact S4048-ON front in Dell's XC deployment Figure4 resolves the micro-USB above a single-digit stack display, with USB-A below."];
+  return ["The original 54 data cages, management55 and serial console56 retain their identities; new micro-USB console57 is not added to saved devices automatically. Unlike S5248F-ON, this model has six separate QSFP28 cages numbered49–54.",
+    "The exact rear figure shows both IEC inlets on the LEFT of their PSU fans. Generic page27 inlet-right prose conflicts with that individual illustration. The stack-ID display is present as hardware, but this model does not support stacking."];
 }
 
 /** Map the original grouped inventory into documented physical order without inspecting editable names or array positions. */
@@ -149,4 +206,79 @@ function rearS5248(device) {
   return { ports: [socket(device, 55, .474, .60, .027, .19, "CONSOLE"),
     socket(device, 56, .474, .295, .027, .19, "MGMT"),
     socket(device, 57, .474, .844, .018, .06, "MICRO-USB")], components };
+}
+
+/** Trace the S3048's three sixteen-port copper banks and its front-only optical and management connectors. */
+function frontS3048(device) {
+  const ports = Array.from({ length: 48 }, (_, index) => ({ ...socket(device, index + 1,
+    [.047, .296, .543][Math.floor(index / 16)] + Math.floor(index % 16 / 2) * .029,
+    index % 2 ? .64 : .36, .024, .20, String(index + 1), "SFP28_25G"), connectorKind: "rj45" }));
+  for (let index = 0; index < 4; index++) ports.push(socket(device, index + 49,
+    [.799, .842][Math.floor(index / 2)], index % 2 ? .66 : .36, .036, .17, String(index + 49), "QSFP28_100G"));
+  ports.push(socket(device, 53, .892, .65, .029, .20, "MGMT"),
+    socket(device, 54, .892, .36, .029, .20, "CONSOLE"));
+  const components = [part("usb", .939, .57, .013, .28)];
+  for (const [x, y] of [[.924, .15], [.944, .15], [.964, .15], [.944, .32], [.964, .32]]) {
+    components.push(part("led", x, y, .006, .05));
+  }
+  return { ports, components };
+}
+
+/** Trace the S3048's plain left spacer, three fans and adjacent fan-left AC supplies. */
+function rearS3048() {
+  const components = [part("psu", .530, .035, .189, .93, "AC", "ac-fan-left"),
+    part("psu", .739, .035, .189, .93, "AC", "ac-fan-left")];
+  for (const x of [.190, .297, .404]) components.push(part("fan", x, .035, .093, .93));
+  return { ports: [], components };
+}
+
+/** Trace the S4048's three SFP+ banks, six QSFP+ cages and right-side storage/display cluster. */
+function frontS4048(device) {
+  const ports = Array.from({ length: 48 }, (_, index) => socket(device, index + 1,
+    [.060, .309, .558][Math.floor(index / 16)] + Math.floor(index % 16 / 2) * .030,
+    index % 2 ? .64 : .34, .026, .19, String(index + 1), "SFP28_25G"));
+  for (let index = 0; index < 6; index++) ports.push(socket(device, index + 49,
+    [.816, .849, .882][Math.floor(index / 2)], index % 2 ? .70 : .42, .032, .19,
+    String(index + 49), "QSFP28_100G"));
+  ports.push({ ...socket(device, 57, .932, .095, .021, .065, "MICRO-USB"),
+    descriptionAnchor: { x: .980, y: .91 } });
+  const components = [{ ...part("lcd", .923, .24, .018, .28, undefined, "seven-segment"), digits: 1 },
+    part("usb", .925, .61, .013, .29), part("vent", .13, .02, .64, .10, undefined, "mesh")];
+  for (const x of [.806, .823, .840, .857, .874]) components.push(part("led", x, .055, .005, .04));
+  return { ports, components };
+}
+
+/** Trace S4048's three horizontal dual-fan trays between both AC supplies and its two rear RJ45 services. */
+function rearS4048(device) {
+  const components = [part("psu", .023, .035, .167, .93, "AC", "ac-fan-left"),
+    part("psu", .807, .035, .171, .93, "AC", "ac-fan-left")];
+  for (const x of [.199, .385, .571]) components.push(part("fan", x, .035, .179, .93, undefined, "dell-dual-horizontal"));
+  for (const x of [.772, .782, .792]) components.push(part("led", x, .055, .005, .04));
+  return { ports: [socket(device, 55, .781, .36, .023, .21, "MGMT"),
+    socket(device, 56, .781, .75, .023, .21, "CONSOLE")], components };
+}
+
+/** Trace S5048F's left single-digit display, three SFP28 banks and six independently numbered QSFP28 cages. */
+function frontS5048(device) {
+  const ports = Array.from({ length: 48 }, (_, index) => socket(device, index + 1,
+    [.103, .355, .607][Math.floor(index / 16)] + Math.floor(index % 16 / 2) * .0303,
+    index % 2 ? .65 : .36, .027, .18));
+  for (let index = 0; index < 6; index++) ports.push(socket(device, index + 49,
+    [.866, .902, .938][Math.floor(index / 2)], index % 2 ? .65 : .36, .034, .19));
+  const components = [{ ...part("lcd", .050, .15, .018, .30, undefined, "seven-segment"), digits: 1 }];
+  for (const [x, y] of [[.045, .60], [.063, .60], [.045, .74], [.063, .74], [.063, .88]]) {
+    components.push(part("led", x, y, .005, .04));
+  }
+  return { ports, components };
+}
+
+/** Trace S5048F's four fans and central management, serial, micro-USB, storage and luggage-tag cluster. */
+function rearS5048(device) {
+  const components = [part("psu", .044, .035, .167, .93, "AC", "ac-fan-right"),
+    part("psu", .785, .035, .167, .93, "AC", "ac-fan-right"),
+    part("usb", .500, .48, .012, .29), part("module-bay", .535, .16, .008, .63, undefined, "populated")];
+  for (const x of [.225, .325, .591, .691]) components.push(part("fan", x, .035, .088, .93, undefined, "dell-single-handle"));
+  return { ports: [socket(device, 55, .471, .31, .027, .20, "MGMT"),
+    socket(device, 56, .471, .64, .027, .20, "CONSOLE"),
+    socket(device, 57, .471, .90, .019, .065, "MICRO-USB")], components };
 }

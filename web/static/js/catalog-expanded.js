@@ -81,7 +81,16 @@ const profiles = [
   profile("HPE", "ProLiant DL380", "Server", 2, "#33393b", [t(2, "NIC"), mgmt(1, "iLO")], {
     ...verified("https://www.hpe.com/us/en/collaterals/collateral.a50004307enw.html"), inventoryRevision: 1,
     note: "Selected Gen11 P52534-B21 right 8SFF SATA configuration, P10097-B21 dual 10Gb BASE-T in OCP slot 15, rear iLO and two 800W supplies; other drive boxes and expansion positions covered." }),
-  ...many("Dell", ["PowerSwitch S3048", "PowerSwitch S4048", "PowerSwitch S5048", "PowerSwitch S5248", "PowerSwitch Z9264", "PowerSwitch Z9332"], "Switch", 1, "#1d3d50", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con()]),
+  profile("Dell", "PowerSwitch S3048", "Switch", 1, "#1d3d50", [r(48), g("uplink", 4, "SFP_PLUS_10G", 10000, "", false, labels(49, 4)), mgmt(), con()], {
+    ...verified("https://dl.dell.com/content/manual29602505-dell-powerswitch-s3048-on-installation-guide-february-2024.pdf?language=en-us"), inventoryRevision: 1,
+    note: "Selected S3048-ON with 48 copper 1GbE ports, four 10G SFP+ cages, front management/serial console and optional second AC supply installed." }),
+  profile("Dell", "PowerSwitch S4048", "Switch", 1, "#1d3d50", [g("access", 48, "SFP_PLUS_10G", 10000, "", false, labels(1, 48)), g("uplink", 6, "QSFP_PLUS_40G", 40000, "", false, labels(49, 6)), mgmt(), con(), con("USB_MICRO_CONSOLE", "MICRO-USB")], {
+    ...verified("https://dl.dell.com/content/manual30473339-dell-powerswitch-s4048-on-installation-guide-february-2024.pdf?language=en-us"), inventoryRevision: 1,
+    note: "Selected S4048-ON with 48 10G SFP+ cages, six 40G QSFP+ cages, both serial console connectors and optional second AC supply installed." }),
+  profile("Dell", "PowerSwitch S5048", "Switch", 1, "#1d3d50", [g("access", 48, "SFP28_25G", 25000, "", false, labels(1, 48)), g("uplink", 6, "QSFP28_100G", 100000, "", false, labels(49, 6)), mgmt(), con(), con("USB_MICRO_CONSOLE", "MICRO-USB")], {
+    ...verified("https://dl.dell.com/content/manual29957947-dell-powerswitch-s5048f-on-installation-guide-june-2023.pdf?language=en-us"), inventoryRevision: 1,
+    note: "Selected S5048F-ON with 48 SFP28 cages, six separate QSFP28 cages, rear management and dual console sockets, four fans and two AC supplies." }),
+  ...many("Dell", ["PowerSwitch S5248", "PowerSwitch Z9264", "PowerSwitch Z9332"], "Switch", 1, "#1d3d50", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con()]),
   profile("Dell", "PowerEdge R350", "Server", 1, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con(), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
     ...verified("https://i.dell.com/sites/csdocuments/Product_Docs/en/Dell-EMC-PowerEdge-R350-Spec-sheet.pdf"), inventoryRevision: 1,
     note: "1U, two fixed 1GbE LOM, iDRAC, rear DB9 serial and front micro-USB direct management; optional add-in NICs are not installed." }),
@@ -308,7 +317,14 @@ const profiles = [
     g("management", 1, "Console", 0, "CONSOLE", false, ["CONSOLE"]),
     g("management", 1, "USB_MICRO_CONSOLE", 0, "CONSOLE", false, ["MICRO-USB"]),
   ], verified("https://docs.paloaltonetworks.com/hardware/pa-800-hardware-reference/pa-800-firewall-overview/pa-800-front-panel")),
-  ...many("Palo Alto", ["PA-1400 family", "PA-3400 family", "PA-5200 family", "PA-5400 family", "PA-7000 family"], "Firewall", 2, "#304047", [r(16), u(8, "SFP28_25G", 25000, "SFP28"), mgmt(2), con()]),
+  profile("Palo Alto", "PA-1400 family", "Firewall", 1, "#304047", [r(8), r(4, 5000, true),
+    u(6, "SFP_1G", 1000, "SFP"), u(4), g("management", 1, "SFP_PLUS_10G", 10000, "HSCI", false, ["HSCI"]),
+    g("management", 3, "RJ45_1G", 1000, "MGMT", false, ["HA1-A", "HA1-B", "MGT"]),
+    con(), { ...con("USB_MICRO_CONSOLE", "MICRO-USB"), labels: ["MICRO-USB"] }], {
+    ...verified("https://docs.paloaltonetworks.com/hardware/pa-1400-hardware-reference/pa-1400-series-overview/front-panel-1400-series"),
+    inventoryRevision: 1, note: "Selected PA-1410, 1U with two AC supplies: 22 data sockets, HSCI, HA1-A/B, MGT and RJ45/micro-USB consoles. Older ambiguous and surplus inventory remains preserved without invented sockets.",
+  }),
+  ...many("Palo Alto", ["PA-3400 family", "PA-5200 family", "PA-5400 family", "PA-7000 family"], "Firewall", 2, "#304047", [r(16), u(8, "SFP28_25G", 25000, "SFP28"), mgmt(2), con()]),
   profile("Sophos", "XGS 87", "Firewall", 1, "#21466a", [
     g("access", 4, "RJ45_1G", 1000, "", false, labels(1, 4)),
     g("uplink", 1, "SFP_1G", 1000, "SFP", false, ["F1"]),
