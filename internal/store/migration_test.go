@@ -697,6 +697,8 @@ func (r *scriptedMigrationRows) RawValues() [][]byte { return nil }
 
 func (r *scriptedMigrationRows) Conn() *pgx.Conn { return nil }
 
+// TypeMap returns a fresh default pgx type map to satisfy the pgx.Rows interface.
+// Scripted rows assign Go values directly and do not use PostgreSQL codecs.
 func (r *scriptedMigrationRows) TypeMap() *pgtype.Map { return pgtype.NewMap() }
 
 type scriptedMigrationRow struct {
