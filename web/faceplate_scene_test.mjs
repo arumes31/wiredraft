@@ -6,6 +6,8 @@ import { resolveModelFaceplate } from "./static/js/faceplate-models.js";
 import { CanvasEngine } from "./static/js/canvas.js";
 import { SceneTileIndex } from "./static/js/scene-tiles.js";
 import { AppState } from "./static/js/state.js";
+import { hardwarePrimitives } from "./static/js/hardware-components.js";
+import { portDescriptionPlacement } from "./static/js/termination.js";
 
 /** Instantiate a catalog device with stable identifiers for topology checks. */
 function deviceFor(model, id = model) {
@@ -88,6 +90,28 @@ test("renaming a known socket preserves its physical slot and stored configurati
   assert.equal(duplicateLabel.ports[0].centerX, before.ports[0].centerX,
     "an editable label matching another socket must not move the physical port");
   assert.notEqual(duplicateLabel.ports[0].centerX, duplicateLabel.ports[1].centerX);
+});
+
+test("dense hardware panels keep identity text clear of socket labels", () => {
+  for (const model of ["FortiGate 80F", "FortiGate 100F", "FortiSwitch 124F", "FortiSwitch 124F-POE", "FortiSwitch 124F-FPOE"]) {
+    const device = deviceFor(model);
+    const bounds = { x: 0, y: 0, width: 690, height: 100 };
+    const scene = buildFaceplateScene(device, bounds);
+    const names = scene.components.filter((component) => component.kind === "text" &&
+      [model, scene.face.toUpperCase()].includes(component.label));
+    for (const component of names) {
+      const [text] = hardwarePrimitives(component);
+      const halfWidth = Math.min(component.width / 2, text.text.length * text.fontSize * .35);
+      for (const port of scene.ports) {
+        const label = portDescriptionPlacement(port, bounds);
+        const horizontalOverlap = text.x + halfWidth > label.x - label.maxWidth / 2 - 3 &&
+          text.x - halfWidth < label.x + label.maxWidth / 2 + 3;
+        if (!horizontalOverlap) continue;
+        assert.ok(text.y + text.fontSize * .6 < label.y - 5 || text.y - text.fontSize * .6 > label.y + 6,
+          `${model} identity overlaps ${port.port.label}`);
+      }
+    }
+  }
 });
 
 test("switching a hardware panel preserves cable endpoints and picking matches the scene", () => {

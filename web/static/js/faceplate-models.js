@@ -184,7 +184,7 @@ function addFortiSwitch124(suffix) {
       x: index < 2 ? .865 : .945, y: index % 2 ? .68 : .38, width: .042, height: .24 });
   }
   ports.push({ label: "CONSOLE", type: "Console", portIndex: 29, x: .135, y: .43, width: .037, height: .25 });
-  const front = [component("text", .025, .1, .18, .14, model), component("usb", .115, .65, .04, .15, "USB", "a"),
+  const front = [component("text", .025, .02, .18, .14, model), component("usb", .115, .65, .04, .15, "USB", "a"),
     ...statusLEDs(suffix ? ["POWER", "ALARM", "POE MAX"] : ["POWER", "ALARM"], .18, .37, .12, true)];
   const rear = [component("power", suffix ? .615 : .83, .27, .09, .53, "AC", "ac")];
   if (suffix) rear.push(component("fan", .75, .12, .088, .76, undefined, "fixed"), component("fan", .855, .12, .088, .76, undefined, "fixed"));

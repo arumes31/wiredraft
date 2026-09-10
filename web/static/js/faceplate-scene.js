@@ -53,9 +53,9 @@ export function buildFaceplateScene(device, bounds, { face } = {}) {
   const chassis = profile ? worldRectangle(profile.chassis, bounds) : { ...bounds };
   const components = profile ? profile.faces[selectedFace].components.map((component) => worldRectangle(component, chassis)) : [];
   if (profile) {
-    components.push({ kind: "text", x: chassis.x + 24, y: chassis.y + 3,
-      width: chassis.width - 110, height: 12, fontSize: 9, label: device.name || device.model });
-    components.push({ kind: "text", x: chassis.x + chassis.width - 68, y: chassis.y + 4,
+    components.push({ kind: "text", x: chassis.x + 24, y: chassis.y - 1,
+      width: chassis.width - 110, height: 10, fontSize: 7, label: device.name || device.model });
+    components.push({ kind: "text", x: chassis.x + chassis.width - 68, y: chassis.y - 1,
       width: 48, height: 10, fontSize: 7, label: selectedFace.toUpperCase() });
   }
   const ports = [];
