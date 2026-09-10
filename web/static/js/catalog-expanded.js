@@ -351,20 +351,22 @@ const profiles = [
     g("management", 1, "USB_C_CONSOLE", 0, "CONSOLE", false, ["USB-C"]),
     g("management", 1, "RJ45_1G", 1000, "LOM", false, ["LOM"]),
   ], { ...verified(`https://www.checkpoint.com/downloads/products/${model.slice(-4)}-security-gateway-datasheet.pdf`), inventoryRevision: 1 })),
-  ...["Quantum 16000", "Quantum 26000"].map((model) => profile("Check Point", model, "Firewall", 2, "#442839", [
+  ...["Quantum 16000", "Quantum 26000"].map((model) => profile("Check Point", model, "Firewall", model === "Quantum 16000" ? 2 : 3, "#442839", [
     g("access", 8, "RJ45_1G", 1000, "", false, labels(1, 8)),
     g("management", 1, "RJ45_1G", 1000, "MGMT", false, ["MGMT"]),
     g("management", 1, "RJ45_1G", 1000, "SYNC", false, ["SYNC"]),
     g("management", 1, "Console", 0, "CONSOLE", false, ["CONSOLE"]),
     g("management", 1, "USB_C_CONSOLE", 0, "CONSOLE", false, ["USB-C"]),
-  ], verified(`https://www.checkpoint.com/downloads/products/${model.slice(-5)}-security-gateway-datasheet.pdf`))),
-  profile("Check Point", "Quantum 28000", "Firewall", 2, "#442839", [
+    g("management", 1, "RJ45_1G", 1000, "LOM", false, ["LOM"]),
+  ], { ...verified(`https://www.checkpoint.com/downloads/products/${model.slice(-5)}-security-gateway-datasheet.pdf`), inventoryRevision: 1 })),
+  profile("Check Point", "Quantum 28000", "Firewall", 3, "#442839", [
     g("uplink", 4, "SFP_PLUS_10G", 10000, "SFP+", false, labels(1, 4)),
     g("management", 1, "RJ45_1G", 1000, "MGMT", false, ["MGMT"]),
     g("management", 1, "RJ45_1G", 1000, "SYNC", false, ["SYNC"]),
     g("management", 1, "Console", 0, "CONSOLE", false, ["CONSOLE"]),
     g("management", 1, "USB_C_CONSOLE", 0, "CONSOLE", false, ["USB-C"]),
-  ], verified("https://www.checkpoint.com/downloads/products/28000-security-gateway-datasheet.pdf")),
+    g("management", 1, "RJ45_1G", 1000, "LOM", false, ["LOM"]),
+  ], { ...verified("https://www.checkpoint.com/downloads/products/28000-security-gateway-datasheet.pdf"), inventoryRevision: 1 }),
   ...many("Extreme", ["X440-G2", "X450-G2", "X460-G2", "X465", "X590", "X690", "X870", "X695"], "Switch", 1, "#392644", [r(48, 2500, true), u(8, "SFP28_25G", 25000, "SFP28"), mgmt(), stack()]),
   ...many("Ruckus", ["ICX 7150 family", "ICX 7250 family", "ICX 7450 family", "ICX 7550 family", "ICX 7650 family", "ICX 7850 family", "ICX 8200 family"], "Switch", 1, "#4b3520", [r(48, 2500, true), u(8, "SFP28_25G", 25000, "SFP28"), mgmt(), stack()]),
 

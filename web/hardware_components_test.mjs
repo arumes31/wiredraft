@@ -245,6 +245,72 @@ test("DC supplies distinguish a keyed pair from screw terminals and their separa
   assert.equal(terminal.filter((part) => part.fill === "#d7b76c").length, 0);
 });
 
+test("fan-right AC supplies place their inlet opposite the circular fan", () => {
+  const bounds = { x: 0, y: 0, width: 100, height: 50, kind: "psu" };
+  const left = hardwarePrimitives({ ...bounds, variant: "ac-fan-left" });
+  const right = hardwarePrimitives({ ...bounds, variant: "ac-fan-right" });
+  assert.deepEqual(right.slice(0, 2), left.slice(0, 2), "both variants retain the same module housing");
+  const fan = right.find((part) => part.kind === "circle" && part.fill === "#122327");
+  assert.ok(fan && fan.cx > 60, "the circular fan belongs to the right side");
+  const inlet = right.find((part) => part.kind === "rect" && part.fill === "#0d1c21");
+  const contacts = right.filter((part) => part.fill === "#b9c3c4");
+  assert.equal(contacts.length, 3);
+  assert.ok(contacts.every((part) => part.x >= inlet.x && part.x + part.width <= inlet.x + inlet.width));
+  assert.ok(inlet.x + inlet.width < fan.cx - fan.r, "the left inlet and right fan do not overlap");
+  assert.equal(fan.cy, left.find((part) => part.fill === "#122327").cy);
+});
+
+test("vertical AC and DC supplies retain an upper inlet and a horizontal pull bar below it", () => {
+  const bounds = { x: 0, y: 0, width: 60, height: 100, kind: "psu" };
+  for (const variant of ["ac", "dc-terminal2"]) {
+    const vertical = hardwarePrimitives({ ...bounds, variant, orientation: "vertical" });
+    const contacts = vertical.filter((part) => part.fill === "#b9c3c4");
+    assert.equal(contacts.length, 3);
+    assert.ok(contacts.every((part) => primitiveBounds(part).y + primitiveBounds(part).height < 60));
+    const handle = vertical.find((part) => part.kind === "rect" && part.y >= 60 && part.width > bounds.width * .6);
+    assert.ok(handle && handle.width > handle.height * 3, "the pull bar is horizontal below the inlet");
+    assert.ok(vertical.some((part) => part.fill === "#42d98b" && part.cy > handle.y));
+    assert.ok(vertical.some((part) => part.fill === "#22a0ab" && part.y > handle.y));
+    assert.deepEqual(hardwarePrimitives({ ...bounds, variant, orientation: "horizontal" }),
+      hardwarePrimitives({ ...bounds, variant }), "existing horizontal artwork only changes when explicitly requested");
+  }
+  const dc = hardwarePrimitives({ ...bounds, variant: "dc-terminal2", orientation: "vertical" });
+  const screws = dc.filter((part) => part.kind === "circle" && part.fill === "#b9c3c4");
+  const [upper, lower, earth] = screws;
+  assert.equal(upper.cx, lower.cx, "the two DC terminals are stacked vertically");
+  assert.ok(upper.cy < lower.cy && earth.cx > lower.cx && earth.cy > lower.cy, "protective earth is separate, below and to the right");
+  assert.ok(!hardwarePrimitives({ ...bounds, variant: "ac", orientation: "vertical", active: false })
+    .some((part) => part.fill === "#42d98b"));
+});
+
+test("new PSU orientations stay bounded and render identical geometry through both adapters", () => {
+  const configurations = [
+    { variant: "ac-fan-right", width: 100, height: 50 },
+    ...["ac", "dc-terminal2"].flatMap((variant) => [[30, 70], [80, 120], [10, 20]].map(([width, height]) =>
+      ({ variant, orientation: "vertical", width, height }))),
+  ];
+  for (const configuration of configurations) {
+    const component = { kind: "psu", x: 10, y: 20, label: "PSU1", ...configuration };
+    const parts = hardwarePrimitives(component);
+    const canvas = recordingContext();
+    drawHardwareComponent(canvas, component);
+    const svg = hardwareComponentSVG(component);
+    assert.equal((svg.match(/<(?:rect|circle|line|text)\b/g) || []).length, parts.length);
+    assert.equal(canvas.shapes.length, parts.length);
+    for (const [index, part] of parts.entries()) {
+      const bounds = primitiveBounds(part);
+      assert.ok(Object.values(bounds).filter((value) => typeof value === "number").every(Number.isFinite));
+      assert.ok(bounds.x >= component.x && bounds.y >= component.y);
+      assert.ok(bounds.x + bounds.width <= component.x + component.width + 1e-10);
+      assert.ok(bounds.y + bounds.height <= component.y + component.height + 1e-10);
+      for (const [key, value] of Object.entries(canvas.shapes[index])) assert.equal(value, part[key] ?? 0);
+      for (const key of ["x", "y", "width", "height", "cx", "cy", "r", "x1", "y1", "x2", "y2"]) {
+        if (part[key] !== undefined) assert.ok(svg.includes(`${key}="${part[key]}"`));
+      }
+    }
+  }
+});
+
 test("fixed chassis fans retain a circular grille without a removable square housing", () => {
   const bounds = { x: 0, y: 0, width: 40, height: 40, kind: "fan" };
   const fixed = hardwarePrimitives({ ...bounds, variant: "fixed" });

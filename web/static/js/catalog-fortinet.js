@@ -123,7 +123,12 @@ add(["FortiGate 4800F", "FortiGate 4801F", "FortiGate 4801F-NEBS"], "Firewall", 
 // published; storage and DC variants preserve the base model faceplate.
 add(["FortiGate 200E", "FortiGate 201E"], "Firewall", 1, [ge(18), sfp(4), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
 add(["FortiGate 200F", "FortiGate 201F"], "Firewall", 1, [ge(18), sfp(8), sfpp(4), consolePort()], { lifecycle: "supported", source: FORTIGATE_MATRIX });
-add(["FortiGate 300E", "FortiGate 301E", "FortiGate 400E", "FortiGate 400E-Bypass", "FortiGate 401E"], "Firewall", 1, [ge(18), sfp(16), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
+add(["FortiGate 300E", "FortiGate 301E", "FortiGate 400E", "FortiGate 401E"], "Firewall", 1, [ge(18), sfp(16), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
+add(["FortiGate 400E-Bypass"], "Firewall", 1, [ge(34), consolePort()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/92ffc448-af44-11eb-b70b-00505692583a/FortiGate-400E-BYPASS-QSG-Supplement.pdf",
+  note: "PDF page 2 shows HA, MGMT and thirty-two copper bypass ports. Former optical saved endpoints remain unmapped.",
+});
 add(["FortiGate 400F", "FortiGate 401F"], "Firewall", 1, [ge(18), sfp(8), sfpp(8), consolePort()], { lifecycle: "supported", source: FORTIGATE_MATRIX });
 add(["FortiGate 500E", "FortiGate 501E", "FortiGate 600E", "FortiGate 601E"], "Firewall", 1, [ge(10), sfp(8), sfpp(2), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
 add(["FortiGate 600F", "FortiGate 601F"], "Firewall", 1, [ge(18), sfp(8), sfpp(4), sfp28(4), consolePort()], { lifecycle: "supported", source: FORTIGATE_MATRIX });
@@ -131,14 +136,47 @@ add(["FortiGate 800D"], "Firewall", 1, [ge(24), sfp(8), sfpp(2), consolePort()],
 add(["FortiGate 900D"], "Firewall", 1, [ge(18), sfp(16), sfpp(2), consolePort()], { lifecycle: "legacy", fidelity: "family", source: FORTIGATE_MATRIX });
 add(["FortiGate 1000D"], "Firewall", 2, [ge(18), sfp(16), sfpp(2), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
 add(["FortiGate 1100E", "FortiGate 1101E"], "Firewall", 2, [ge(18), sfp(8), sfpp(4), sfp28(4), qsfp40(2), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
-add(["FortiGate 2000E", "FortiGate 2200E", "FortiGate 2201E", "FortiGate 2500E"], "Firewall", 2, [ge(14), sfp28(20), qsfp40(4), consolePort()], { lifecycle: "legacy", fidelity: "family", source: FORTIGATE_MATRIX });
+add(["FortiGate 2200E", "FortiGate 2201E"], "Firewall", 2, [ge(14), sfp28(20), qsfp40(4), consolePort()], {
+  lifecycle: "legacy", source: "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/fortigate-2200e-series.pdf",
+});
+add(["FortiGate 2000E"], "Firewall", 2, [ge(34), sfpp(6), consolePort()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/30f0af8a-91f2-11f1-8c5a-8e4c95ff11ac/FortiGate-2000E-2500E-QSG.pdf",
+  note: "PDF page 3 shows thirty-two data plus two management copper ports and six SFP+. Explicit revision mappings preserve saved endpoints.",
+});
+add(["FortiGate 2500E"], "Firewall", 2, [ge(34), sfpp(10), group("uplink", 2, "FIBER_LC", 10000, "BYPASS"), consolePort()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/FortiGate_2500E.pdf",
+  note: "PDF page 7 distinguishes ten pluggable SFP+ slots from two fixed LC bypass optics; thirty-two copper data, two management and one console complete the inventory.",
+});
 add(["FortiGate 3000D"], "Firewall", 2, [ge(2), sfpp(16), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
 add(["FortiGate 3100D", "FortiGate 3200D"], "Firewall", 2, [ge(2), sfpp(48), consolePort()], { lifecycle: "legacy", fidelity: "family", source: FORTIGATE_MATRIX });
-add(["FortiGate 3300E", "FortiGate 3301E"], "Firewall", 2, [ge(16), sfp28(16), qsfp100(4), consolePort()], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
-add(["FortiGate 3400E", "FortiGate 3401E"], "Firewall", 2, [ge(2), sfp28(24), qsfp100(4), consolePort(2)], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
-add(["FortiGate 3600E", "FortiGate 3600E-DC", "FortiGate 3601E"], "Firewall", 2, [ge(2), sfp28(24), qsfp100(4), consolePort()], { lifecycle: "legacy", fidelity: "family", source: FORTIGATE_MATRIX });
+add(["FortiGate 3300E", "FortiGate 3301E"], "Firewall", 2, [ge(14), tenT(4), sfp28(16), qsfp40(4), consolePort()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/6816e10f-df0f-11e9-8977-00505692583a/FortiGate-3300E-QSG.pdf",
+  note: "PDF page 3: two GE management, twelve GE data, four 10GE copper, sixteen SFP28 including HA1/2, four 40GE QSFP+ and one console. Explicit revision mappings preserve saved endpoints.",
+});
+add(["FortiGate 3400E", "FortiGate 3401E"], "Firewall", 2, [ge(2), sfp28(24), qsfp100(4), consolePort()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/f1bcf8ed-299c-11e9-94bf-00505692583a/FortiGate-340xE-Series-QSG-ACDC.pdf",
+  note: "PDF page 3 shows one console. Revision 1 retains all existing physical indices; the former second console remains an unmapped saved endpoint.",
+});
+add(["FortiGate 3600E", "FortiGate 3600E-DC", "FortiGate 3601E"], "Firewall", 2, [ge(2), sfp28(32), qsfp100(6), consolePort()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/91f40509-299d-11e9-94bf-00505692583a/FortiGate-3600E-Series-ACDC-Supplement.pdf",
+  note: "PDF page 3 identifies thirty data plus two HA SFP28 and six QSFP28 sockets. Explicit revision mappings retain older optical and console endpoint identities.",
+});
 add(["FortiGate 3700D"], "Firewall", 3, [ge(2), sfpp(28), qsfp40(4), consolePort(2)], { lifecycle: "legacy", source: FORTIGATE_MATRIX });
-add(["FortiGate 3960E", "FortiGate 3980E"], "Firewall", 3, [ge(2), sfp28(32), qsfp100(8), consolePort()], { lifecycle: "legacy", fidelity: "family", source: FORTIGATE_MATRIX });
+add(["FortiGate 3960E"], "Firewall", 3, [ge(2), sfpp(16), qsfp100(6), consolePort()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/e7c49731-1a12-11e9-9685-f8bc1258b856/FortiGate-3960E-3980E-ACDC-QSG-Supplement.pdf",
+  note: "PDF page 3: two GE management, sixteen 10GE SFP+ and six 100GE QSFP28 sockets, plus one console. Former extra saved endpoints remain unmapped.",
+});
+add(["FortiGate 3980E"], "Firewall", 3, [ge(2), sfpp(16), qsfp100(10), consolePort()], {
+  lifecycle: "legacy", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/e7c49731-1a12-11e9-9685-f8bc1258b856/FortiGate-3960E-3980E-ACDC-QSG-Supplement.pdf",
+  note: "PDF page 3: two GE management, sixteen 10GE SFP+ and ten 100GE QSFP28 sockets, plus one console. Explicit revision mappings preserve original saved IDs and configuration.",
+});
 
 // Chassis platforms have no single fixed data-port faceplate. The profile shows
 // their fixed management plane and explicitly tells the operator to add the

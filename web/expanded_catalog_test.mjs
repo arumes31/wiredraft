@@ -144,8 +144,8 @@ for (const [model, portCount, units] of [
   ["Quantum 6200", 13, 1], ["Quantum 6400", 13, 1],
   ["Quantum 6600", 13, 1], ["Quantum 6700", 13, 1],
   ["Quantum 6900", 13, 1], ["Quantum 7000", 13, 1],
-  ["Quantum 16000", 12, 2], ["Quantum 26000", 12, 2],
-  ["Quantum 28000", 8, 2],
+  ["Quantum 16000", 13, 2], ["Quantum 26000", 13, 3],
+  ["Quantum 28000", 9, 3],
 ]) {
   const { profile, device } = catalogDevice(model);
   assert.equal(device.ports.length, portCount, `${model} base connector count must match its datasheet`);

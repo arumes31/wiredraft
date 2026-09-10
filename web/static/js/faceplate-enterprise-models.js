@@ -4,9 +4,12 @@ import { buildPaloAltoModelFaceplate } from "./faceplate-paloalto-models.js";
 import { buildCiscoASAModelFaceplate } from "./faceplate-cisco-asa-models.js";
 import { buildCiscoFirepowerModelFaceplate } from "./faceplate-cisco-firepower-models.js";
 import { buildCiscoCatalystModelFaceplate } from "./faceplate-cisco-catalyst-models.js";
+import { buildCiscoNexusModelFaceplate } from "./faceplate-cisco-nexus-models.js";
+import { buildCiscoMerakiModelFaceplate } from "./faceplate-cisco-meraki-models.js";
 import { buildJuniperSRXModelFaceplate } from "./faceplate-juniper-srx-models.js";
 import { buildJuniperEXModelFaceplate } from "./faceplate-juniper-ex-models.js";
 import { buildCheckPointModelFaceplate } from "./faceplate-checkpoint-models.js";
+import { resolveAristaFaceplate } from "./faceplate-arista-models.js";
 
 // Individual vendor drawings take precedence over intermediate family layouts.
 // Remaining fitted compositions retain family fidelity until their SKU panels
@@ -231,9 +234,12 @@ export function resolveEnterpriseFaceplate(device) {
     || buildPaloAltoModelFaceplate(canonical.device) || buildCiscoASAModelFaceplate(canonical.device)
     || buildCiscoFirepowerModelFaceplate(canonical.device)
     || buildCiscoCatalystModelFaceplate(canonical.device)
+    || buildCiscoNexusModelFaceplate(canonical.device)
+    || buildCiscoMerakiModelFaceplate(canonical.device)
     || buildJuniperSRXModelFaceplate(canonical.device)
     || buildJuniperEXModelFaceplate(canonical.device)
     || buildCheckPointModelFaceplate(canonical.device)
+    || resolveAristaFaceplate(canonical.device)
     || buildProfile(canonical.device, definition));
   return layouts.get(key);
 }

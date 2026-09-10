@@ -285,18 +285,16 @@ function addHandle(art, colors) {
 function addPowerSupply(art, component, colors) {
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
+  if (component.orientation === "vertical" && (component.variant === "ac" || component.variant === "dc-terminal2")) {
+    addVerticalPowerSupply(art, component, colors);
+    return;
+  }
   if (component.variant === "dc-keyed2" || component.variant === "dc-terminal2") {
     addTwoContactDCSupply(art, component, colors);
     return;
   }
-  if (component.variant === "ac-fan-left") {
-    art.circle(.31, .48, .34, "#122327", "#a7b2b5");
-    art.circle(.31, .48, .24, colors.surfaceDark, "#708389");
-    art.line(.16, .19, .46, .76, "#a7b2b5");
-    art.line(.16, .76, .46, .19, "#a7b2b5");
-    art.rect(.61, .22, .27, .60, "#0d1c21", colors.ink, .05);
-    for (const [cx, cy] of [[.745, .4], [.68, .62], [.81, .62]]) art.rect(cx - .012, cy - .055, .024, .11, "#b9c3c4");
-    art.circle(.92, .86, .035, "#42d98b", colors.ink);
+  if (component.variant === "ac-fan-left" || component.variant === "ac-fan-right") {
+    addFanPowerSupply(art, component.variant === "ac-fan-right", colors);
     return;
   }
   const inletOffset = component.variant === "ac-inlet-right" ? .49 : 0;
@@ -312,6 +310,54 @@ function addPowerSupply(art, component, colors) {
   art.rect(.83 + handleOffset, .28, .035, .44, colors.surface, colors.ink, .02);
   art.circle(.94, .22, .035, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
   if (component.variant !== "fixed") art.rect(.78 + handleOffset, .73, .08, .1, colors.accent, colors.ink, .02);
+}
+
+/** Mirror the inlet, fan grille, and status light for horizontal AC supply variants. */
+function addFanPowerSupply(art, fanRight, colors) {
+  const offset = fanRight ? 1 : 0;
+  const direction = fanRight ? -1 : 1;
+  art.circle(offset + direction * .31, .48, .34, "#122327", "#a7b2b5");
+  art.circle(offset + direction * .31, .48, .24, colors.surfaceDark, "#708389");
+  art.line(offset + direction * .16, .19, offset + direction * .46, .76, "#a7b2b5");
+  art.line(offset + direction * .16, .76, offset + direction * .46, .19, "#a7b2b5");
+  art.rect(fanRight ? .12 : .61, .22, .27, .60, "#0d1c21", colors.ink, .05);
+  for (const [cx, cy] of [[.745, .4], [.68, .62], [.81, .62]]) {
+    art.rect(offset + direction * cx - .012, cy - .055, .024, .11, "#b9c3c4");
+  }
+  art.circle(fanRight ? .08 : .92, .86, .035, "#42d98b", colors.ink);
+}
+
+/** Draw upright AC or DC modules with the connector above the horizontal pull bar. */
+function addVerticalPowerSupply(art, component, colors) {
+  const dc = component.variant === "dc-terminal2";
+  for (let row = 0; row < 5; row++) {
+    for (const x of dc ? [.73, .81, .89] : [.10, .18, .82, .90]) {
+      art.circle(x, .16 + row * .065, .017, colors.surfaceDark);
+    }
+  }
+  if (dc) {
+    for (const y of [.23, .45]) {
+      art.rect(.21, y - .09, .30, .18, "#15252a", colors.ink, .015);
+      art.circle(.36, y, .068, "#b9c3c4", colors.ink);
+      art.line(.32, y, .40, y, colors.ink);
+      art.line(.36, y - .024, .36, y + .024, colors.ink);
+    }
+    art.circle(.75, .50, .067, "#b9c3c4", colors.ink);
+    art.line(.71, .50, .79, .50, colors.ink);
+    art.line(.75, .476, .75, .524, colors.ink);
+  } else {
+    art.rect(.28, .18, .44, .35, "#0d1c21", colors.ink, .05);
+    for (const [cx, cy] of [[.50, .28], [.39, .41], [.61, .41]]) {
+      art.rect(cx - .022, cy - .035, .044, .07, "#b9c3c4");
+    }
+  }
+  for (const y of [.56, .76]) {
+    for (let column = 0; column < 8; column++) art.circle(.12 + column * .108, y, .017, colors.surfaceDark);
+  }
+  art.rect(.15, .62, .70, .10, colors.surfaceDark, colors.ink, .04);
+  art.rect(.24, .643, .52, .054, colors.surface, colors.ink, .02);
+  art.rect(.13, .81, .16, .09, colors.accent, colors.ink, .02);
+  art.circle(.79, .83, .033, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
 }
 
 /** Distinguish removable two-contact DC inlets from exposed terminal blocks and protective earth. */

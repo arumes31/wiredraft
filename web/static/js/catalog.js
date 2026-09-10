@@ -17,10 +17,10 @@ const profiles = [
   p("Cisco", "Catalyst C9300L-24T-4G", "Switch", 1, "#263b4b", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_1G", 1000, "SFP"), m(1), { ...m(1), type: "USB_MINI_CONSOLE", labels: ["USB CONSOLE"] }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
   p("Cisco", "Catalyst C9300L-48P-4X", "Switch", 1, "#263b4b", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1), { ...m(1), type: "USB_MINI_CONSOLE", labels: ["USB CONSOLE"] }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
   p("Cisco", "Catalyst C9300X-24Y", "Switch", 1, "#263b4b", [u(24, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP"), m(1)]),
-  p("Cisco", "Nexus 93180YC-FX3", "Switch", 1, "#263b4b", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP"), m(1)]),
-  p("Cisco", "Nexus 9336C-FX2", "Switch", 1, "#263b4b", [u(36, "QSFP28_100G", 100000, "QSFP"), m(1)]),
-  p("Cisco", "Meraki MS120-24P", "Switch", 1, "#263b4b", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_1G", 1000, "SFP"), m(1)]),
-  p("Cisco", "Meraki MS225-48FP", "Switch", 1, "#263b4b", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
+  p("Cisco", "Nexus 93180YC-FX3", "Switch", 1, "#263b4b", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP"), m(1), { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
+  p("Cisco", "Nexus 9336C-FX2", "Switch", 1, "#263b4b", [u(36, "QSFP28_100G", 100000, "QSFP"), m(1), { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT RJ45"] }, { ...m(1), type: "SFP_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT SFP"] }], { inventoryRevision: 1 }),
+  p("Cisco", "Meraki MS120-24P", "Switch", 1, "#263b4b", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_1G", 1000, "SFP"), { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
+  p("Cisco", "Meraki MS225-48FP", "Switch", 1, "#263b4b", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), { ...u(2, "Stack", 40000, "STACK"), labels: ["STACK 1", "STACK 2"] }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
 
   p("HPE Aruba", "CX 6100 24G 4SFP+", "Switch", 1, "#27383a", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), { ...m(1), type: "USB_C_CONSOLE" }], { inventoryRevision: 1 }),
   p("HPE Aruba", "CX 6100 48G 4SFP+", "Switch", 1, "#27383a", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), { ...m(1), type: "USB_C_CONSOLE" }], { inventoryRevision: 1 }),
@@ -72,9 +72,9 @@ const profiles = [
     { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGMT" },
     { zone: "management", count: 1, type: "USB_C_CONSOLE", speed: 0, poe: false, prefix: "USB", labels: ["USB-C"] }]),
 
-  p("Arista", "7050SX3-48YC8", "Switch", 1, "#21363f", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP"), m(1)]),
-  p("Arista", "7060CX2-32S", "Switch", 1, "#21363f", [u(32, "QSFP28_100G", 100000, "QSFP"), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("Arista", "720XP-48ZC2", "Switch", 1, "#21363f", [r(48, "RJ45_10G", 5000, true, "MGE"), u(2, "QSFP28_100G", 100000, "QSFP"), m(1)]),
+  p("Arista", "7050SX3-48YC8", "Switch", 1, "#21363f", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP"), m(1), { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
+  p("Arista", "7060CX2-32S", "Switch", 1, "#21363f", [u(32, "QSFP28_100G", 100000, "QSFP"), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(1), { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
+  p("Arista", "720XP-48ZC2", "Switch", 1, "#21363f", [r(40, "RJ45_MGIG", 2500, true, "MGE"), r(8, "RJ45_MGIG", 5000, true, "MGE"), u(4, "SFP28_25G", 25000, "SFP28"), u(2, "QSFP28_100G", 100000, "QSFP"), m(1), { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
 
   p("Extreme", "5320-24P-8XE", "Switch", 1, "#392644", [r(24, "RJ45_1G", 1000, true), u(8, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
   p("Extreme", "5520-48W", "Switch", 1, "#392644", [r(48, "RJ45_10G", 2500, true, "MGE"), u(4, "SFP28_25G", 25000, "SFP28"), m(1)]),
@@ -264,7 +264,7 @@ export function registerProfiles(input) {
       (profile.inventoryRevision === undefined || (Number.isInteger(profile.inventoryRevision) && profile.inventoryRevision >= 0 && profile.inventoryRevision <= 0xffffffff)) &&
       Array.isArray(profile.groups) && profile.groups.every((group) => Number.isInteger(group.count) && group.count > 0 &&
         ["access", "uplink", "management"].includes(group.zone) &&
-        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
+        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
         Number.isFinite(group.speed) && group.speed >= 0 && group.speed <= 800000 &&
         (group.labels === undefined || (Array.isArray(group.labels) && group.labels.length === group.count && group.labels.every((label) => typeof label === "string" && label.trim()))) &&
         (group.positions === undefined || (Array.isArray(group.positions) && group.positions.length === group.count &&

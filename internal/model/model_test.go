@@ -503,6 +503,7 @@ func TestExpandedPhysicalPortTypesValidate(t *testing.T) {
 		{PortTypeDSLRJ11, 1000},
 		{PortTypeQSFPPlus40G, 40000},
 		{PortTypeQSFP56200G, 200000},
+		{PortType("QSFP_DD_200G"), 200000},
 		{PortTypeQSFPDD400G, 400000},
 		{PortTypeCFP100G, 100000},
 		{PortTypeCFP2100G, 100000},
@@ -512,6 +513,7 @@ func TestExpandedPhysicalPortTypesValidate(t *testing.T) {
 		{PortTypeFiberSC, 0},
 		{PortTypeFiberMPO, 0},
 		{PortTypeUSBMicro, 0},
+		{PortType("USB_MINI_CONSOLE"), 0},
 		{PortTypeUSBC, 0},
 		{PortTypeStack, 40000},
 	}

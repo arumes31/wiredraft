@@ -91,3 +91,9 @@ checks selected-face export and exercises dense-label rendering. Rebuild the
 Go server before running this browser test because frontend assets are embedded.
 Inspect each new model's rendered front and rear against the cited source;
 passing a geometry test alone is not evidence of physical accuracy.
+
+`e2e/catalog-persistence.spec.mjs` creates a separate blank map and saves actual
+catalog devices covering every connector type, then reloads their inventories
+and removes the map. This catches frontend/backend type mismatches that a
+render-only check cannot detect. Add each new connector type to both the Go
+port validation and the catalog registration whitelist before using it.

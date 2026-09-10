@@ -108,3 +108,49 @@ test("6000 and 7000 models retain row-major ports, dedicated LOM, and their diff
     assert.deepEqual(device, original);
   }
 });
+
+test("16000, 26000 and 28000 show their selected line card, rack height and actual rear PSU population", () => {
+  for (const series of [16000, 26000, 28000]) {
+    const device = deviceFor(`Quantum ${series}`);
+    const profile = buildCheckPointModelFaceplate(device);
+    assert.equal(profile?.fidelity, "model");
+    assert.deepEqual(profile.evidence.models, [device.model]);
+    assert.equal(device.faceplate.unitsU, series === 16000 ? 2 : 3);
+    assert.equal(device.ports.length, series === 28000 ? 9 : 13);
+    assert.equal(device.ports.at(-1).label, "LOM");
+    const bays = profile.faces.front.components.filter((part) => part.kind === "module-bay" && part.y >= 1 / device.faceplate.unitsU);
+    assert.equal(bays.length, series === 16000 ? 4 : 8);
+    assert.equal(bays.filter((part) => part.variant === "populated").length, 1);
+    assert.equal(bays[0].label, undefined, "the populated card leaves its lower edge clear for printed port numbers");
+    const data = profile.faces.front.ports.filter((port) => port.portIndex <= (series === 28000 ? 4 : 8));
+    assert.ok(data.every((port) => port.x < .22), "selected base line card occupies the first expansion bay");
+    if (series === 28000) assert.equal(new Set(data.map((port) => port.y)).size, 1);
+    else { assert.equal(data[0].x, data[4].x); assert.ok(data[0].y < data[4].y); }
+    const rear = profile.faces.rear.components;
+    assert.equal(rear.filter((part) => part.kind === "psu").length, series === 16000 ? 1 : 3);
+    assert.equal(rear.filter((part) => part.kind === "fan").length, 4, "only the four externally visible fans are drawn");
+    assert.equal(profile.faces.rear.ports.length, 0);
+    const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: device.faceplate.unitsU * 100 });
+    assert.equal(scene.unmappedPorts.length, 0);
+    assert.ok(scene.ports.every((port) => port.height <= 23));
+  }
+});
+
+test("large Check Point legacy inventories keep endpoint IDs and saved rack units when the omitted LOM socket is introduced", () => {
+  for (const series of [16000, 26000, 28000]) {
+    const device = deviceFor(`Quantum ${series}`);
+    const oldCount = series === 28000 ? 8 : 12;
+    device.ports = device.ports.filter((port) => port.portIndex <= oldCount).reverse();
+    delete device.faceplate.inventoryRevision;
+    device.faceplate.unitsU = 2;
+    device.ports[0].label = "Saved console";
+    const original = structuredClone(device);
+    const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 200 });
+    assert.equal(scene.profile.fidelity, "model");
+    assert.equal(scene.ports.length, oldCount);
+    assert.equal(scene.unmappedPorts.length, 0);
+    assert.deepEqual(new Set(scene.ports.map((box) => box.port.id)), new Set(device.ports.map((port) => port.id)));
+    assert.equal(scene.ports.find((box) => box.port.id === device.ports[0].id).displayLabel, "Saved console");
+    assert.deepEqual(device, original);
+  }
+});

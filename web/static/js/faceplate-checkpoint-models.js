@@ -2,14 +2,19 @@ const GUIDE_3000 = "https://sc1.checkpoint.com/documents/3000/GSG/EN/CP_3000_App
 const GUIDE_SPARK = "https://sc1.checkpoint.com/documents/Appliances/GSG_V2V3/EN/CP_1600_1800_Appliance_GettingStartedGuide.pdf";
 const SPARK_DATASHEET = "https://www.checkpoint.com/downloads/products/1600-1800-security-gateway-datasheet.pdf";
 const GUIDE_6000 = "https://sc1.checkpoint.com/documents/6000_7000/GSG/EN/CP_6000_7000_Appliances_GettingStartedGuide.pdf";
+const GUIDE_16000 = "https://sc1.checkpoint.com/documents/16000_26000/16000_GSG/EN/CP_16000_Appliances_GettingStartedGuide.pdf";
+const GUIDE_26000 = "https://sc1.checkpoint.com/documents/16000_26000_28000/26000_28000_GSG/EN/CP_26000_28000_Appliances_GettingStartedGuide.pdf";
+const LINE_CARDS = "https://sc1.checkpoint.com/documents/Appliances/FRU_Line_Cards/CP_Appliances_Replacing_Line_Cards.pdf";
 const rackModels = new Set(["Quantum 6200", "Quantum 6400", "Quantum 6600", "Quantum 6700", "Quantum 6900", "Quantum 7000"]);
-const models = new Set(["Quantum 1600", "Quantum 1800", "Quantum 3600", "Quantum 3800", ...rackModels]);
+const modularModels = new Set(["Quantum 16000", "Quantum 26000", "Quantum 28000"]);
+const models = new Set(["Quantum 1600", "Quantum 1800", "Quantum 3600", "Quantum 3800", ...rackModels, ...modularModels]);
 
 /** Build only Check Point models whose individual front and rear panels are documented. */
 export function buildCheckPointModelFaceplate(device) {
   if (device?.faceplate?.vendor !== "Check Point" || !models.has(device.model)) return null;
   if (device.model === "Quantum 1600" || device.model === "Quantum 1800") return sparkProfile(device);
   if (rackModels.has(device.model)) return rackProfile(device);
+  if (modularModels.has(device.model)) return modularProfile(device);
   return {
     id: `checkpoint-${device.model.slice(8)}`, family: device.model, fidelity: "model",
     panelFidelity: { front: "model", rear: "model" }, inventoryComplete: true, inventoryRevision: 0,
@@ -19,6 +24,82 @@ export function buildCheckPointModelFaceplate(device) {
     catalogDiscrepancies: [], defaultFace: "front",
     chassis: { x: .255, y: .08, width: .49, height: .84 }, faces: desktopPanels(device.ports),
   };
+}
+
+/** Select each modular chassis with its base network card, AC supplies, one disk and optional LOM installed. */
+function modularProfile(device) {
+  const series = Number(device.model.slice(8));
+  const small = series === 16000;
+  const optical = series === 28000;
+  const source = small ? GUIDE_16000 : GUIDE_26000;
+  const frontPage = small ? 38 : 42;
+  const rearPage = small ? 42 : 46;
+  const oldCount = optical ? 8 : 12;
+  const configuration = `${series} Base with ${optical ? "CPAC-4-10F-C (four SFP+)" : "CPAC-8-1C-C (eight RJ45)"} in slot 1, ${small ? "one AC PSU and a covered second PSU bay" : "three AC PSUs"}, one disk, and the optional LOM card installed`;
+  return {
+    id: `checkpoint-${series}`, family: device.model, fidelity: "model",
+    panelFidelity: { front: "model", rear: "model" }, inventoryComplete: true, inventoryRevision: 1,
+    source, sourcePage: `PDF front ${frontPage}, rear ${rearPage}; line-card guide ${optical ? 84 : 90}`,
+    evidence: { scope: "model", models: [device.model], front: `${source}#page=${frontPage}`,
+      rear: `${source}#page=${rearPage}`, configuration,
+      supplemental: [`${LINE_CARDS}#page=${optical ? 84 : 90}`, `https://www.checkpoint.com/downloads/products/${series}-security-gateway-datasheet.pdf`] },
+    legacyLayouts: [{ inventoryRevision: 0,
+      portIndexMap: Object.fromEntries(Array.from({ length: oldCount }, (_, index) => [index + 1, index + 1])) }],
+    limitations: [`Selected configuration: ${configuration}. Other expansion cards and populations require their corresponding layout.`,
+      ...(small ? [] : ["Four outer fans are visible at the rear; four additional inner fans share the same airflow paths and are not drawn over them."])],
+    catalogDiscrepancies: ["Older inventories omit the optional LOM socket. New instances append it; saved endpoint identities remain unchanged.",
+      ...(small ? [] : ["The 26000 and 28000 are 3U chassis. New instances use 3U; historical 2U rack assignments are preserved and need manual adjustment."])],
+    defaultFace: "front", chassis: { x: .025, y: .04, width: .95, height: .92 },
+    faces: modularPanels(device.ports, series),
+  };
+}
+
+/** Trace the selected expansion card and service strip without confusing these chassis with the separate 1U hyperscale models. */
+function modularPanels(ports, series) {
+  const units = series === 16000 ? 2 : 3;
+  const optical = series === 28000;
+  const dataCount = optical ? 4 : 8;
+  const frontPorts = ports.slice(0, dataCount).map((port, index) => socket(port,
+    .064 + index % 4 * .035, (optical ? 1.67 : index < 4 ? 1.29 : 1.68) / units,
+    .028, (optical ? .17 : .23) / units));
+  frontPorts.push(socket(ports[dataCount], .386, .70 / units, .030, .23 / units),
+    socket(ports[dataCount + 1], .386, .38 / units, .030, .23 / units),
+    socket(ports[dataCount + 2], .285, .30 / units, .030, .23 / units, "rj45"),
+    socket(ports[dataCount + 3], .244, .83 / units, .024, .07 / units, "usb-c"),
+    socket(ports[dataCount + 4], .340, .73 / units, .030, .23 / units, "rj45"));
+  const front = [part("text", .03, .08 / units, .13, .47 / units, "Check Point"),
+    part("vent", .025, .70 / units, .06, .20 / units, undefined, "perforated"),
+    part("usb", .270, .49 / units, .030, .12 / units), part("usb", .270, .73 / units, .030, .12 / units),
+    part("power", .427, .49 / units, .018, .13 / units, "ESD", "dc-barrel"),
+    part("module-bay", .09, .90 / units, .047, .04 / units, undefined, "populated"),
+    part("module-bay", .48, .07 / units, .235, .78 / units, "DISK 1", "populated"),
+    part("module-bay", .72, .07 / units, .235, .78 / units, "DISK BAY 2", "blank"),
+    part("button", .162, .49 / units, .009, .07 / units),
+    part("button", .211, .65 / units, .008, .07 / units, undefined, "reset"),
+    ...Array.from({ length: 6 }, (_, index) => part("led", .192, (.17 + index * .09) / units, .006, .05 / units))];
+  for (let index = 0; index < (units - 1) * 4; index++) {
+    front.push(part("module-bay", .018 + index % 4 * .218, (1 + Math.floor(index / 4)) / units,
+      .212, .97 / units, index === 0 ? undefined : `SLOT ${index + 1}`, index === 0 ? "populated" : "blank"));
+  }
+  if (optical) front.push(part("vent", .055, 1.16 / units, .13, .22 / units));
+  front.push(part("vent", .9, 1.02 / units, .09, (units - 1.08) / units, undefined, "perforated"));
+
+  const rear = [];
+  for (let index = 0; index < units; index++) {
+    const installed = units === 3 || index === 0;
+    rear.push(part(installed ? "psu" : "module-bay", .012, (.025 + index * .98) / units,
+      .174, .95 / units, installed ? `PS${index + 1}` : "PSU BAY 2", installed ? "ac-fan-right" : "blank"));
+  }
+  for (const x of [.25, .559]) rear.push(part("module-bay", x, 1 - 1.42 / units, .305, 1.35 / units, undefined, "populated"));
+  rear.push(...Array.from({ length: 4 }, (_, index) => part("fan", .279 + index % 2 * .144 + Math.floor(index / 2) * .309,
+    1 - 1.32 / units, .130, 1.18 / units, String(4 - index), "fixed")),
+  part("button", .92, 1 - .66 / units, .014, .09 / units, "ALARM"),
+  part("switch", .917, 1 - .47 / units, .026, .40 / units),
+  part("led", .905, 1 - .62 / units, .007, .05 / units),
+  part("power", .516, .03, .018, .13 / units, "ESD", "dc-barrel"),
+  part("screw", .34, .025, .013, .11 / units), part("screw", .76, .025, .013, .11 / units),
+  part("screw", .96, .17, .014, .11 / units), part("screw", .96, .29, .014, .11 / units));
+  return { front: { ports: frontPorts, components: front }, rear: { ports: [], components: rear } };
 }
 
 /** Describe a nonconnectable physical control, ventilation opening or printed marking. */

@@ -308,3 +308,80 @@ for (const model of ["FortiGate 50G-5G", "FortiGate 51G-5G"]) {
   assert.deepEqual([...profile.faces.rear.ports].sort((a, b) => a.x - b.x).map((port) => port.physicalLabel),
     ["CONSOLE", "WAN", "A", "3", "2", "1"]);
 }
+
+for (const [model, count, supplyCount] of [["2201E-ACDC", 39, 2], ["3300E", 39, 2], ["3301E", 39, 2],
+  ["3400E", 31, 2], ["3401E", 31, 2], ["3400E-DC", 31, 2], ["3401E-DC", 31, 2],
+  ["3600E", 41, 2], ["3601E", 41, 2], ["3600E-DC", 41, 2],
+  ["3960E", 25, 3], ["3980E", 29, 3], ["3960E-DC", 25, 3], ["3980E-DC", 29, 3]]) {
+  const device = deviceFor(`FortiGate ${model}`);
+  const profile = resolveFortinetFaceplate(device);
+  assert.equal(profile.fidelity, "model", `${model} has its own documented front and rear`);
+  assert.equal(profile.inventoryComplete, true);
+  assert.equal(device.ports.length, count, `${model} has its documented typed inventory`);
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "fan").length, 4);
+  const supplies = profile.faces.rear.components.filter((item) => item.kind === "psu");
+  assert.equal(supplies.length, supplyCount);
+  assert.ok(supplies.every((item) => item.orientation === "vertical"));
+  assert.ok(supplies.every((item) => item.variant === (model.endsWith("-DC") ? "dc-terminal2" : "ac")));
+}
+
+/** Check legacy endpoint identities, edited configuration and explicit physical index migrations together. */
+function verifyLegacyE(model, groups, indexMap) {
+  const fresh = deviceFor(`FortiGate ${model}`);
+  const saved = structuredClone(fresh);
+  delete saved.faceplate.inventoryRevision;
+  saved.ports = groups.flatMap(([type, count]) => Array(count).fill(type)).map((type, index) => ({
+    ...fresh.ports[0], id: `saved-${model}-${index + 1}`, portIndex: index + 1,
+    label: `Operator connection ${index + 1}`, type, speedMbps: 1234,
+  }));
+  const before = structuredClone(saved);
+  assert.equal(upgradeInstalledPhysicalPorts({ devices: [saved] }), false);
+  const bounds = { ...testBounds, height: fresh.units * 100 };
+  const expected = buildFaceplateScene(fresh, bounds);
+  const actual = buildFaceplateScene(saved, bounds);
+  assert.equal(actual.ports.length, Object.keys(indexMap).length);
+  assert.deepEqual(actual.unmappedPorts.map((port) => port.portIndex),
+    saved.ports.filter((port) => !indexMap[port.portIndex]).map((port) => port.portIndex));
+  for (const port of actual.ports) {
+    const corresponding = expected.ports.find((item) => item.port.portIndex === indexMap[port.port.portIndex]);
+    assert.ok(corresponding, `${model} legacy index ${port.port.portIndex}`);
+    assert.equal(port.centerX, corresponding.centerX);
+    assert.equal(port.centerY, corresponding.centerY);
+  }
+  assert.deepEqual(saved, before, "inventory corrections never rewrite saved endpoint IDs, labels or configuration");
+}
+
+verifyLegacyE("3300E", [["RJ45_1G", 16], ["SFP28_25G", 16], ["QSFP28_100G", 4], ["Console", 1]],
+  Object.fromEntries(Array.from({ length: 37 }, (_, index) => [index + 1, index < 16 ? index + 1 : index + 3])));
+verifyLegacyE("3401E-DC", [["RJ45_1G", 2], ["SFP28_25G", 24], ["QSFP28_100G", 4], ["Console", 2]],
+  Object.fromEntries(Array.from({ length: 31 }, (_, index) => [index + 1, index + 1])));
+verifyLegacyE("3600E", [["RJ45_1G", 2], ["SFP28_25G", 24], ["QSFP28_100G", 4], ["Console", 1]],
+  Object.fromEntries(Array.from({ length: 31 }, (_, index) => [index + 1, index < 26 ? index + 1 : index < 30 ? index + 9 : 41])));
+for (const model of ["3960E", "3980E-DC"]) {
+  const moreQSFP = model.startsWith("3980");
+  const expectedMap = Object.fromEntries(Array.from({ length: 18 }, (_, index) => [index + 1, index + 1]));
+  for (let index = 35; index <= (moreQSFP ? 42 : 40); index++) expectedMap[index] = index - 16;
+  expectedMap[43] = moreQSFP ? 29 : 25;
+  verifyLegacyE(model, [["RJ45_1G", 2], ["SFP28_25G", 32], ["QSFP28_100G", 8], ["Console", 1]], expectedMap);
+}
+
+for (const [model, count, fans] of [["2200E", 39, 4], ["2201E", 39, 4], ["2000E", 41, 3],
+  ["2500E", 47, 3], ["400E-Bypass", 35, 4]]) {
+  const device = deviceFor(`FortiGate ${model}`);
+  const profile = resolveFortinetFaceplate(device);
+  assert.equal(profile.fidelity, "model", model);
+  assert.equal(profile.inventoryComplete, true);
+  assert.equal(device.ports.length, count);
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "fan").length, fans);
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "psu").length, 2);
+}
+const bypass2500 = resolveFortinetFaceplate(deviceFor("FortiGate 2500E")).faces.front.ports.filter((port) => port.type === "FIBER_LC");
+assert.deepEqual(bypass2500.map((port) => port.physicalLabel), ["43", "44"], "fixed LC bypass optics are not pluggable SFP sockets");
+for (const model of ["2000E", "2500E"]) {
+  const expectedMap = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [index + 1, index + 1]));
+  for (let index = 15; index <= (model === "2000E" ? 20 : 24); index++) expectedMap[index] = index + 20;
+  expectedMap[39] = model === "2000E" ? 41 : 47;
+  verifyLegacyE(model, [["RJ45_1G", 14], ["SFP28_25G", 20], ["QSFP_PLUS_40G", 4], ["Console", 1]], expectedMap);
+}
+verifyLegacyE("400E-Bypass", [["RJ45_1G", 18], ["SFP_1G", 16], ["Console", 1]],
+  { ...Object.fromEntries(Array.from({ length: 18 }, (_, index) => [index + 1, index + 1])), 35: 35 });
