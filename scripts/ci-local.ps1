@@ -51,8 +51,8 @@ Invoke-Gate 'Go race and coverage tests' { go test -race -covermode=atomic "-cov
 Invoke-Gate 'Go coverage floor' { go run ./cmd/checkcoverage -profile $coverageFile -minimum 70 }
 Invoke-Gate 'Topology JSON fuzzing' { go test ./internal/model -run='^$' -fuzz=FuzzTopologyJSON "-fuzztime=${FuzzSeconds}s" }
 Invoke-Gate 'Request JSON fuzzing' { go test ./internal/handler -run='^$' -fuzz=FuzzDecodeJSON "-fuzztime=${FuzzSeconds}s" }
-Invoke-Gate 'Go vulnerability scan' { go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./... }
-Invoke-Gate 'Go security scan' { go run github.com/securego/gosec/v2/cmd/gosec@v2.28.0 -quiet ./... }
+Invoke-Gate 'Go vulnerability scan' { go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./... }
+Invoke-Gate 'Go security scan' { go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -quiet ./... }
 Invoke-Gate 'Git history secret scan' { go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner . }
 
 Invoke-Gate 'Locked frontend install' { npm ci --ignore-scripts }
@@ -80,7 +80,7 @@ Invoke-Gate 'Minified JavaScript syntax' {
 Invoke-Gate 'Frontend unit coverage' { npm run test:coverage }
 Invoke-Gate 'Mutation smoke test' { & $gitBash scripts/mutation-smoke.sh }
 Invoke-Gate 'GitHub Actions syntax' { go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 }
-Invoke-Gate 'GitHub Actions security' { uvx zizmor==1.29.0 --persona=pedantic . }
+Invoke-Gate 'GitHub Actions security' { uvx zizmor==1.30.1 --persona=pedantic . }
 
 if (-not $SkipContainers) {
     Invoke-Gate 'ShellCheck' {
@@ -144,7 +144,7 @@ if (-not $SkipContainers) {
     Invoke-Gate 'Trivy filesystem scan' {
         docker run --rm --volume "${repositoryRoot}:/workspace:ro" `
             --volume wiredraft-trivy-cache:/root/.cache/trivy --workdir /workspace `
-            aquasec/trivy@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c `
+            aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 `
             filesystem --scanners vuln,secret,misconfig --severity HIGH,CRITICAL `
             --skip-dirs node_modules --skip-dirs graphify-out --skip-dirs .quality-data `
             --skip-dirs coverage --skip-dirs test-results --ignore-unfixed `
@@ -153,13 +153,13 @@ if (-not $SkipContainers) {
     Invoke-Gate 'Trivy container scan' {
         docker run --rm --volume /var/run/docker.sock:/var/run/docker.sock `
             --volume wiredraft-trivy-cache:/root/.cache/trivy `
-            aquasec/trivy@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c `
+            aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 `
             image --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed `
             --skip-version-check --exit-code 1 $imageName
     }
     Invoke-Gate 'SPDX SBOM generation' {
         docker run --rm --volume "${repositoryRoot}:/workspace" --workdir /workspace `
-            anchore/syft@sha256:1288ea4c8b38767b4e620c1e312c8cb26b6e887a99b4f07ab6cd19fc6f225026 `
+            anchore/syft@sha256:95fe0835e5bebc6f8b1f8acef68d47d63d594ef4c0f25c097ff853b23cbac74c `
             "dir:/workspace" --source-name wiredraft --source-version local `
             -o "spdx-json=/workspace/.quality-data/wiredraft.spdx.json"
     }

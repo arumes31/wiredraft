@@ -5,6 +5,7 @@
 .env.*
 !.env.example
 .quality-data
+.tmp
 coverage
 data
 docs
@@ -19,6 +20,8 @@ scripts/*
 secrets
 test-results
 *.test
+*.log
+*.tmp
 *.out
 coverage.*
 playwright*.mjs
