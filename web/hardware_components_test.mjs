@@ -6,7 +6,7 @@ import { drawHardwareComponent, hardwareComponentSVG, hardwarePrimitives } from 
 const kinds = [
   "rj45", "sfp", "qsfp", "osfp", "cfp", "lc", "sc", "mpo", "usb-mini", "usb-micro", "usb-c",
   "console", "stack", "dsl", "coax", "power", "usb", "led", "vent", "fan", "handle", "psu",
-  "module-bay", "text", "chassis", "unknown",
+  "module-bay", "text", "chassis", "vga", "db9", "drive-carrier", "unknown",
 ];
 
 test("hardware artwork has finite geometry within each component's bounds", () => {
@@ -371,4 +371,126 @@ test("covered antenna fittings have no exposed center contact", () => {
   assert.equal(covered.filter((part) => part.fill === "#d7b76c").length, 0);
   assert.equal(covered.length, 2);
   assert.equal(hardwarePrimitives(component).filter((part) => part.fill === "#d7b76c").length, 1);
+});
+
+test("VGA and DB9 keep their documented contact rows and side screws in both orientations", () => {
+  for (const [kind, rows] of [["vga", [5, 5, 5]], ["db9", [5, 4]]]) {
+    for (const portrait of [false, true]) {
+      const box = { kind, x: 0, y: 0, width: portrait ? 24 : 60, height: portrait ? 60 : 24 };
+      const parts = hardwarePrimitives(box);
+      const contacts = parts.filter((part) => part.kind === "circle" && part.fill === (kind === "vga" ? "#07151a" : "#d7b76c"));
+      assert.equal(contacts.length, rows.reduce((sum, count) => sum + count, 0));
+      const groups = new Map();
+      for (const contact of contacts) {
+        const axis = portrait ? contact.cx : contact.cy;
+        groups.set(axis, (groups.get(axis) || 0) + 1);
+      }
+      assert.deepEqual([...groups.values()], rows, "rotation preserves each original contact row");
+      const screws = parts.filter((part) => part.kind === "circle" && part.fill === "#a7b2b5");
+      assert.equal(screws.length, 2);
+      assert.ok(portrait ? screws[0].cy < Math.min(...contacts.map((part) => part.cy)) && screws[1].cy > Math.max(...contacts.map((part) => part.cy))
+        : screws[0].cx < Math.min(...contacts.map((part) => part.cx)) && screws[1].cx > Math.max(...contacts.map((part) => part.cx)));
+      if (kind === "vga") assert.ok(parts.some((part) => part.fill === "#2865aa"), "VGA retains its blue socket insert");
+    }
+  }
+});
+
+test("mesh fan trays show a rotor through square guards with a center pull bar and lower status light", () => {
+  const component = { kind: "fan", variant: "mesh-handle", x: 0, y: 0, width: 110, height: 130 };
+  const parts = hardwarePrimitives(component);
+  const handle = parts.find((part) => part.kind === "rect" && part.fill === "#708389");
+  assert.ok(handle && handle.height > handle.width * 3);
+  assert.equal(handle.x + handle.width / 2, component.width / 2);
+  const rotor = parts.find((part) => part.kind === "circle" && part.fill === "#122327");
+  assert.ok(rotor && rotor.r > component.width / 4);
+  const guards = parts.filter((part) => part.kind === "rect" && part.fill === "#a7b2b5");
+  assert.ok(guards.some((part) => part.width > part.height * 5) && guards.some((part) => part.height > part.width * 5));
+  const vertical = guards.filter((part) => part.height > part.width);
+  const horizontal = guards.filter((part) => part.width > part.height);
+  assert.ok(Math.abs((vertical[1].x - vertical[0].x) - (horizontal[1].y - horizontal[0].y)) < 1e-8,
+    "grid cells stay square in world coordinates");
+  assert.ok(parts.some((part) => part.fill === "#42d98b" && part.cy > handle.y + handle.height));
+  assert.ok(!hardwarePrimitives({ ...component, active: false }).some((part) => part.fill === "#42d98b"));
+});
+
+test("drive carriers distinguish the front release/status strip from compact rear BOSS trays", () => {
+  const drive = hardwarePrimitives({ kind: "drive-carrier", x: 0, y: 0, width: 140, height: 35 });
+  const release = drive.find((part) => part.kind === "circle" && part.stroke === "#c6a476");
+  assert.ok(release && release.cx < 140 * .3, "front drive release belongs to the left latch block");
+  const vent = drive.filter((part) => part.kind === "rect" && part.fill === "#07151a");
+  assert.ok(vent.length > 12 && vent.every((part) => part.x > release.cx), "the grille occupies the carrier center");
+  const boss = hardwarePrimitives({ kind: "drive-carrier", variant: "boss", x: 0, y: 0, width: 22, height: 65 });
+  assert.ok(!boss.some((part) => part.stroke === "#c6a476"), "BOSS uses a compact pull latch rather than the front drive release");
+  assert.ok(boss.some((part) => part.kind === "rect" && part.y > 65 * .75));
+});
+
+test("new connector, carrier and mesh-fan adapters retain finite bounded geometry", () => {
+  const configurations = [{ kind: "vga" }, { kind: "db9" }, { kind: "drive-carrier" },
+    { kind: "drive-carrier", variant: "boss" }, { kind: "fan", variant: "mesh-handle" },
+    { kind: "terminal", variant: "pluggable", pins: 9 }, { kind: "led", variant: "bar" }, { kind: "service-jack" }];
+  for (const configuration of configurations) for (const [width, height] of [[80, 30], [30, 80], [12, 12]]) {
+    const component = { ...configuration, x: -10, y: 20, width, height };
+    const parts = hardwarePrimitives(component);
+    const canvas = recordingContext();
+    drawHardwareComponent(canvas, component);
+    assert.equal(canvas.shapes.length, parts.length);
+    assert.equal((hardwareComponentSVG(component).match(/<(?:rect|circle|line|text)\b/g) || []).length, parts.length);
+    for (const [index, part] of parts.entries()) {
+      const bounds = primitiveBounds(part);
+      assert.ok([bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite));
+      assert.ok(bounds.x >= component.x - 1e-8 && bounds.y >= component.y - 1e-8, `${configuration.kind}/${configuration.variant}: ${part.kind} starts within ${width}x${height}`);
+      assert.ok(bounds.x + bounds.width <= component.x + width + 1e-8 && bounds.y + bounds.height <= component.y + height + 1e-8,
+        `${configuration.kind}/${configuration.variant}: ${part.kind} fits ${width}x${height}`);
+      for (const [key, value] of Object.entries(canvas.shapes[index])) assert.equal(value, part[key] ?? 0);
+    }
+  }
+});
+
+test("pluggable terminal headers keep one explicit contact row and two separate retaining holes", () => {
+  for (const pins of [1, 2, 4, 6, 9, 24]) for (const portrait of [false, true]) {
+    const component = { kind: "terminal", variant: "pluggable", pins, x: 0, y: 0,
+      width: portrait ? 24 : 120, height: portrait ? 120 : 24 };
+    const parts = hardwarePrimitives(component);
+    const contacts = parts.filter((part) => part.kind === "rect" && part.fill === "#b9c3c4");
+    assert.equal(contacts.length, pins);
+    assert.equal(new Set(contacts.map((part) => portrait ? part.x : part.y)).size, 1);
+    assert.ok(contacts.every((part) => Math.abs(part.width - part.height) < 1e-8), "male contact tips stay square after rotation");
+    const retainers = parts.filter((part) => part.kind === "circle" && part.fill === "#708389");
+    assert.equal(retainers.length, 2);
+    assert.ok(!parts.some((part) => part.fill === "#39745d"), "a pluggable header is not the existing green screw block");
+    for (const contact of contacts) {
+      if (portrait) assert.ok(contact.y > retainers[0].cy && contact.y + contact.height < retainers[1].cy);
+      else assert.ok(contact.x > retainers[0].cx && contact.x + contact.width < retainers[1].cx);
+    }
+  }
+  for (const pins of [undefined, 0, -1, 1.5, 25, Infinity]) {
+    const parts = hardwarePrimitives({ kind: "terminal", variant: "pluggable", pins, x: 0, y: 0, width: 80, height: 24 });
+    assert.equal(parts.filter((part) => part.fill === "#b9c3c4").length, 0, "invalid or unknown contact counts do not invent pins");
+  }
+  const screw = hardwarePrimitives({ kind: "terminal", pins: 4, x: 0, y: 0, width: 80, height: 24 });
+  assert.ok(screw.some((part) => part.fill === "#39745d"));
+  assert.equal(screw.filter((part) => part.kind === "circle").length, 4);
+});
+
+test("status light bars retain their specified color and darken when inactive", () => {
+  const component = { kind: "led", variant: "bar", x: 10, y: 20, width: 6, height: 40, color: "#168fd3" };
+  const parts = hardwarePrimitives(component);
+  assert.ok(parts.every((part) => part.kind === "rect"), "a light bar has no handle or circular status lens");
+  const light = parts.find((part) => part.fill === component.color);
+  assert.ok(light && light.height > light.width * 5);
+  assert.equal(light.x + light.width / 2, component.x + component.width / 2);
+  assert.ok(!hardwarePrimitives({ ...component, active: false }).some((part) => part.fill === component.color));
+  assert.ok(hardwarePrimitives({ ...component, color: undefined }, { accent: "#123456" })
+    .some((part) => part.fill === "#123456"));
+});
+
+test("service jacks have a recessed aperture without power contacts or an illuminated button", () => {
+  const parts = hardwarePrimitives({ kind: "service-jack", x: 10, y: 20, width: 12, height: 10 });
+  assert.equal(parts.length, 2);
+  assert.ok(parts.every((part) => part.kind === "circle"));
+  assert.equal(parts[0].cx, parts[1].cx);
+  assert.equal(parts[0].cy, parts[1].cy);
+  assert.ok(parts[0].r > parts[1].r);
+  assert.equal(parts[1].fill, "#07151a");
+  assert.ok(!parts.some((part) => ["#b9c3c4", "#d7b76c", "#22a0ab"].includes(part.fill)));
 });

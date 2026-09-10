@@ -25,6 +25,8 @@ export function hardwarePrimitives(component, palette = {}) {
     art.circle(.5, .5, .32, colors.surfaceDark, colors.ink);
     art.line(.28, .5, .72, .5, "#b9c3c4");
     art.line(.5, .28, .5, .72, "#b9c3c4");
+  } else if (kind === "terminal" && component.variant === "pluggable") {
+    addPluggableTerminal(art, component, colors);
   } else if (kind === "terminal") {
     const pins = Number.isInteger(component.pins) && component.pins > 0 && component.pins <= 24 ? component.pins : 0;
     const vertical = component.height > component.width;
@@ -55,6 +57,13 @@ export function hardwarePrimitives(component, palette = {}) {
     art.circle(.5, .5, .45, colors.surfaceDark, colors.ink);
     art.circle(.5, .5, .31, "#23383f", "#a5b2b6");
     art.circle(.5, .5, .1, colors.accent);
+  } else if (kind === "service-jack") {
+    art.circle(.5, .5, .45, colors.surfaceDark, colors.ink);
+    art.circle(.5, .5, .32, "#07151a");
+  } else if (kind === "led" && component.variant === "bar") {
+    art.rect(.04, .04, .92, .92, colors.surfaceDark, colors.ink, .12);
+    art.rect(.2, .12, .6, .76, component.active === false ? colors.surfaceDark : component.color ?? colors.accent,
+      undefined, .1);
   } else if (kind === "led") {
     art.circle(.5, .5, .43, colors.surfaceDark, colors.ink);
     art.circle(.5, .5, .27, component.active === false ? colors.surfaceDark : colors.accent);
@@ -62,7 +71,10 @@ export function hardwarePrimitives(component, palette = {}) {
   } else if (kind === "vent") {
     addVent(art, component, colors);
   } else if (kind === "fan") {
-    addFan(art, colors, component.variant);
+    if (component.variant === "mesh-handle") addMeshHandleFan(art, component, colors);
+    else addFan(art, colors, component.variant);
+  } else if (kind === "drive-carrier") {
+    addDriveCarrier(art, component, colors);
   } else if (kind === "handle") {
     addHandle(art, colors);
   } else if (kind === "psu") {
@@ -119,10 +131,36 @@ function primitiveBuilder(component, colors) {
   };
 }
 
+/** Draw a keyed inline male header, reserving separate holes for its retaining screws. */
+function addPluggableTerminal(art, component, colors) {
+  const portrait = component.height > component.width;
+  const header = orientedArt(art, portrait);
+  const width = portrait ? component.height : component.width;
+  const height = portrait ? component.width : component.height;
+  const pins = Number.isInteger(component.pins) && component.pins > 0 && component.pins <= 24 ? component.pins : 0;
+  header.rect(.01, .08, .98, .84, "#172125", colors.ink, .025);
+  header.rect(.18, .15, .64, .70, "#07151a", "#515e62", .015);
+  for (const left of [.085, .915]) {
+    header.circle(left, .5, .055, "#708389", colors.ink);
+    header.circle(left, .5, .025, "#07151a");
+  }
+  const tip = Math.min(width * .35 / Math.max(1, pins), height * .085);
+  for (let index = 0; index < pins; index++) {
+    const center = .18 + (index + .5) * .64 / pins;
+    header.rect(center - .16 / pins, .15, .32 / pins, .12, "#172125", undefined, .01);
+    header.rect(center - tip / width / 2, .5 - tip / height / 2,
+      tip / width, tip / height, "#b9c3c4", undefined, .005);
+  }
+}
+
 /** Draw connector cages, keyed openings, contacts, and optical release latches. */
 function addSocket(art, kind, colors, variant, portrait, columns) {
   const fill = colors.fill ?? "#07151a";
   const stroke = colors.stroke ?? "#708389";
+  if (kind === "vga" || kind === "db9") {
+    addDSubConnector(orientedArt(art, portrait), kind, colors);
+    return;
+  }
   if (kind === "power" && (variant === "dc-multipin" || variant === "stack-power")) {
     art.rect(.02, .12, .96, .84, colors.surfaceDark, stroke, .05);
     art.rect(.11, .27, .78, .53, fill, "#a7b2b5", .05);
@@ -225,6 +263,94 @@ function addSocket(art, kind, colors, variant, portrait, columns) {
     for (let index = 0; index < pinCount; index += 1) art.rect(.19 + index * .66 / pinCount, .2, .033, .24, "#d7b76c", undefined, 0);
     if (kind === "console") art.line(.18, .86, .82, .86, colors.accent);
   }
+}
+
+/** Rotate normalized connector geometry into portrait bounds without duplicating its contact arrangement. */
+function orientedArt(art, portrait) {
+  if (!portrait) return art;
+  return {
+    /** Rotate a rectangle clockwise while keeping its radius and colors unchanged. */
+    rect(x, y, width, height, ...appearance) { art.rect(1 - y - height, x, height, width, ...appearance); },
+    /** Rotate a circle center without distorting its physical radius. */
+    circle(x, y, ...appearance) { art.circle(1 - y, x, ...appearance); },
+    /** Rotate both line endpoints through the same transform. */
+    line(x1, y1, x2, y2, ...appearance) { art.line(1 - y1, x1, 1 - y2, x2, ...appearance); },
+  };
+}
+
+/** Draw VGA's blue three-row socket or a male DB9 serial connector within a retained D-shell. */
+function addDSubConnector(art, kind, colors) {
+  art.rect(.13, .14, .74, .72, colors.surfaceDark, "#a7b2b5", .13);
+  art.rect(.21, .23, .58, .55, kind === "vga" ? "#2865aa" : "#233238", "#a7b2b5", .10);
+  art.line(.215, .32, .25, .73, "#a7b2b5");
+  art.line(.785, .32, .75, .73, "#a7b2b5");
+  for (const x of [.075, .925]) {
+    art.circle(x, .5, .065, "#a7b2b5", colors.ink);
+    art.circle(x, .5, .037, colors.surfaceDark, colors.ink);
+  }
+  const rows = kind === "vga" ? [5, 5, 5] : [5, 4];
+  for (const [row, count] of rows.entries()) {
+    for (let column = 0; column < count; column++) {
+      const x = .30 + column * .10 + (count === 4 ? .05 : 0);
+      const y = kind === "vga" ? .35 + row * .15 : .38 + row * .24;
+      art.circle(x, y, kind === "vga" ? .032 : .038, kind === "vga" ? "#07151a" : "#d7b76c");
+    }
+  }
+}
+
+/** Draw the removable fan's square guard over its rotor, with a centered handle and retained fasteners. */
+function addMeshHandleFan(art, component, colors) {
+  const scale = Math.min(component.width, component.height);
+  const cell = Math.min(component.width * .78 / 8, component.height * .72 / 9);
+  const width = cell * 8 / component.width;
+  const height = cell * 9 / component.height;
+  const left = .5 - width / 2;
+  const top = .52 - height / 2;
+  art.rect(.025, .025, .95, .95, colors.surface, colors.ink, .04);
+  art.rect(left, top, width, height, "#07151a", colors.ink, .01);
+  art.circle(.5, .52, cell * 3.8 / scale, "#122327", colors.surfaceDark);
+  art.circle(.5, .52, cell * 2.2 / scale, colors.surfaceDark);
+  const bar = cell * .12;
+  for (let column = 0; column <= 8; column++) {
+    art.rect(left + column * cell / component.width - bar / component.width / 2, top,
+      bar / component.width, height, "#a7b2b5", undefined, 0);
+  }
+  for (let row = 0; row <= 9; row++) {
+    art.rect(left, top + row * cell / component.height - bar / component.height / 2,
+      width, bar / component.height, "#a7b2b5", undefined, 0);
+  }
+  art.rect(.462, .34, .076, .40, "#708389", colors.ink, .035);
+  art.line(.48, .38, .48, .70, "#b9c3c4");
+  for (const [x, y] of [[.10, .17], [.90, .17], [.10, .86], [.90, .86], [.25, .075], [.75, .075], [.25, .945], [.75, .945]]) {
+    art.circle(x, y, .026, colors.surfaceDark, colors.ink);
+    art.line(x - .012, y - .012, x + .012, y + .012, "#a7b2b5");
+    art.line(x - .012, y + .012, x + .012, y - .012, "#a7b2b5");
+  }
+  art.circle(.5, .945, .023, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
+}
+
+/** Distinguish a front drive's release/status strip and grille from the compact rear BOSS pull tray. */
+function addDriveCarrier(art, component, colors) {
+  if (component.variant === "boss") {
+    art.rect(.10, .025, .80, .94, colors.surfaceDark, colors.ink, .035);
+    art.rect(.21, .25, .58, .50, "#07151a", colors.ink, .01);
+    art.rect(.16, .04, .68, .22, "#a7b2b5", colors.ink, .025);
+    for (const y of [.37, .51, .65]) art.rect(.28, y, .44, .055, "#708389", undefined, .005);
+    art.rect(.25, .80, .5, .10, "#708389", colors.ink, .02);
+    return;
+  }
+  const face = orientedArt(art, component.width < component.height);
+  face.rect(.015, .045, .97, .91, colors.surfaceDark, colors.ink, .04);
+  face.rect(.03, .10, .065, .80, "#233238", colors.ink, .015);
+  face.circle(.061, .31, .025, component.active === false ? colors.surfaceDark : "#42d98b");
+  face.circle(.061, .73, .023, colors.surfaceDark, "#708389");
+  face.rect(.12, .17, .16, .68, "#39484d", colors.ink, .025);
+  face.circle(.20, .49, .105, "#708389", "#c6a476");
+  face.rect(.31, .10, .64, .045, "#a7b2b5", undefined, .01);
+  for (let row = 0; row < 3; row++) for (let column = 0; column < 7; column++) {
+    face.rect(.37 + column * .060, .23 + row * .185, .045, .14, "#07151a", undefined, .012);
+  }
+  face.rect(.85, .32, .095, .35, "#39484d", colors.ink, .015);
 }
 
 /** Fill a bounded grille with its repeated openings, heatsink fins, or single slit. */

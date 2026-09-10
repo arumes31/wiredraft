@@ -204,7 +204,13 @@ add(["FortiGate 3980E"], "Firewall", 3, [ge(2), sfpp(16), qsfp100(10), consolePo
 // their fixed management plane and explicitly tells the operator to add the
 // installed interface/process modules as separate devices.
 add(["FortiGate 5001E", "FortiGate 5001E1"], "Firewall", 2, [ge(2, "MGMT"), consolePort()], { lifecycle: "supported", fidelity: "modular", source: FORTIGATE_MATRIX, note: "Blade; data interfaces depend on the installed chassis/module configuration." });
-add(["FortiGate 6000F", "FortiGate 6001F", "FortiGate 6300F", "FortiGate 6301F", "FortiGate 6500F", "FortiGate 6501F"], "Firewall", 3, [sfp28(24), qsfp100(4), managementRJ45(5), consolePort(2)], { lifecycle: "supported", source: FORTIGATE_MATRIX, note: "Common 6000F front-panel interface layout with HA1/HA2 and MGMT1-MGMT3." });
+add(["FortiGate 6000F"], "Firewall", 3, [sfp28(24), qsfp100(4), managementRJ45(5), consolePort(2)], { lifecycle: "supported", fidelity: "family", source: FORTIGATE_MATRIX, note: "Family label; select a documented 6001F, 6300F, 6301F, 6500F or 6501F SKU for its physical panel." });
+add(["FortiGate 6001F", "FortiGate 6300F", "FortiGate 6301F", "FortiGate 6500F", "FortiGate 6501F"], "Firewall", 3,
+  [sfp28(24), qsfp100(4), managementRJ45(2), group("management", 3, "SFP_PLUS_10G", 10000, "MGMT-SFP"), consolePort()], {
+    lifecycle: "supported", inventoryRevision: 1,
+    source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/ffef9904-1a11-11e9-9685-f8bc1258b856/fortigate-6000F-system-guide.pdf",
+    note: "PDF pages 7–8 and 13: twenty-four SFP28, four QSFP28, two RJ45 management, three SFP+ management/HA and one console. Revision 1 preserves existing indices and corrects management media; a surplus saved second console remains unmapped.",
+  });
 add(["FortiGate 7000E", "FortiGate 7000F", "FortiGate 7030E", "FortiGate 7040E", "FortiGate 7060E", "FortiGate 7081F"], "Firewall", 12, [ge(2, "MGMT"), consolePort(2)], { lifecycle: "supported", fidelity: "modular", source: FORTIGATE_MATRIX, note: "Modular chassis; data interfaces depend on installed FIM/FPM modules." });
 add(["FortiGate 7121F"], "Firewall", 16, [ge(2, "MGMT"), consolePort(2)], { lifecycle: "supported", fidelity: "modular", source: FORTIGATE_MATRIX, note: "Modular chassis; data interfaces depend on installed FIM/FPM modules." });
 
@@ -232,7 +238,11 @@ for (const [model, baseModel] of Object.entries(dcAliases)) {
 }
 
 // FortiGate Rugged physical appliances.
-add(["FortiGate Rugged 50G-5G"], "Firewall", 2, [ge(6), sfp(2), consolePort()], { lifecycle: "current", fidelity: "family", source: FORTIGATE_MATRIX });
+add(["FortiGate Rugged 50G-5G"], "Firewall", 2, [ge(6), sfp(2), consolePort(2)], {
+  lifecycle: "current", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/2418bdeb-8b25-11ef-989d-ae5dfae880d6/FGR-50G-5G-QSG.pdf",
+  note: "PDF page 8: six GE, two SFP, one RJ45 console and a separate RJ45 serial data socket. Revision 1 appends the missing serial endpoint without moving previous indices.",
+});
 add(["FortiGate Rugged 60F", "FortiGate Rugged 60F-3G4G", "FortiGate Rugged 70F", "FortiGate Rugged 70F-3G4G", "FortiGate Rugged 70G", "FortiGate Rugged 70G-5G-Dual"], "Firewall", 3, [ge(6), sfp(2), consolePort(2)], { lifecycle: "current", source: FORTIGATE_MATRIX });
 
 // FortiSwitch 100/200 series.

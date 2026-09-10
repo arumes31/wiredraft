@@ -76,7 +76,16 @@ const profiles = [
   ...many("HPE Aruba", ["CX 8320 family", "CX 8325 family", "CX 8360 family"], "Switch", 1, "#27383a", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con("USB_C_CONSOLE")]),
   ...many("HPE", ["ProLiant DL20", "ProLiant DL160", "ProLiant DL180", "ProLiant DL325", "ProLiant DL345", "ProLiant DL360", "ProLiant DL380", "ProLiant DL385", "ProLiant DL560", "ProLiant DL580", "ProLiant ML30", "ProLiant ML110", "ProLiant ML350"], "Server", 2, "#33393b", [t(4, "NIC"), mgmt(1, "iLO")]),
   ...many("Dell", ["PowerSwitch S3048", "PowerSwitch S4048", "PowerSwitch S5048", "PowerSwitch S5248", "PowerSwitch Z9264", "PowerSwitch Z9332"], "Switch", 1, "#1d3d50", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con()]),
-  ...many("Dell", ["PowerEdge R350", "PowerEdge R450", "PowerEdge R550", "PowerEdge R650", "PowerEdge R750", "PowerEdge R6525", "PowerEdge R7525", "PowerEdge R6615", "PowerEdge R6625", "PowerEdge R7615", "PowerEdge R7625"], "Server", 2, "#303a3e", [t(4, "NIC"), mgmt(1, "iDRAC")]),
+  profile("Dell", "PowerEdge R350", "Server", 1, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con(), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
+    ...verified("https://i.dell.com/sites/csdocuments/Product_Docs/en/Dell-EMC-PowerEdge-R350-Spec-sheet.pdf"), inventoryRevision: 1,
+    note: "1U, two fixed 1GbE LOM, iDRAC, rear DB9 serial and front micro-USB direct management; optional add-in NICs are not installed." }),
+  profile("Dell", "PowerEdge R450", "Server", 1, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
+    ...verified("https://i.dell.com/sites/csdocuments/product_docs/en/dell-emc-poweredge-r450-technical-guide.pdf"), inventoryRevision: 1,
+    note: "1U with fixed dual 1GbE LOM, dedicated iDRAC and front micro-USB; OCP and optional serial absent in selected configuration." }),
+  profile("Dell", "PowerEdge R550", "Server", 2, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
+    ...verified("https://i.dell.com/sites/csdocuments/product_docs/en/dell-emc-poweredge-r550-technical-guide.pdf"), inventoryRevision: 1,
+    note: "2U with fixed dual 1GbE LOM, dedicated iDRAC and front micro-USB; OCP and optional serial absent in selected configuration." }),
+  ...many("Dell", ["PowerEdge R650", "PowerEdge R750", "PowerEdge R6525", "PowerEdge R7525", "PowerEdge R6615", "PowerEdge R6625", "PowerEdge R7615", "PowerEdge R7625"], "Server", 2, "#303a3e", [t(4, "NIC"), mgmt(1, "iDRAC")]),
 
   ...many("NETGEAR", ["M4250 family", "M4300 family", "M4350 family", "M4500 family"], "Switch", 1, "#30284a", [r(48, 1000, true), u(4), mgmt()]),
   profile("NETGEAR", "GS108T", "Switch", 1, "#30284a", [

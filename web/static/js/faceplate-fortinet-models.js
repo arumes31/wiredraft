@@ -88,6 +88,12 @@ const GUIDES = {
   "3100D": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/c33905b5-1a0a-11e9-9685-f8bc1258b856/FortiGate-3100D-QSG-Supplement.pdf",
   "3200D": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b2956e69-1a0a-11e9-9685-f8bc1258b856/FortiGate-3200D-Supplement.pdf",
   "3700D": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/a8cceba0-1a0a-11e9-9685-f8bc1258b856/FG-3700D-Supplement.pdf",
+  "6000F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/ffef9904-1a11-11e9-9685-f8bc1258b856/fortigate-6000F-system-guide.pdf",
+  "R60F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/7ce61dd2-c2a7-11ea-8b7d-00505692583a/FGR-60F-3G4G-QSG.pdf",
+  "R70F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/8b28e316-a37b-11ed-8e6d-fa163e15d75b/FGR-70F-Series-QSG.pdf",
+  "R70G": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/5351b79e-423d-11f0-a9d0-d2b0d2e22f7d/FGR-70G-QSG.pdf",
+  "R50G-cell": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/2418bdeb-8b25-11ef-989d-ae5dfae880d6/FGR-50G-5G-QSG.pdf",
+  "R70G-dual": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/a1edabaa-6ec8-11ef-8355-fa163e15d75b/FGR-70G-5G-DUAL-QSG.pdf",
 };
 
 /** Resolve Fortinet catalog panels without treating unverified variants as exact hardware. */
@@ -216,6 +222,11 @@ function buildFortinetProfile({ catalog, device }) {
   else if (/^FortiGate (?:900D|1000D)$/.test(model)) add9001000D(profile, device);
   else if (/^FortiGate 3[012]00D(?:-DC)?$/.test(model)) add300031003200D(profile, device);
   else if (/^FortiGate 3700D(?:-DC)?$/.test(model)) add3700D(profile, device);
+  else if (/^FortiGate (?:6001F|6[35]0[01]F(?:-DC)?)$/.test(model)) add6000F(profile, device);
+  else if (/^FortiGate Rugged 60F(?:-3G4G)?$/.test(model)) addRugged60F(profile, device);
+  else if (/^FortiGate Rugged 70F(?:-3G4G)?$/.test(model)) addRugged70F(profile, device);
+  else if (model === "FortiGate Rugged 70G") addRugged70G(profile, device);
+  else if (/^FortiGate Rugged (?:50G-5G|70G-5G-Dual)$/.test(model)) addRuggedGCellular(profile, device);
   if (/^FortiGate (?:180[01]F(?:-DC)?|350[01]F)$/.test(model)) profile.legacyLayouts = [{ inventoryRevision: 0,
     portIndexMap: Object.fromEntries(device.ports.map((port) => [port.portIndex, port.portIndex])) }];
   if (/^FortiGate 300[01](?:G|F(?:-(?:ACDC|DC))?)$/.test(model)) profile.legacyLayouts = [{ inventoryRevision: 0,
@@ -227,7 +238,7 @@ function buildFortinetProfile({ catalog, device }) {
   addLegacyDMapping(profile, device);
   const units = Math.max(1, Number(catalog.units) || 1);
   for (const face of Object.values(profile.faces)) {
-    for (const port of face.ports) port.height = Math.min(port.height, .24 / units);
+    for (const port of face.ports) port.height = Math.min(port.height, .24 / (units * profile.chassis.height));
   }
   if (catalog.fidelity === "modular") addModularRegion(profile, device, units);
   if (profile.panelsVerified) recordMissingPorts(profile, device);
@@ -1895,7 +1906,7 @@ function add400EBypass(profile, device) {
     ...Array.from({ length: 8 }, (_, index) => element("vent", .201 + index * .0948, .21, .010, .57, undefined, "perforated")),
     element("vent", .957, .21, .021, .57, undefined, "perforated"),
   ];
-  profile.faces.rear.components = [...[.120, .600].map((y) => element("screw", .046, y, .026, .20)),
+profile.faces.rear.components = [...[.120, .600].map((y) => element("screw", .046, y, .026, .20)),
     ...[.090, .186, .283, .379].map((x, index) => element("fan", x, .080, .088, .84, `FAN${index + 1}`, "fixed")),
     element("psu", .698, .030, .121, .94, "PWR2", "ac"), element("psu", .838, .030, .121, .94, "PWR1", "ac"),
   ];
@@ -2069,4 +2080,269 @@ function addLegacyDMapping(profile, device) {
     portIndexMap = Object.fromEntries(device.ports.map((port) => [port.portIndex, port.portIndex]));
   }
   if (portIndexMap) profile.legacyLayouts = [{ inventoryRevision: 0, portIndexMap }];
+}
+
+/** Trace the explicitly shared 6001/6300/6301/6500/6501 panels and their documented DC bay population. */
+function add6000F(profile, device) {
+  const dc = device.model.endsWith("-DC");
+  inspected(profile, "6000F", "7 named models and shared panels; 8 front; 13 connectors; 16 AC rear; 24 DC supplies and upper bay blank");
+  notePhysicalLabels(profile);
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (index < 24) {
+      const column = Math.floor(index / 2);
+      return namedSlot(port, String(index + 1), .310 + column * .030 + Math.floor(column / 4) * .022,
+        index % 2 ? .897 : .794, .027, .076);
+    }
+    if (index < 28) return namedSlot(port, String(index + 1), .737 + (index - 24) * .0533, .904, .039, .070);
+    if (index < 30) return namedSlot(port, `MGMT${index - 27}`, .157, index % 2 ? .897 : .794, .030, .076);
+    if (index < 33) return { ...namedSlot(port, ["MGMT3", "HA1", "HA2"][index - 30], index === 30 ? .194 : .267,
+      index === 31 ? .794 : .897, .028, .076), connectorKind: "sfp", compatibleTypes: ["RJ45_1G"] };
+    return namedSlot(port, "CONSOLE", .115, .838, .031, .078);
+  });
+  for (const port of profile.faces.front.ports) port.descriptionAnchor = {
+    x: port.portIndex === 34 ? .100 : port.x, y: port.portIndex === 34 ? .773 : port.y < .85 ? .728 : .972,
+  };
+  profile.faces.front.components = [
+    element("handle", .012, .055, .020, .535), element("handle", .968, .055, .020, .535),
+    element("text", .062, .085, .160, .135, device.model.replace("FortiGate ", "").replace("-DC", "")),
+    element("vent", .064, .251, .153, .357, undefined, "perforated"),
+    ...[.237, .412, .587, .761].map((x) => element("vent", x, .072, .153, .543, undefined, "perforated")),
+    element("vent", .064, .667, .635, .048, undefined, "slots"),
+    element("vent", .718, .667, .201, .096, undefined, "perforated"),
+    element("usb", .100, .892, .029, .031, undefined, "a"),
+    element("button", .065, .916, .005, .020, undefined, "reset"),
+    ...["STATUS", "ALARM", "HA", "PWR"].flatMap((label, index) => [
+      element("led", .085, .785 + index * .040, .005, .020),
+      element("text", .065, .783 + index * .040, .018, .025, label),
+    ]),
+  ];
+  profile.faces.rear.components = [
+    ...[.024, .350, .674].map((y, index) => element(dc && index === 0 ? "module-bay" : "psu",
+      .027, y, .140, .310, `PSU${3 - index}`, dc && index === 0 ? "blank" : dc ? "dc-keyed2" : "ac")),
+    element("module-bay", .174, .114, .086, .750, undefined, "populated"),
+    element("vent", .184, .277, .026, .470, undefined, "slots"),
+    element("vent", .221, .277, .026, .470, undefined, "slots"),
+    element("text", .175, .013, .085, .065, "SSD1 / SSD2"),
+    element("led", .185, .235, .012, .020), element("led", .222, .235, .012, .020),
+    ...[.198, .241].map((x) => element("screw", x, .895, .020, .070)),
+    ...[.262, .499, .737].map((x, index) => element("fan", x, .092, .235, .889, `FAN${index + 1}`, "mesh-handle")),
+    element("handle", .002, .240, .020, .550), element("handle", .977, .240, .020, .550),
+  ];
+  profile.legacyLayouts = [{ inventoryRevision: 0,
+    portIndexMap: Object.fromEntries(device.ports.map((port) => [port.portIndex, port.portIndex])) }];
+  profile.limitations.push("The system guide explicitly gives these named SKUs the same front and rear configuration. AC has three installed supplies; DC has two lower supplies and a metal upper blank. The shared rear cover conceals internal log disks, populated only in 6001F/6301F/6501F models.");
+  profile.limitations.push("Revision 1 corrects MGMT3/HA1/HA2 from copper to SFP+ without rewriting saved endpoint media or identity. The undocumented second saved console remains unmapped.");
+}
+
+/** Draw an exposed single-row removable terminal header using its documented contact count. */
+function ruggedTerminal(x, y, width, height, pins) {
+  return { ...element("terminal", x, y, width, height, undefined, "pluggable"), pins };
+}
+
+/** Trace DIN mounting hardware in the guide's portrait rear view, then rotate it with the manufacturer's landscape front. */
+function ruggedDINRear(model) {
+  const seriesF = model.includes("70F");
+  const cellular = model.includes("5G");
+  const dual = model.includes("Dual");
+  const panel = seriesF ? { left: .036, right: .630, top: .320, bottom: .750 } :
+    cellular ? { left: dual ? .238 : .277, right: dual ? .741 : .862, top: .299, bottom: .646 } :
+      { left: .055, right: .730, top: .245, bottom: .680 };
+  const points = seriesF ? [[.095, .055], [.578, .109], [.095, .945], [.578, .893], [.080, .500], [.578, .409], [.578, .545]] :
+    cellular ? [[dual ? .282 : .325, .119], [dual ? .700 : .815, .119], [.483, .132],
+      [dual ? .282 : .325, .880], [dual ? .700 : .815, .880], [.483, .830],
+      [dual ? .282 : .325, .429], [dual ? .700 : .815, .429], [dual ? .282 : .325, .572], [dual ? .700 : .815, .572]] :
+      [[.119, .147], [.659, .107], [.119, .850], [.659, .890], [.119, .409], [.659, .409], [.119, .590], [.659, .590]];
+  const components = [
+    element("chassis", panel.left, .012, panel.right - panel.left, .976),
+    element("chassis", .018, panel.top, .964, panel.bottom - panel.top),
+    element("chassis", .018, panel.top, .964, .039),
+    element("chassis", .018, panel.bottom - .042, .964, .039),
+    ...points.map(([x, y]) => element("screw", x - .025, y - .016, .05, .032)),
+  ];
+  return components.map((component) => ({ ...component, x: component.y, y: 1 - component.x - component.width,
+    width: component.height, height: component.width }));
+}
+
+/** State the DIN orientation and avoid representing side cooling fins or internal media as rear sockets. */
+function noteRuggedDIN(profile) {
+  profile.limitations.push("The connector view follows the manufacturer's landscape front illustration. Rear mounting geometry is rotated consistently from its portrait DIN drawing and shows the supplied DIN bracket installed. Side cooling fins and covered side storage are outside these panel views; this is an illustration, not a manufacturing scale drawing.");
+}
+
+/** Trace the low-profile 60F and cellular variant, with their actual rear DB9 serial and paired power inputs. */
+function addRugged60F(profile, device) {
+  const cellular = device.model.endsWith("-3G4G");
+  inspected(profile, "R60F", cellular ? "5 front; 6 rear and covered SIM sockets" : "3 front; 4 rear");
+  notePhysicalLabels(profile);
+  profile.chassis = { x: .125, y: .325, width: .75, height: .35 };
+  const front = device.ports.filter((port) => port.portIndex !== 10);
+  profile.faces.front.ports = front.map((port, index) => {
+    if (port.type === "Console") return namedSlot(port, "CONSOLE", .235, cellular ? .599 : .619, .055, .24);
+    const x = index < 4 ? .325 + index * .073 : index < 6 ? .644 + (index - 4) * .092 : .828 + (index - 6) * .070;
+    return namedSlot(port, index < 4 ? String(index + 1) : index < 6 ? `WAN${index - 3}` : `SFP${index - 5}`,
+      x, cellular ? .606 : .642, .055, .22);
+  });
+  profile.faces.rear.ports = [{ ...namedSlot(device.ports[9], "SERIAL", .366, .490, .113, .21), connectorKind: "db9" }];
+  profile.faces.front.components = [
+    element("text", cellular ? .393 : .025, .080, .250, .18, device.model.replace("FortiGate ", "")),
+    ...["BYPASS", "STATUS", "HA", "PWR"].flatMap((label, index) => [
+      element("led", .042, .391 + index * .092, .010, .075),
+      element("text", .057, .391 + index * .092, .068, .065, label),
+    ]),
+    ...(cellular ? [element("chassis", .140, .302, .045, .58), element("screw", .152, .790, .020, .105)] :
+      [element("usb", .158, .50, .020, .26, undefined, "a"), element("chassis", .062, .765, .129, .22)]),
+    ...(cellular ? [[.060, "DIV"], [.756, "GPS"], [.920, "MAIN"]].flatMap(([x, label]) => [
+      element("coax", x - .013, .075, .026, .14), element("text", x - .030, .233, .060, .066, label),
+    ]) : []),
+    ...(cellular ? ["LTE", "SIM1", "SIM2"].flatMap((label, index) => [
+      element("led", .101, .463 + index * .092, .010, .075),
+      element("text", .113, .463 + index * .092, .028, .065, label),
+    ]) : []),
+  ];
+  profile.faces.rear.components = [
+    ...[.125, .201].map((x) => element("screw", x, .37, .039, .245)),
+    ...[.022, .210, .339, .657, .973].map((x) => element("screw", x - .011, .120, .022, .14)),
+    element("button", .061, .700, .013, .080, undefined, "reset"),
+    element("text", .043, .80, .050, .075, "RESET"),
+    ruggedTerminal(.677, .620, .101, .205, 2), ruggedTerminal(.821, .620, .101, .205, 2),
+    element("text", .680, .836, .096, .075, "DC2"), element("text", .823, .836, .096, .075, "DC1"),
+    element("led", .605, .590, .012, .075), element("led", .605, .724, .012, .075),
+    ...(cellular ? [element("chassis", .458, .610, .090, .35),
+      ...[.473, .514].map((x) => element("screw", x, .635, .021, .115)),
+      element("text", .404, .735, .049, .095, "SIM1/2")] : []),
+  ];
+  profile.limitations.push("The source distinguishes front RJ45 console from rear male DB9 serial; the second saved Console endpoint retains its ID and uses the DB9 physical drawing. WAN1/WAN2 and SFP1/SFP2 are shared interfaces. The shorter physical body is centered within the pre-existing three-unit allocation, which is not rewritten.");
+  if (cellular) profile.limitations.push("The USB and dual SIM sockets are shown with their illustrated protective covers closed; external antenna rods are omitted.");
+}
+
+/** Trace the distinct 70F front with six-pin I/O, paired ground studs and optional three cellular antenna sockets. */
+function addRugged70F(profile, device) {
+  const cellular = device.model.endsWith("-3G4G");
+  inspected(profile, "R70F", `${cellular ? 17 : 15} front; 7 shared chassis; 9–10 rear DIN bracket and dimensions`);
+  notePhysicalLabels(profile);
+  profile.chassis = { x: .225, y: .025, width: .55, height: .95 };
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (index < 6) return namedSlot(port, index < 4 ? String(index + 1) : `WAN${index - 3}`,
+      [.503, .641, .817][Math.floor(index / 2)], index % 2 ? .433 : .300, .095, .15);
+    if (index < 8) return namedSlot(port, `SFP${index - 5}`, .766 + (index - 6) * .131, .827, .10, .10);
+    return namedSlot(port, index === 8 ? "COM1" : "COM2", .325, index === 8 ? .300 : .433, .095, .15);
+  });
+  for (const port of profile.faces.front.ports.filter((item) => item.type !== "SFP_1G")) {
+    port.descriptionAnchor = { x: port.x, y: port.y < .35 ? .227 : .514 };
+  }
+  profile.faces.front.components = [
+    element("chassis", .163, .260, .069, .294), element("screw", .180, .268, .035, .052),
+    element("button", .060, .445, .035, .055, undefined, "reset"),
+    ...["STA", "ALM", "HA", "PWR"].flatMap((label, index) => [
+      element("led", .126, .286 + index * .064, .022, .032),
+      element("text", .092, .285 + index * .064, .033, .035, label),
+    ]),
+    ...[.056, .201].map((x) => element("screw", x, .598, .070, .095)),
+    ruggedTerminal(.058, .765, .277, .113, 4), ruggedTerminal(.394, .771, .289, .087, 6),
+    element("text", .069, .709, .260, .040, "DC1 / DC2  12–125V"),
+    element("text", .394, .892, .289, .040, "IN1 REF IN2 NC COM NO"),
+    element("text", .375, .578, .320, .100, device.model.replace("FortiGate ", "")),
+    element("coax", .798, .575, .080, .105, undefined, "capped"),
+    element("text", .795, .694, .083, .040, "BLE"),
+    element("led", .635, .539, .022, .032), element("text", .659, .539, .062, .035, "BYP"),
+    ...(cellular ? [[.059, .190, "MAIN"], [.685, .103, "GPS"], [.941, .193, "DIV"]].flatMap(([x, y, label]) => [
+      element("coax", x - .029, y - .040, .058, .080), element("text", x - .038, y - .095, .076, .040, label),
+    ]) : []),
+    ...(cellular ? [.311, .484, .553, .924].map((x) => element("led", x, .539, .022, .032)) : []),
+  ];
+  profile.faces.rear.components = ruggedDINRear(device.model);
+  noteRuggedDIN(profile);
+  profile.limitations.push("COM1 is the top RJ45 console; COM2 is the lower RJ45 serial data socket. The power header has four contacts, while this F-series digital I/O header has six. USB protection is shown closed.");
+}
+
+/** Trace the 70G's high-mounted connector banks, lower nine-pin I/O and exposed firmware selector. */
+function addRugged70G(profile, device) {
+  inspected(profile, "R70G", "7 front; 4–5 rear DIN bracket, dimensions and nine-pin I/O");
+  notePhysicalLabels(profile);
+  profile.chassis = { x: .225, y: .085, width: .55, height: .83 };
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (index < 6) return namedSlot(port, index < 4 ? String(index + 1) : `WAN${index - 3}`,
+      [.497, .677, .809][Math.floor(index / 2)], index % 2 ? .352 : .193, .095, .15);
+    if (index < 8) return namedSlot(port, `SFP${index - 5}`, .763 + (index - 6) * .134, .814, .100, .10);
+    return namedSlot(port, index === 8 ? "CONSOLE" : "SERIAL", .312, index === 8 ? .193 : .352, .095, .15);
+  });
+  for (const port of profile.faces.front.ports.filter((item) => item.type !== "SFP_1G")) {
+    port.descriptionAnchor = { x: port.x, y: port.y < .25 ? .112 : .438 };
+  }
+  profile.faces.front.components = [
+    element("chassis", .155, .162, .061, .295),
+    ...[.172, .459].map((y) => element("screw", .168, y, .036, .051)),
+    element("button", .047, .370, .033, .055, undefined, "reset"),
+    ...["STA", "ALM", "HA", "PWR"].flatMap((label, index) => [
+      element("led", .110, .186 + index * .073, .024, .037),
+      element("text", .074, .190 + index * .073, .035, .033, label),
+    ]),
+    ...[.048, .192].map((x) => element("screw", x, .545, .062, .100)),
+    ruggedTerminal(.046, .747, .212, .080, 4), ruggedTerminal(.300, .747, .375, .080, 9),
+    element("text", .045, .680, .213, .040, "DC1 / DC2  12–125V"),
+    element("text", .300, .861, .375, .040, "IN1 REF IN2 NC1 COM1 NO1 NC2 COM2 NO2"),
+    element("text", .316, .539, .310, .135, "Rugged 70G"),
+    element("switch", .760, .475, .068, .039, undefined, "firmware-slider"),
+    element("text", .657, .550, .166, .055, "SIGNED FW"),
+    element("coax", .875, .536, .063, .100, undefined, "capped"),
+    element("led", .484, .490, .022, .032), element("text", .507, .490, .052, .035, "BYP"),
+  ];
+  profile.faces.rear.components = ruggedDINRear(device.model);
+  noteRuggedDIN(profile);
+  profile.limitations.push("Console and serial are stacked front RJ45 sockets. The digital I/O header has nine contacts; the dual-feed DC header has four. USB protection is shown closed, and the signed-firmware selector is exposed.");
+}
+
+/** Trace each cellular G front independently, retaining five versus nine antenna sockets and its own chassis ground hardware. */
+function addRuggedGCellular(profile, device) {
+  const dual = device.model.endsWith("Dual");
+  inspected(profile, dual ? "R70G-dual" : "R50G-cell", "8 front; 5 rear DIN mounting bracket and dimensions");
+  notePhysicalLabels(profile);
+  profile.chassis = dual ? { x: .225, y: .085, width: .55, height: .83 } : { x: .29, y: .01, width: .42, height: .98 };
+  profile.faces.front.ports = device.ports.map((port, index) => {
+    if (index < 6) return namedSlot(port, index < 4 ? String(index + 1) : `WAN${index - 3}`,
+      [.412, .556, .665][Math.floor(index / 2)], index % 2 ? .798 : .677, .093, .10);
+    if (index < 8) return namedSlot(port, `SFP${index - 5}`, .790 + (index - 6) * .110, .633, .094, .10);
+    return namedSlot(port, index === 8 ? "CONSOLE" : "SERIAL", .270, index === 8 ? .677 : .798, .093, .10);
+  });
+  for (const port of profile.faces.front.ports.filter((item) => item.type !== "SFP_1G")) {
+    port.descriptionAnchor = { x: port.x, y: port.y < .72 ? .589 : .886 };
+  }
+  const antennas = dual ? [[.106, .152, "ANT2-2"], [.302, .152, "ANT2-1"], [.500, .152, "GPS"],
+    [.699, .152, "ANT1-1"], [.896, .152, "ANT1-2"], [.203, .434, "ANT2-3"], [.699, .460, "ANT1-3"],
+    [.106, .822, "ANT2-0"], [.896, .806, "ANT1-0"]] :
+    [[.106, .152, "ANT1"], [.500, .152, "GPS"], [.896, .152, "ANT3"], [.106, .824, "ANT2"], [.896, .807, "ANT0"]];
+  profile.faces.front.components = [
+    element("text", .230, .015, .540, .065, dual ? "Rugged 70G-5G-DUAL" : "Rugged 50G-5G"),
+    ...antennas.flatMap(([x, y, label]) => [element("coax", x - .024, y - .038, .048, .076),
+      element("text", x - .045, y - .080, .090, .028, label)]),
+    element("chassis", .268, .233, .106, .206), element("screw", .299, .247, .035, .050),
+    element("chassis", .130, .495, .062, .277), element("screw", .146, .516, .032, .049),
+    element("chassis", dual ? .593 : .604, .407, .067, .171), element("screw", dual ? .620 : .634, .441, .021, .040),
+    ruggedTerminal(.793, .288, .173, .070, 4), ruggedTerminal(.449, .288, .293, .070, 9),
+    element("text", .790, .372, .180, .028, dual ? "DC1 / DC2 12–125V" : "DC1 / DC2 12–54V"),
+    element("text", .448, .214, .293, .028, "NO2 COM2 NC2 NO1 COM1 NC1 IN2 REF IN1"),
+    ...["STA", "HA", "ALM", "PWR"].flatMap((label, index) => [
+      element("led", .034, .589 + index * .044, .020, .032),
+      element("text", .057, .589 + index * .044, .037, .029, label),
+    ]),
+    element("button", .080, .610, .025, .040, undefined, "reset"),
+    element("coax", .908, .428, .067, .100, undefined, "capped"),
+    ...(dual ? [[.107, "5G1"], [.141, "5G2"], [.175, "SIM1"], [.208, "SIM2"], [.242, "GPS"]] :
+      [[.107, "5G"], [.174, "SIM1"], [.208, "SIM2"], [.242, "GPS"]]).flatMap(([x, label]) => [
+      element("led", x - .007, .326, .014, .023),
+      element("text", x - .020, .279, .040, .028, label),
+    ]),
+    ...(dual ? [element("led", .404, .533, .019, .030), element("text", .385, .478, .080, .031, "BYPASS")] : []),
+    ...(dual ? [.783, .895].map((x) => element("screw", x, .884, .065, .10)) :
+      [element("screw", .902, .884, .065, .10), element("screw", .861, .907, .031, .055)]),
+    ...[.047, .924].map((x) => element("screw", x, .020, .027, .041)),
+    ...[.047, .467].map((x) => element("screw", x, .915, .027, .041)),
+  ];
+  profile.faces.rear.components = ruggedDINRear(device.model);
+  noteRuggedDIN(profile);
+  profile.limitations.push("The antenna sockets are counted from this specific front drawing; the BLE antenna remains under its cap. USB, SIM and firmware-switch protection is shown closed. Nine I/O contacts and four dual-feed DC contacts are represented separately.");
+  if (!dual) {
+    profile.legacyLayouts = [{ inventoryRevision: 0,
+      portIndexMap: Object.fromEntries(device.ports.filter((port) => port.portIndex < 10).map((port) => [port.portIndex, port.portIndex])) }];
+    profile.limitations.push("Inventory revision 1 appends the missing serial RJ45 endpoint at index 10; saved indices 1–9 and their connection identities are unchanged.");
+  }
 }

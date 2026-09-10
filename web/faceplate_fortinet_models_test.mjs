@@ -33,7 +33,7 @@ for (const entry of catalog) {
     for (const [index, box] of boxes.entries()) {
       assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1 && box.y + box.height <= 1, `${entry.model} port bounds`);
       assert.ok(box.width > 0 && box.height > 0);
-      assert.ok(box.height * Math.max(1, entry.units || 1) <= .240001, `${entry.model} physical socket height must not scale with rack units`);
+      assert.ok(box.height * Math.max(1, entry.units || 1) * profile.chassis.height <= .240001, `${entry.model} physical socket height must not scale with rack units`);
       for (const other of boxes.slice(index + 1)) assert.equal(overlaps(box, other), false, `${entry.model} sockets overlap`);
       for (const component of face.components) assert.equal(overlaps(box, component), false, `${entry.model} ${component.kind} overlaps socket`);
     }
@@ -424,6 +424,7 @@ verifyLegacyE("3100D-DC", [["RJ45_1G", 2], ["SFP_PLUS_10G", 48], ["Console", 1]]
 verifyLegacyE("3700D-DC", [["RJ45_1G", 2], ["SFP_PLUS_10G", 28], ["QSFP_PLUS_40G", 4], ["Console", 2]],
   Object.fromEntries(Array.from({ length: 36 }, (_, index) => [index + 1, index + 1])));
 
+
 for (const model of ["3300E", "3960E", "2000E", "400E-Bypass", "800D", "3000D", "3700D"]) {
   const device = deviceFor(`FortiGate ${model}`);
   const rear = resolveFortinetFaceplate(device).faces.rear;
@@ -435,5 +436,66 @@ for (const model of ["3300E", "3960E", "2000E", "400E-Bypass", "800D", "3000D", 
       width: stud.width * 1000, height: stud.height * device.faceplate.unitsU * 100 });
     assert.equal(art.filter((item) => item.kind === "circle" && item.r > 0).length, 2, "each stud has visible metal head and contact");
     assert.equal(art.filter((item) => item.kind === "line").length, 2);
+  }
+}
+
+for (const model of ["6001F", "6300F", "6301F", "6500F", "6501F", "6300F-DC", "6301F-DC", "6500F-DC", "6501F-DC"]) {
+  const device = deviceFor(`FortiGate ${model}`);
+  const profile = resolveFortinetFaceplate(device);
+  const dc = model.endsWith("-DC");
+  assert.equal(profile.fidelity, "model", `${model} is explicitly covered by the shared-panel statement`);
+  assert.equal(profile.inventoryComplete, true);
+  assert.equal(device.ports.length, 34);
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "fan").length, 3);
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "psu").length, dc ? 2 : 3);
+  const blank = profile.faces.rear.components.find((item) => item.kind === "module-bay" && item.label === "PSU3");
+  assert.equal(Boolean(blank), dc, "DC appliances cover the upper supply bay and populate only PSU1/2");
+  if (blank) assert.ok(profile.faces.rear.components.filter((item) => item.kind === "psu").every((item) => item.y > blank.y));
+  assert.deepEqual(profile.faces.front.ports.filter((port) => port.type === "SFP_PLUS_10G")
+    .map((port) => [port.portIndex, port.physicalLabel]), [[31, "MGMT3"], [32, "HA1"], [33, "HA2"]]);
+  const data = profile.faces.front.ports.filter((port) => port.type === "SFP28_25G");
+  assert.ok(data[8].x - data[6].x > data[2].x - data[0].x, "the three eight-port banks retain their physical gaps");
+  assert.equal(new Set(profile.faces.front.ports.filter((port) => port.type === "QSFP28_100G").map((port) => port.y)).size, 1);
+}
+assert.equal(resolveFortinetFaceplate(deviceFor("FortiGate 6000F")).fidelity, "family", "the unsuffixed family label is not an individual SKU");
+for (const model of ["6001F", "6501F-DC"]) verifyLegacyE(model,
+  [["SFP28_25G", 24], ["QSFP28_100G", 4], ["RJ45_1G", 5], ["Console", 2]],
+  Object.fromEntries(Array.from({ length: 34 }, (_, index) => [index + 1, index + 1])));
+
+for (const [model, antennas, ioPins] of [["60F", 0, 0], ["60F-3G4G", 3, 0], ["70F", 0, 6], ["70F-3G4G", 3, 6],
+  ["70G", 0, 9], ["50G-5G", 5, 9], ["70G-5G-Dual", 9, 9]]) {
+  const device = deviceFor(`FortiGate Rugged ${model}`);
+  const profile = resolveFortinetFaceplate(device);
+  assert.equal(profile.fidelity, "model", model);
+  assert.equal(profile.inventoryComplete, true);
+  assert.equal(device.ports.length, 10);
+  assert.equal(profile.faces.front.components.filter((item) => item.kind === "coax" && item.variant !== "capped").length, antennas);
+  assert.equal(profile.faces.rear.components.some((item) => ["fan", "psu", "vent"].includes(item.kind)), false,
+    "DIN brackets and solid mounting plates do not become invented fans or ventilation openings");
+  if (model.startsWith("60F")) {
+    assert.equal(profile.faces.front.ports.length, 9);
+    assert.equal(profile.faces.rear.ports.length, 1);
+    assert.equal(profile.faces.rear.ports[0].portIndex, 10);
+    assert.equal(profile.faces.rear.ports[0].connectorKind, "db9");
+    assert.equal(profile.faces.rear.components.filter((item) => item.kind === "terminal" && item.pins === 2).length, 2);
+  } else {
+    assert.equal(profile.faces.front.ports.length, 10);
+    assert.deepEqual(profile.faces.front.components.filter((item) => item.kind === "terminal").map((item) => item.pins).sort((a, b) => a - b), [4, ioPins]);
+    assert.ok(profile.faces.front.components.filter((item) => item.kind === "terminal").every((item) => item.variant === "pluggable"));
+    assert.ok(profile.faces.rear.components.filter((item) => item.kind === "screw").length >= 7);
+  }
+}
+verifyLegacyE("Rugged 50G-5G", [["RJ45_1G", 6], ["SFP_1G", 2], ["Console", 1]],
+  Object.fromEntries(Array.from({ length: 9 }, (_, index) => [index + 1, index + 1])));
+
+for (const model of ["6001F", "6501F-DC", "Rugged 70F", "Rugged 70G", "Rugged 50G-5G", "Rugged 70G-5G-Dual"]) {
+  const device = deviceFor(`FortiGate ${model}`);
+  const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: device.faceplate.unitsU * 100 });
+  for (const port of scene.ports.filter((item) => item.descriptionAnchor)) {
+    const placement = port.labelPlacement;
+    const width = Math.min(placement.boxMaxWidth, Math.max(12, placement.maxWidth + 6));
+    const caption = { x: placement.x - width / 2, y: placement.y - 5.5, width, height: 11 };
+    const covered = scene.ports.find((socket) => overlaps(caption, socket));
+    assert.ok(!covered, `${model} caption ${port.port.portIndex} covers socket ${covered?.port.portIndex}`);
   }
 }
