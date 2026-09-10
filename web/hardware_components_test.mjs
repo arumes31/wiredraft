@@ -1,0 +1,165 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { drawHardwareComponent, hardwareComponentSVG, hardwarePrimitives } from "./static/js/hardware-components.js";
+
+const kinds = [
+  "rj45", "sfp", "qsfp", "osfp", "cfp", "lc", "sc", "mpo", "usb-mini", "usb-micro", "usb-c",
+  "console", "stack", "dsl", "coax", "power", "usb", "led", "vent", "fan", "handle", "psu",
+  "module-bay", "text", "chassis", "unknown",
+];
+
+test("hardware artwork has finite geometry within each component's bounds", () => {
+  for (const kind of kinds) {
+    for (const size of [12, 36, 160]) {
+      const box = { kind, x: -25, y: 19, width: size, height: size / 2, label: "TEST" };
+      const primitives = hardwarePrimitives(box);
+      assert.ok(primitives.length, `${kind} produces artwork`);
+      for (const primitive of primitives) {
+        for (const value of Object.values(primitive)) {
+          if (typeof value === "number") assert.ok(Number.isFinite(value), `${kind} has finite coordinates`);
+        }
+        const bounds = primitiveBounds(primitive);
+        assert.ok(bounds.x >= box.x - 1e-8 && bounds.y >= box.y - 1e-8, `${kind} starts inside bounds`);
+        assert.ok(bounds.x + bounds.width <= box.x + box.width + 1e-8, `${kind} fits width`);
+        assert.ok(bounds.y + bounds.height <= box.y + box.height + 1e-8, `${kind} fits height`);
+      }
+    }
+  }
+});
+
+test("connector families retain distinct physical details", () => {
+  const component = { x: 0, y: 0, width: 60, height: 30 };
+  const rj45 = hardwarePrimitives({ ...component, kind: "rj45" });
+  const dsl = hardwarePrimitives({ ...component, kind: "dsl" });
+  assert.equal(rj45.filter((part) => part.fill === "#d7b76c").length, 8, "RJ45 has eight copper pins");
+  assert.equal(dsl.filter((part) => part.fill === "#d7b76c").length, 6, "RJ11 has six copper pins");
+  assert.notDeepEqual(hardwarePrimitives({ ...component, kind: "sfp" }), rj45);
+  assert.notDeepEqual(hardwarePrimitives({ ...component, kind: "usb" }), rj45);
+  assert.ok(hardwarePrimitives({ ...component, kind: "coax" }).every((part) => part.kind === "circle"));
+  assert.notDeepEqual(hardwarePrimitives({ ...component, kind: "psu", variant: "ac" }),
+    hardwarePrimitives({ ...component, kind: "psu", variant: "dc" }));
+  assert.notDeepEqual(hardwarePrimitives({ ...component, kind: "power", variant: "ac" }),
+    hardwarePrimitives({ ...component, kind: "power", variant: "dc-barrel" }));
+  assert.ok(hardwarePrimitives({ ...component, kind: "power", variant: "dc-barrel" })
+    .every((part) => part.kind === "circle"), "an external DC barrel jack is circular");
+  const keyedDC = hardwarePrimitives({ kind: "power", variant: "dc-keyed2", x: 0, y: 0, width: 14, height: 32 });
+  const pins = keyedDC.filter((part) => part.fill === "#b9c3c4");
+  assert.equal(pins.length, 2, "Fortinet desktop DC inlets have two contacts");
+  assert.equal(pins[0].x, pins[1].x, "keyed DC contacts are vertically stacked");
+  assert.ok(pins[0].y < pins[1].y);
+});
+
+test("vent variants retain distinct slot, round-perforation, and square-mesh openings", () => {
+  const box = { kind: "vent", x: 20, y: 30, width: 110, height: 36 };
+  const slots = hardwarePrimitives({ ...box, variant: "slots" });
+  const perforated = hardwarePrimitives({ ...box, variant: "perforated" });
+  const mesh = hardwarePrimitives({ ...box, variant: "mesh" });
+  assert.ok(slots.every((part) => part.kind === "rect" && part.width > part.height && part.rx > 0));
+  assert.ok(perforated.every((part) => part.kind === "circle"));
+  assert.ok(mesh.every((part) => part.kind === "rect" && Math.abs(part.width - part.height) < 1e-8 && part.rx === 0));
+  for (const art of [slots, perforated, mesh]) {
+    assert.ok(art.length > 1, "a vent grille repeats its openings");
+    for (const part of art) {
+      const bounds = primitiveBounds(part);
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y);
+      assert.ok(bounds.x + bounds.width <= box.x + box.width && bounds.y + bounds.height <= box.y + box.height);
+    }
+  }
+});
+
+test("USB-A tongues and contacts follow vertical or horizontal mounting", () => {
+  const horizontal = hardwarePrimitives({ kind: "usb", x: 0, y: 0, width: 30, height: 12 });
+  const vertical = hardwarePrimitives({ kind: "usb", x: 0, y: 0, width: 12, height: 30 });
+  const horizontalPins = horizontal.filter((part) => part.fill === "#d7b76c");
+  const verticalPins = vertical.filter((part) => part.fill === "#d7b76c");
+  assert.equal(horizontalPins.length, 4);
+  assert.equal(verticalPins.length, 4);
+  assert.equal(new Set(horizontalPins.map((part) => part.y)).size, 1);
+  assert.equal(new Set(horizontalPins.map((part) => part.x)).size, 4);
+  assert.equal(new Set(verticalPins.map((part) => part.x)).size, 1);
+  assert.equal(new Set(verticalPins.map((part) => part.y)).size, 4);
+  assert.ok(vertical[1].height > vertical[1].width, "the vertical port's tongue rotates with its contacts");
+});
+
+test("selection stroke widths stay consistent between Canvas and SVG", () => {
+  const component = { kind: "rj45", x: 10, y: 20, width: 18, height: 14 };
+  const palette = { stroke: "#7affee", strokeWidth: 1.8 };
+  const primitives = hardwarePrimitives(component, palette);
+  assert.ok(primitives.filter((part) => part.stroke).every((part) => part.strokeWidth === 1.8));
+  const canvas = recordingContext();
+  drawHardwareComponent(canvas, component, palette);
+  assert.ok(canvas.strokeWidths.every((width) => width === 1.8));
+  assert.ok(hardwareComponentSVG(component, palette).includes('stroke-width="1.8"'));
+  for (const strokeWidth of [NaN, Infinity, -1]) {
+    const fallback = hardwarePrimitives(component, { strokeWidth });
+    assert.ok(fallback.every((part) => Number.isFinite(part.strokeWidth) && part.strokeWidth >= 0));
+  }
+});
+
+test("both adapters render the same shapes and preserve the caller's canvas state", () => {
+  for (const kind of kinds) {
+    const component = { kind, x: 10, y: 20, width: 90, height: 40, label: "A&B" };
+    const palette = { surface: "#eee", surfaceDark: "#666", ink: "#222", accent: "#abc", fill: "#123", stroke: "#456" };
+    const primitives = hardwarePrimitives(component, palette);
+    const canvas = recordingContext();
+    drawHardwareComponent(canvas, component, palette);
+    const svg = hardwareComponentSVG(component, palette);
+    assert.equal(canvas.saved, 1);
+    assert.equal(canvas.restored, 1);
+    assert.equal(canvas.shapes.length, primitives.length);
+    assert.equal((svg.match(/<(?:rect|circle|line|text)\b/g) || []).length, primitives.length);
+    assert.deepEqual(canvas.shapes.map((shape) => shape.kind), primitives.map((shape) => shape.kind));
+    for (const [index, primitive] of primitives.entries()) {
+      const drawn = canvas.shapes[index];
+      for (const key of Object.keys(drawn).filter((key) => key !== "kind")) assert.equal(drawn[key], primitive[key] ?? 0);
+    }
+  }
+});
+
+test("SVG escapes text and styling values without allowing markup injection", () => {
+  const component = { kind: "text", x: 0, y: 0, width: 500, height: 40, text: '<script>alert("test")</script>&\'' };
+  const svg = hardwareComponentSVG(component, { ink: 'red" onload="bad()' });
+  assert.ok(svg.includes("&lt;script&gt;"));
+  assert.ok(svg.includes("&amp;"));
+  assert.ok(svg.includes("&quot;"));
+  assert.ok(svg.includes("&#39;"));
+  assert.ok(!svg.includes("<script>"));
+  assert.ok(!svg.includes('fill="red" onload='));
+});
+
+test("invalid component geometry never reaches either renderer", () => {
+  for (const component of [null, {}, { kind: "rj45", x: 0, y: 0, width: -1, height: 20 },
+    { kind: "rj45", x: NaN, y: 0, width: 10, height: 20 },
+    { kind: "rj45", x: 0, y: Infinity, width: 10, height: 20 }]) {
+    assert.deepEqual(hardwarePrimitives(component), []);
+    assert.equal(hardwareComponentSVG(component), "");
+    const canvas = recordingContext();
+    drawHardwareComponent(canvas, component);
+    assert.equal(canvas.shapes.length, 0);
+  }
+});
+
+/** Return the geometric bounds of a neutral drawing primitive. */
+function primitiveBounds(part) {
+  if (part.kind === "circle") return { x: part.cx - part.r, y: part.cy - part.r, width: part.r * 2, height: part.r * 2 };
+  if (part.kind === "line") return { x: Math.min(part.x1, part.x2), y: Math.min(part.y1, part.y2), width: Math.abs(part.x2 - part.x1), height: Math.abs(part.y2 - part.y1) };
+  if (part.kind === "text") return { x: part.x, y: part.y, width: 0, height: 0 };
+  return part;
+}
+
+/** Record emitted geometry at the Canvas API boundary for adapter parity checks. */
+function recordingContext() {
+  return {
+    shapes: [], strokeWidths: [], saved: 0, restored: 0,
+    save() { this.saved += 1; },
+    restore() { this.restored += 1; },
+    beginPath() {},
+    roundRect(x, y, width, height, rx) { this.shapes.push({ kind: "rect", x, y, width, height, rx }); },
+    arc(cx, cy, r) { this.shapes.push({ kind: "circle", cx, cy, r }); },
+    moveTo(x1, y1) { this.pending = { kind: "line", x1, y1 }; },
+    lineTo(x2, y2) { this.shapes.push({ ...this.pending, x2, y2 }); },
+    fillText(text, x, y) { this.shapes.push({ kind: "text", text, x, y }); },
+    fill() {}, stroke() { this.strokeWidths.push(this.lineWidth); },
+  };
+}
