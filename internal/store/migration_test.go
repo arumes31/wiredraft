@@ -17,6 +17,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 //go:embed testdata/migrations/*.json
@@ -695,6 +696,8 @@ func (r *scriptedMigrationRows) Values() ([]any, error) {
 func (r *scriptedMigrationRows) RawValues() [][]byte { return nil }
 
 func (r *scriptedMigrationRows) Conn() *pgx.Conn { return nil }
+
+func (r *scriptedMigrationRows) TypeMap() *pgtype.Map { return pgtype.NewMap() }
 
 type scriptedMigrationRow struct {
 	values []any
