@@ -94,7 +94,7 @@ assert.equal(catalogDevice("CRS354-48G-4S+2Q+RM").device.ports.at(-2).speedMbps,
 
 for (const [model, portCount] of [
   ["PA-220", 11], ["PA-440", 10], ["PA-450", 10], ["PA-460", 10],
-  ["PA-850", 17], ["PA-440 / PA-450", 10],
+  ["PA-850", 17], ["PA-440 / PA-450", 11],
 ]) {
   const { profile, device } = catalogDevice(model);
   assert.equal(device.ports.length, portCount, `${model} connector count must match its hardware reference`);

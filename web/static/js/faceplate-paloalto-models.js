@@ -9,8 +9,9 @@ const models = new Map([
 
 /** Resolve only individually verified Palo Alto models and their canonical inventory. */
 export function buildPaloAltoModelFaceplate(device) {
-  const definition = models.get(device.model);
-  if (!definition || device.faceplate.vendor !== "Palo Alto") return null;
+  const sharedAlias = device?.model === "PA-440 / PA-450";
+  const definition = models.get(sharedAlias ? "PA-440" : device?.model);
+  if (!definition || device.faceplate?.vendor !== "Palo Alto") return null;
   const { guide, widthMM, layout } = definition;
   const base = `${HARDWARE}${guide}-hardware-reference/${guide}-firewall-overview/`;
   const front = `${base}${guide}-front-panel`;
@@ -19,14 +20,20 @@ export function buildPaloAltoModelFaceplate(device) {
   const missingConsole = layout === "400" && !device.ports.some((port) => port.type === "Console");
   return {
     id: `enterprise-palo-alto-${device.model.toLowerCase()}`, family: device.model, fidelity: "model",
+    ...(sharedAlias ? { sku: "PA-440 / PA-450 (identical panels)", inventoryComplete: true, inventoryRevision: 1,
+      panelFidelity: { front: "model", rear: "model" },
+      legacyLayouts: [{ inventoryRevision: 0, portIndexMap: Object.fromEntries(Array.from({ length: 10 }, (_, index) => [index + 1, index + 1])) }],
+      limitations: ["This combined entry uses the manufacturer-confirmed identical PA-440 and PA-450 panels, with PA-440 printed on the chassis. Both physical power inputs and their status LEDs are shown; external adapters are outside this view. The rear sheet-metal power-cord retainer is represented by a simplified handle symbol."] } : {}),
     source: front, sourcePage: `${device.model} front and back panel component illustrations`,
-    evidence: { models: [device.model], scope: "model", reviewed: "2026-09-10", front, rear,
+    evidence: { models: sharedAlias ? ["PA-440", "PA-450"] : [device.model], scope: "model", reviewed: "2026-09-10", front, rear,
+      ...(sharedAlias ? { catalogAlias: device.model, configuration: "Identical PA-440 / PA-450 chassis with both console sockets; PA-440 printed model marking" } : {}),
       ...(layout === "400" ? { sharedChassis: "Manufacturer explicitly states PA-440, PA-450 and PA-460 front and back panels are identical." }
         : layout === "850" ? { sharedChassis: "PA-800 front-panel guide explicitly identifies only model name and port-speed differences; rear illustration is PA-850-specific." } : {}) },
     inventoryNotes: ["The drawing preserves canonical ports; USB storage sockets and grounding hardware are decorative."],
-    catalogDiscrepancies: missingConsole ? ["The catalog omits the physical RJ45 CONSOLE port. It is drawn as hardware only; existing port IDs and cables are preserved."] : [],
+    catalogDiscrepancies: missingConsole ? ["The catalog omits the physical RJ45 CONSOLE port. It is drawn as hardware only; existing port IDs and cables are preserved."]
+      : sharedAlias ? ["Older alias inventories omit RJ45 CONSOLE. New devices append it at index 11; all ten historical endpoint identities remain unchanged."] : [],
     defaultFace: "front", chassis: { x: (1 - width) / 2, y: .05, width, height: .9 },
-    faces: layout === "850" ? rack850(device) : desktop(device, layout, missingConsole),
+    faces: layout === "850" ? rack850(device) : desktop(sharedAlias ? { ...device, model: "PA-440" } : device, layout, missingConsole),
   };
 }
 
@@ -81,6 +88,7 @@ function desktop(device, layout, missingConsole) {
       part("handle", .62, .19, .20, .13), part("button", .463, .73, .026, .12, undefined, "ground"),
       part("power", .648, .49, .061, .31, "PWR 1", "dc-barrel"),
       part("power", .78, .49, .061, .31, "PWR 2", "dc-barrel"));
+    for (const x of [.717, .849]) rear.components.push({ ...part("led", x, .73, .013, .063), role: "power-status" });
     rear.components.push(part("text", .11, .32, .13, .13, "SERIAL"));
   }
   return { front, rear };

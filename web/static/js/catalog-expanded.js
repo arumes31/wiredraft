@@ -74,7 +74,13 @@ const profiles = [
   ...many("HPE Aruba", ["CX 6000 family", "CX 6100 family", "CX 6200 family", "CX 6300 family"], "Switch", 1, "#27383a", [r(48, 1000, true), u(4, "SFP56_50G", 50000, "SFP56"), mgmt(), con("USB_C_CONSOLE"), stack(2, "VSF")]),
   ...many("HPE Aruba", ["CX 6400 family", "CX 8400 family", "CX 10000 family"], "Switch", 4, "#27383a", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP_DD_400G", 400000, "QSFP-DD"), mgmt(2), con("USB_C_CONSOLE")]),
   ...many("HPE Aruba", ["CX 8320 family", "CX 8325 family", "CX 8360 family"], "Switch", 1, "#27383a", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con("USB_C_CONSOLE")]),
-  ...many("HPE", ["ProLiant DL20", "ProLiant DL160", "ProLiant DL180", "ProLiant DL325", "ProLiant DL345", "ProLiant DL360", "ProLiant DL380", "ProLiant DL385", "ProLiant DL560", "ProLiant DL580", "ProLiant ML30", "ProLiant ML110", "ProLiant ML350"], "Server", 2, "#33393b", [t(4, "NIC"), mgmt(1, "iLO")]),
+  ...many("HPE", ["ProLiant DL20", "ProLiant DL160", "ProLiant DL180", "ProLiant DL325", "ProLiant DL345", "ProLiant DL385", "ProLiant DL560", "ProLiant DL580", "ProLiant ML30", "ProLiant ML110", "ProLiant ML350"], "Server", 2, "#33393b", [t(4, "NIC"), mgmt(1, "iLO")]),
+  profile("HPE", "ProLiant DL360", "Server", 1, "#33393b", [t(2, "NIC"), mgmt(1, "iLO")], {
+    ...verified("https://www.hpe.com/us/en/collaterals/collateral.a50004306enw.html"), inventoryRevision: 1,
+    note: "Selected Gen11 P52499-B21 8SFF SATA configuration, P10097-B21 dual 10Gb BASE-T in OCP slot 15, rear iLO and two 800W supplies; front USB-A maintenance ports are ancillary artwork." }),
+  profile("HPE", "ProLiant DL380", "Server", 2, "#33393b", [t(2, "NIC"), mgmt(1, "iLO")], {
+    ...verified("https://www.hpe.com/us/en/collaterals/collateral.a50004307enw.html"), inventoryRevision: 1,
+    note: "Selected Gen11 P52534-B21 right 8SFF SATA configuration, P10097-B21 dual 10Gb BASE-T in OCP slot 15, rear iLO and two 800W supplies; other drive boxes and expansion positions covered." }),
   ...many("Dell", ["PowerSwitch S3048", "PowerSwitch S4048", "PowerSwitch S5048", "PowerSwitch S5248", "PowerSwitch Z9264", "PowerSwitch Z9332"], "Switch", 1, "#1d3d50", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con()]),
   profile("Dell", "PowerEdge R350", "Server", 1, "#303a3e", [r(2, 1000, false, "NIC"), mgmt(1, "iDRAC"), con(), con("USB_MICRO_CONSOLE", "iDRAC-DIRECT")], {
     ...verified("https://i.dell.com/sites/csdocuments/Product_Docs/en/Dell-EMC-PowerEdge-R350-Spec-sheet.pdf"), inventoryRevision: 1,

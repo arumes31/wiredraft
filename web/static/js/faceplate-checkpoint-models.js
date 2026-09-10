@@ -11,6 +11,7 @@ const models = new Set(["Quantum 1600", "Quantum 1800", "Quantum 3600", "Quantum
 
 /** Build only Check Point models whose individual front and rear panels are documented. */
 export function buildCheckPointModelFaceplate(device) {
+  if (device?.faceplate?.vendor === "Check Point" && device.model === "Quantum 6200 / 6600") return combined6200Profile(device);
   if (device?.faceplate?.vendor !== "Check Point" || !models.has(device.model)) return null;
   if (device.model === "Quantum 1600" || device.model === "Quantum 1800") return sparkProfile(device);
   if (rackModels.has(device.model)) return rackProfile(device);
@@ -24,6 +25,27 @@ export function buildCheckPointModelFaceplate(device) {
     catalogDiscrepancies: [], defaultFace: "front",
     chassis: { x: .255, y: .08, width: .49, height: .84 }, faces: desktopPanels(device.ports),
   };
+}
+
+/** Select 6200 Base and preserve the alias's stable Mgmt/Sync roles despite its historical Console type. */
+function combined6200Profile(device) {
+  const profile = rackProfile({ ...device, model: "Quantum 6200" });
+  profile.id = "checkpoint-6200-combined-alias";
+  profile.sku = "Quantum 6200 Base";
+  profile.evidence = { ...profile.evidence, catalogAlias: device.model, selectedModel: "Quantum 6200",
+    configuration: "Quantum 6200 Base with one AC supply, optional LOM installed and empty network expansion bay" };
+  profile.legacyLayouts = [{ inventoryRevision: 0,
+    portIndexMap: { ...Object.fromEntries(Array.from({ length: 8 }, (_, index) => [index + 1, index + 1])), 13: 9, 14: 10 },
+    portLabels: { 13: "Mgmt", 14: "Sync" } }];
+  for (const slot of profile.faces.front.ports.filter((port) => port.portIndex === 9 || port.portIndex === 10)) {
+    slot.compatibleTypes = ["Console"];
+    slot.physicalLabel = slot.label;
+  }
+  profile.limitations.unshift("This combined catalog entry explicitly selects Quantum 6200 Base. Quantum 6600 has a different rear PSU arrangement and is available as its own catalog entry.");
+  profile.catalogDiscrepancies = ["The old alias contains four optical endpoints without an identified card; indices 9–12 remain preserved as unmapped inventory. Old Console-type indices 13/14 were canonically labeled Mgmt/Sync and map to those physical RJ45 sockets, retaining their IDs and settings. LAN indices 1–8 retain their identities. New instances include both real console types and LOM."];
+  profile.faces.rear.components = profile.faces.rear.components.map((component) => component.label === "ESD"
+    ? { ...component, kind: "service-jack", variant: undefined, role: "esd" } : component);
+  return profile;
 }
 
 /** Select each modular chassis with its base network card, AC supplies, one disk and optional LOM installed. */

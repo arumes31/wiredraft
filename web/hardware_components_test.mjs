@@ -3,6 +3,94 @@ import test from "node:test";
 
 import { drawHardwareComponent, hardwareComponentSVG, hardwarePrimitives } from "./static/js/hardware-components.js";
 
+test("oval push controls retain a horizontal rounded aperture without round socket or indicator art", () => {
+  const component = { kind: "button", variant: "oval", x: 5, y: 8, width: 34, height: 15 };
+  const parts = hardwarePrimitives(component);
+  assert.equal(parts.length, 2);
+  assert.ok(parts.every((part) => part.kind === "rect" && part.width > part.height * 2 && part.rx > 3));
+  assert.ok(parts[1].x > parts[0].x && parts[1].y > parts[0].y);
+  assert.ok(parts[1].x + parts[1].width < parts[0].x + parts[0].width);
+  assert.ok(!parts.some((part) => ["#42d98b", "#d7b76c", "#22a0ab"].includes(part.fill)));
+  assert.ok(hardwarePrimitives({ ...component, variant: undefined }).every((part) => part.kind === "circle"));
+});
+
+test("HPE Basic carriers retain their hourglass openings and rotate the release and two lamps together", () => {
+  const component = { kind: "drive-carrier", variant: "hpe-basic", x: 0, y: 0, width: 150, height: 30 };
+  const parts = hardwarePrimitives(component);
+  const release = parts.find((part) => part.kind === "rect" && part.fill === "#78868b");
+  assert.ok(release && release.x > 110 && release.height > 15);
+  const lamps = parts.filter((part) => part.kind === "rect" && part.stroke === "#a7b2b5" && part.width < 4);
+  assert.equal(lamps.length, 2);
+  assert.ok(lamps.every((part) => part.x > release.x + release.width));
+  const slopes = parts.filter((part) => part.kind === "line" && part.x1 !== part.x2 && part.y1 !== part.y2);
+  assert.equal(slopes.length, 4, "the two vent openings taper toward the middle handle");
+  const rotated = hardwarePrimitives({ ...component, width: 30, height: 150, orientation: "vertical" });
+  assert.equal(rotated.length, parts.length);
+  for (let index = 0; index < parts.length; index++) {
+    const original = primitiveBounds(parts[index]);
+    const actual = primitiveBounds(rotated[index]);
+    for (const [got, expected] of [[actual.x, 30 - original.y - original.height], [actual.y, original.x],
+      [actual.width, original.height], [actual.height, original.width]]) assert.ok(Math.abs(got - expected) < 1e-8);
+  }
+  assert.ok(!hardwarePrimitives({ ...component, active: false }).some((part) => part.fill === "#42d98b"));
+  assert.ok(!hardwarePrimitives({ ...component, variant: undefined }).some((part) => part.fill === "#78868b"));
+});
+
+test("HPE 800W FlexSlot supplies retain a fan-crossing horizontal handle and right-facing C14 contacts", () => {
+  const component = { kind: "psu", variant: "hpe-flexslot-800", x: 0, y: 0, width: 100, height: 67 };
+  const parts = hardwarePrimitives(component);
+  const fan = parts.find((part) => part.kind === "circle" && part.fill === "#122327");
+  const handle = parts.find((part) => part.kind === "rect" && part.fill === "#a7b2b5");
+  const inlet = parts.find((part) => part.kind === "rect" && part.fill === "#07151a");
+  assert.ok(fan && handle && inlet);
+  assert.ok(handle.width > handle.height * 5 && handle.x < fan.cx && handle.x + handle.width > fan.cx);
+  assert.ok(handle.y < fan.cy && handle.y + handle.height > fan.cy);
+  assert.ok(fan.cx + fan.r < inlet.x && handle.x + handle.width < inlet.x);
+  const blades = parts.filter((part) => part.kind === "rect" && part.fill === "#d0d6d8");
+  assert.equal(blades.length, 3);
+  assert.ok(blades.every((part) => part.width > part.height));
+  assert.equal(blades[0].x, blades[1].x);
+  assert.ok(blades[2].x > blades[0].x && blades[0].y < blades[2].y && blades[2].y < blades[1].y);
+  assert.ok(blades.every((part) => part.x > inlet.x && part.x + part.width < inlet.x + inlet.width));
+  assert.ok(!hardwarePrimitives({ ...component, active: false }).some((part) => part.fill === "#42d98b"));
+  for (const height of [54.4, 58.24, 67]) {
+    const resized = hardwarePrimitives({ ...component, width: 98.7, height });
+    const rotor = resized.find((part) => part.kind === "circle" && part.fill === "#122327");
+    const spokes = resized.filter((part) => part.kind === "line" && part.stroke === "#708389" && part.x1 < 60 && part.x2 < 60);
+    assert.equal(spokes.length, 8);
+    for (const spoke of spokes) for (const [x, y] of [[spoke.x1, spoke.y1], [spoke.x2, spoke.y2]]) {
+      assert.ok(Math.hypot(x - rotor.cx, y - rotor.cy) <= rotor.r, "fan spokes remain inside the circular grille at both server heights");
+    }
+  }
+});
+
+test("explicit HPE components stay finite and bounded in both deployed orientations", () => {
+  for (const component of [
+    { kind: "drive-carrier", variant: "hpe-basic", width: 150, height: 30 },
+    { kind: "drive-carrier", variant: "hpe-basic", orientation: "vertical", width: 30, height: 150 },
+    { kind: "psu", variant: "hpe-flexslot-800", width: 98.7, height: 67.3 },
+  ]) {
+    const box = { ...component, x: 10, y: 20 };
+    const parts = hardwarePrimitives(box);
+    for (const part of parts) {
+      assert.ok(Object.values(part).filter((value) => typeof value === "number").every(Number.isFinite));
+      const bounds = primitiveBounds(part);
+      assert.ok(bounds.x >= box.x && bounds.y >= box.y);
+      assert.ok(bounds.x + bounds.width <= box.x + box.width + 1e-8);
+      assert.ok(bounds.y + bounds.height <= box.y + box.height + 1e-8);
+    }
+    assert.equal((hardwareComponentSVG(box).match(/<(?:rect|circle|line|text)\b/g) || []).length, parts.length);
+    const canvas = recordingContext();
+    drawHardwareComponent(canvas, box);
+    assert.equal(canvas.saved, 1);
+    assert.equal(canvas.restored, 1);
+    assert.deepEqual(canvas.shapes.map((part) => part.kind), parts.map((part) => part.kind));
+    for (const [index, part] of canvas.shapes.entries()) {
+      for (const key of Object.keys(part).filter((key) => key !== "kind")) assert.equal(part[key], parts[index][key] ?? 0);
+    }
+  }
+});
+
 test("microSD service recesses show a thin card slot without invented fasteners or connector contacts", () => {
   const component = { kind: "card-slot", variant: "micro-sd-recess", x: 10, y: 20, width: 64, height: 52 };
   const parts = hardwarePrimitives(component);

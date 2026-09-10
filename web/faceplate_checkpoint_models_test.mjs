@@ -12,6 +12,41 @@ function deviceFor(model) {
   return device;
 }
 
+test("the 6200 / 6600 alias discloses 6200 Base and retains known Mgmt/Sync identities without repurposing optical endpoints", () => {
+  const device = deviceFor("Quantum 6200 / 6600");
+  const profile = buildCheckPointModelFaceplate(device);
+  assert.equal(profile.fidelity, "model");
+  assert.equal(profile.evidence.selectedModel, "Quantum 6200");
+  assert.equal(profile.sku, "Quantum 6200 Base");
+  assert.deepEqual(profile.evidence.models, ["Quantum 6200"]);
+  assert.match(profile.evidence.configuration, /6200 Base.*LOM/);
+  assert.equal(device.faceplate.inventoryRevision, 1);
+  assert.equal(device.ports.length, 13);
+  assert.deepEqual(device.ports.slice(8).map((port) => [port.type, port.label]),
+    [["RJ45_1G", "MGMT"], ["RJ45_1G", "SYNC"], ["Console", "CONSOLE"], ["USB_C_CONSOLE", "USB-C"], ["RJ45_1G", "LOM"]]);
+  assert.equal(profile.faces.rear.components.filter((part) => part.kind === "power" && part.variant === "ac").length, 1);
+  assert.equal(profile.faces.rear.components.filter((part) => part.kind === "psu").length, 0);
+  assert.ok(profile.faces.rear.components.some((part) => part.kind === "service-jack" && part.role === "esd"));
+  delete device.faceplate.inventoryRevision;
+  device.ports = Array.from({ length: 14 }, (_, index) => ({
+    id: `old-${index + 1}`, portIndex: index + 1, type: index < 8 ? "RJ45_1G" : index < 12 ? "SFP_PLUS_10G" : "Console",
+    label: `Custom ${index + 1}`, speedMbps: index < 8 ? 1000 : index < 12 ? 10000 : 0, allowedVlans: [207], poe: false,
+  })).filter((port) => port.portIndex !== 3).reverse();
+  const before = structuredClone(device);
+  const bounds = { x: 0, y: 0, width: 690, height: 100 };
+  const scene = buildFaceplateScene(device, bounds);
+  assert.deepEqual(scene.unmappedPorts.map((port) => port.portIndex), [12, 11, 10, 9]);
+  assert.deepEqual(scene.ports.map((box) => box.port.portIndex), [14, 13, 8, 7, 6, 5, 4, 2, 1]);
+  const oldSync = scene.ports.find((box) => box.port.portIndex === 14);
+  const oldMgmt = scene.ports.find((box) => box.port.portIndex === 13);
+  assert.equal(oldSync.centerX, oldMgmt.centerX);
+  assert.ok(oldSync.centerY < oldMgmt.centerY, "source SYNC is above MGMT despite the old alias's reversed index order");
+  assert.deepEqual(new Set([...scene.ports, ...scene.hiddenPorts].map((box) => box.port.id)), new Set(device.ports.map((port) => port.id)));
+  assert.deepEqual(device, before);
+  device.faceplate.inventoryRevision = 99;
+  assert.equal(buildFaceplateScene(device, bounds).unmappedPorts.length, device.ports.length);
+});
+
 test("3600 and 3800 have six single-row Ethernet sockets, both console types and two rear DC inlets", () => {
   for (const model of ["Quantum 3600", "Quantum 3800"]) {
     const profile = buildCheckPointModelFaceplate(deviceFor(model));

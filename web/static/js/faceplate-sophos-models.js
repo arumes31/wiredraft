@@ -19,19 +19,40 @@ const definitions = new Map([
 
 /** Build a model-scoped Sophos drawing from immutable catalog inventory. */
 export function buildSophosModelFaceplate(device) {
-  const definition = definitions.get(device.model);
-  if (!definition || device.faceplate.vendor !== "Sophos") return null;
+  const selectedModel = device?.model === "XGS 126 / 136" ? "XGS 126"
+    : device?.model === "XGS 2100 / 2300" ? "XGS 2100" : null;
+  const definition = definitions.get(selectedModel || device?.model);
+  if (!definition || device.faceplate?.vendor !== "Sophos") return null;
   const { series, desktop, widthMM, document, supplemental } = definition;
   const source = `${MANUAL}${document}.pdf`;
   const width = desktop ? widthMM / 438 : 1;
-  const faces = desktop ? desktopFaces(device, series) : rackFaces(device, series);
+  const physicalDevice = selectedModel ? { ...device, model: selectedModel } : device;
+  const faces = desktop ? desktopFaces(physicalDevice, series) : rackFaces(physicalDevice, series);
+  if (selectedModel === "XGS 126") {
+    for (const slot of faces.rear.ports.filter((port) => port.portIndex === 11 || port.portIndex === 12)) slot.compatibleTypes = ["RJ45_MGIG"];
+  }
+  if (selectedModel === "XGS 2100") {
+    for (const slot of faces.front.ports) slot.physicalLabel = ({ "1": "1/LAN", "2": "2/WAN", "3": "3/DMZ" })[slot.label] || slot.label;
+  }
+  const configuration = selectedModel && `${selectedModel} non-wireless base chassis with ${desktop ? "1GbE PoE ports 11/12 and an empty expansion bay" : "one internal AC supply, covered external RPS connector and empty Flexi Port bay"}`;
   return {
-    id: `enterprise-sophos-xgs-${series}`, family: `Sophos XGS ${series}`, fidelity: "model",
+    id: `enterprise-sophos-xgs-${series}${selectedModel ? "-combined-alias" : ""}`, family: `Sophos XGS ${series}`, fidelity: "model",
+    ...(selectedModel ? { sku: selectedModel, inventoryComplete: true, inventoryRevision: 1,
+      panelFidelity: { front: "model", rear: "model" },
+      legacyLayouts: [{ inventoryRevision: 0, portIndexMap: Object.fromEntries(Array.from({ length: desktop ? 16 : 13 }, (_, index) => [index + 1, index + 1])) }],
+      limitations: [`The combined catalog entry explicitly selects ${configuration}. The other named model is available as its own catalog entry.`,
+        desktop ? "The manufacturer shares the panel illustration, but XGS 136 has 2.5GbE PoE sockets. Historical saved 2.5GbE settings are preserved on their original physical sockets."
+          : "The manual warns that the XGS 2100 front may differ from the illustrated XGS 2300. This selection is cross-checked against Sophos's individually labeled XGS 2100 front and rear product illustrations."] } : {}),
     source, sourcePage: "Operating Elements and Connections, p. 3; Interfaces and physical specifications, pp. 4–5",
-    evidence: { models: [device.model], scope: "model", reviewed: "2026-09-10",
+    evidence: { models: [selectedModel || device.model], scope: "model", reviewed: "2026-09-10",
+      ...(selectedModel ? { selectedModel, catalogAlias: device.model, configuration,
+        ...(desktop ? { sharedPanelModels: ["XGS 126", "XGS 136"] } : {
+          frontIllustration: "https://images.contentstack.io/v3/assets/blt38f1f401b66100ad/blt0d88eddcfb729285/693a8283fe65012ccd3ecec9/large-xgs-2100-front.png",
+          rearIllustration: "https://images.contentstack.io/v3/assets/blt38f1f401b66100ad/blt11fecda8426b2cc3/693a92e4a84fc61d79a09a0e/large-xgs-2100-back.png",
+        }) } : {}),
       front: `${source}#page=3`, rear: `${source}#page=3`, ...(supplemental ? { supplemental: PRODUCT } : {}) },
     inventoryNotes: ["Fixed interfaces are model-specific; optional modules remain unpopulated and USB storage sockets are decorative."],
-    catalogDiscrepancies: [], defaultFace: desktop ? "rear" : "front",
+    catalogDiscrepancies: selectedModel === "XGS 126" ? ["The old combined inventory used XGS 136 speeds on ports 11/12. New instances use the selected XGS 126's 1GbE ports; saved speeds, labels, IDs and PoE settings are retained."] : [], defaultFace: desktop ? "rear" : "front",
     chassis: { x: (1 - width) / 2, y: .05, width, height: .9 }, faces,
   };
 }
@@ -140,7 +161,9 @@ function rackRear(series) {
   for (const x of (large ? [.062, .158, .365, .461, .564] : [.383, .479])) {
     parts.push(part("fan", x, .16, .08, .73));
   }
-  parts.push(part("button", large ? .66 : .683, .15, .026, .28, undefined, "power"));
+  parts.push(series === 2100
+    ? { ...part("button", .683, .18, .048, .22, undefined, "oval"), role: "power-control" }
+    : part("button", large ? .66 : .683, .15, .026, .28, undefined, "power"));
   if (series === 4500) {
     parts.push(part("module-bay", .714, .06, .147, .88, "PSU 2", "blank"),
       part("psu", .867, .06, .121, .88, "PSU 1", "ac"));

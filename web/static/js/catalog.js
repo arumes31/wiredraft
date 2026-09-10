@@ -118,23 +118,31 @@ const profiles = [
     { ...r(8, "RJ45_1G", 1000, false, "ETH"), labels: Array.from({ length: 8 }, (_, index) => `ethernet1/${index + 1}`) },
     { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGT", labels: ["MGT"] },
     { zone: "management", count: 1, type: "USB_MICRO_CONSOLE", speed: 0, poe: false, prefix: "CONSOLE", labels: ["MICRO-USB"] },
-  ]),
+    { ...m(1), labels: ["CONSOLE"] },
+  ], { inventoryRevision: 1 }),
   p("Palo Alto", "PA-1410 / PA-1420", "Firewall", 1, "#304047", [r(12, "RJ45_1G", 1000, false, "ETH"), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(2)]),
   p("Sophos", "XGS 126 / 136", "Firewall", 1, "#21466a", [
     { ...r(10, "RJ45_1G", 1000, false, "GE"), labels: Array.from({ length: 10 }, (_, index) => String(index + 1)) },
-    { ...r(2, "RJ45_MGIG", 2500, true, "GE"), labels: ["11", "12"] },
+    { ...r(2, "RJ45_1G", 1000, true, "GE"), labels: ["11", "12"] },
     { ...u(2, "SFP_1G", 1000, "SFP"), labels: ["F1", "F2"] },
     { zone: "management", count: 1, type: "Console", speed: 0, poe: false, prefix: "COM", labels: ["COM"] },
     { zone: "management", count: 1, type: "USB_MICRO_CONSOLE", speed: 0, poe: false, prefix: "COM", labels: ["MICRO-USB"] },
-  ]),
+  ], { inventoryRevision: 1 }),
   p("Sophos", "XGS 2100 / 2300", "Firewall", 1, "#21466a", [
     { ...r(8, "RJ45_1G", 1000, false, "GE"), labels: Array.from({ length: 8 }, (_, index) => String(index + 1)) },
     { ...u(2, "SFP_1G", 1000, "SFP"), labels: ["F1", "F2"] },
     { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGMT", labels: ["MGMT"] },
     { zone: "management", count: 1, type: "Console", speed: 0, poe: false, prefix: "COM", labels: ["COM"] },
     { zone: "management", count: 1, type: "USB_MICRO_CONSOLE", speed: 0, poe: false, prefix: "COM", labels: ["MICRO-USB"] },
-  ]),
-  p("Check Point", "Quantum 6200 / 6600", "Firewall", 1, "#442839", [r(8, "RJ45_1G", 1000, false, "GE"), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(2)]),
+  ], { inventoryRevision: 1 }),
+  p("Check Point", "Quantum 6200 / 6600", "Firewall", 1, "#442839", [
+    { ...r(8, "RJ45_1G", 1000, false, "GE"), labels: Array.from({ length: 8 }, (_, index) => String(index + 1)) },
+    { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] },
+    { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "SYNC", labels: ["SYNC"] },
+    { ...m(1), labels: ["CONSOLE"] },
+    { ...m(1), type: "USB_C_CONSOLE", labels: ["USB-C"] },
+    { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "LOM", labels: ["LOM"] },
+  ], { inventoryRevision: 1 }),
 ];
 
 for (const profile of profiles) {

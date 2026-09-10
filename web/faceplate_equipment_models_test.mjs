@@ -92,7 +92,7 @@ test("generic passive rear artwork never duplicates connectable inventory or pat
 });
 
 test("configurable equipment identifies schematic service areas without invented fan or PSU populations", () => {
-  for (const model of ["ProLiant DL360", "ProLiant DL380", "RackStation family", "PowerStore family", "FAS family",
+  for (const model of ["ProLiant DL325", "ProLiant DL385", "RackStation family", "PowerStore family", "FAS family",
     "Smart-UPS Network family", "KVM-over-IP 16 port", "EdgeMAX legacy family"]) {
     const profile = resolveEquipmentFaceplate(deviceFor(model));
     assert.equal(profile.fidelity, "schematic", model);

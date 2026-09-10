@@ -53,6 +53,9 @@ export function hardwarePrimitives(component, palette = {}) {
   } else if (kind === "button" && component.variant === "reset") {
     art.circle(.5, .5, .45, colors.surfaceDark, colors.ink);
     art.circle(.5, .5, .22, "#07151a");
+  } else if (kind === "button" && component.variant === "oval") {
+    art.rect(.03, .12, .94, .76, colors.surfaceDark, colors.ink, .45);
+    art.rect(.11, .23, .78, .54, "#23383f", "#a5b2b6", .35);
   } else if (kind === "button") {
     art.circle(.5, .5, .45, colors.surfaceDark, colors.ink);
     art.circle(.5, .5, .31, "#23383f", "#a5b2b6");
@@ -457,6 +460,10 @@ function addEndHandleFan(art, component, colors) {
 
 /** Distinguish a front drive's release/status strip and grille from the compact rear BOSS pull tray. */
 function addDriveCarrier(art, component, colors) {
+  if (component.variant === "hpe-basic") {
+    addHPEBasicCarrier(orientedArt(art, component.orientation === "vertical"), component, colors);
+    return;
+  }
   if (component.variant === "boss") {
     art.rect(.10, .025, .80, .94, colors.surfaceDark, colors.ink, .035);
     art.rect(.21, .25, .58, .50, "#07151a", colors.ink, .01);
@@ -477,6 +484,30 @@ function addDriveCarrier(art, component, colors) {
     face.rect(.37 + column * .060, .23 + row * .185, .045, .14, "#07151a", undefined, .012);
   }
   face.rect(.85, .32, .095, .35, "#39484d", colors.ink, .015);
+}
+
+/** Trace the HPE Basic Carrier's tapered vents, central handle, end release and paired lamps. */
+function addHPEBasicCarrier(art, component, colors) {
+  art.rect(.012, .045, .976, .91, "#26343a", colors.ink, .025);
+  art.rect(.025, .08, .71, .84, "#a7b2b5", "#65767d", .015);
+  for (const lower of [false, true]) {
+    const outer = lower ? .90 : .10;
+    const inner = lower ? .65 : .35;
+    art.line(.20, outer, .69, outer, "#465a62");
+    art.line(.20, outer, .27, inner, "#465a62");
+    art.line(.27, inner, .62, inner, "#465a62");
+    art.line(.62, inner, .69, outer, "#465a62");
+    for (let column = 0; column < 5; column++) {
+      const left = .28 + column * .072;
+      art.rect(left, lower ? .71 : .17, .045, .12, "#233238", undefined, .015);
+    }
+  }
+  art.rect(.735, .12, .197, .76, "#485960", "#a7b2b5", .01);
+  art.rect(.765, .20, .108, .60, "#78868b", colors.ink, .015);
+  art.line(.856, .22, .856, .78, "#c3cccf");
+  for (const [top, fill] of [[.22, colors.surfaceDark], [.66, component.active === false ? colors.surfaceDark : "#42d98b"]]) {
+    art.rect(.947, top, .018, .10, fill, "#a7b2b5", .005);
+  }
 }
 
 /** Fill a bounded grille with its repeated openings, heatsink fins, or single slit. */
@@ -554,6 +585,10 @@ function addHandle(art, colors) {
 function addPowerSupply(art, component, colors) {
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
+  if (component.variant === "hpe-flexslot-800") {
+    addHPEFlexSlotSupply(art, component, colors);
+    return;
+  }
   if (["ac-c16-portrait", "dc-keyed2-portrait", "ac-saf-d-grid", "ac-c16-horizontal"].includes(component.variant)) {
     add7000FPowerSupply(art, component, colors);
     return;
@@ -603,6 +638,36 @@ function addPowerSupply(art, component, colors) {
   art.rect(.83 + handleOffset, .28, .035, .44, colors.surface, colors.ink, .02);
   art.circle(.94, .22, .035, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
   if (component.variant !== "fixed") art.rect(.78 + handleOffset, .73, .08, .1, colors.accent, colors.ink, .02);
+}
+
+/** Trace the 800W HPE Flex Slot supply's horizontal fan handle and sideways C14 inlet. */
+function addHPEFlexSlotSupply(art, component, colors) {
+  const physicalRadius = Math.min(component.width * .27, component.height * .39);
+  const radius = physicalRadius / Math.min(component.width, component.height);
+  const radiusX = physicalRadius / component.width;
+  const radiusY = physicalRadius / component.height;
+  art.circle(.34, .51, radius, "#122327", "#a7b2b5");
+  for (let index = 0; index < 8; index++) {
+    const angle = index * Math.PI / 4;
+    art.line(.34 + Math.cos(angle) * radiusX * .34, .51 + Math.sin(angle) * radiusY * .34,
+      .34 + Math.cos(angle + .28) * radiusX * .94, .51 + Math.sin(angle + .28) * radiusY * .94, "#708389");
+  }
+  art.circle(.34, .51, .12, colors.surfaceDark, "#a7b2b5");
+  for (const x of [.075, .60]) for (const y of [.18, .84]) {
+    art.circle(x, y, .04, colors.surfaceDark, colors.ink);
+    art.line(x - .018, y, x + .018, y, "#a7b2b5");
+    art.line(x, y - .026, x, y + .026, "#a7b2b5");
+  }
+  art.rect(.055, .46, .565, .10, "#a7b2b5", colors.ink, .025);
+  art.line(.075, .48, .60, .48, "#e0e5e6");
+  art.rect(.65, .30, .29, .59, "#07151a", "#a7b2b5", .055);
+  art.line(.875, .31, .93, .40, "#708389");
+  art.line(.875, .88, .93, .79, "#708389");
+  for (const [left, top] of [[.715, .415], [.715, .735], [.835, .575]]) {
+    art.rect(left - .026, top - .018, .052, .036, "#d0d6d8", undefined, .004);
+  }
+  art.circle(.70, .195, .025, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
+  art.rect(.86, .14, .075, .095, "#708389", colors.ink, .018);
 }
 
 /** Draw the 7030E/7040E supply's broad C14 inlet, square grille, right pull bar and green latch. */

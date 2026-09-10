@@ -6,6 +6,12 @@ import { buildFaceplateScene } from "./static/js/faceplate-scene.js";
 const vendors = ["Cisco", "HPE Aruba", "Juniper", "Dell", "Arista", "Extreme", "Ruckus", "Palo Alto", "Sophos", "Check Point"];
 const profiles = hardwareCatalog.filter((profile) => vendors.includes(profile.vendor)
   && ["Switch", "Firewall", "Router"].includes(profile.category));
+const verifiedAliasModels = new Map([
+  ["PA-440 / PA-450", ["PA-440", "PA-450"]],
+  ["XGS 126 / 136", ["XGS 126"]],
+  ["XGS 2100 / 2300", ["XGS 2100"]],
+  ["Quantum 6200 / 6600", ["Quantum 6200"]],
+]);
 
 /** Create canonical inventory for a documented enterprise panel. */
 function deviceFor(model) {
@@ -25,7 +31,14 @@ for (const catalog of profiles) {
   const profile = resolveEnterpriseFaceplate(device);
   assert.ok(profile, `${catalog.vendor} ${catalog.model} requires a registered family`);
   if (profile.fidelity === "model") {
-    assert.deepEqual(profile.evidence.models, [device.model], "model fidelity requires an individual evidence record");
+    const aliasModels = verifiedAliasModels.get(device.model);
+    assert.deepEqual(profile.evidence.models, aliasModels || [device.model], "model fidelity requires exact named-model evidence");
+    if (aliasModels) {
+      assert.equal(profile.evidence.catalogAlias, device.model);
+      if (aliasModels.length === 1) assert.equal(profile.evidence.selectedModel, aliasModels[0]);
+      else assert.match(profile.evidence.sharedChassis, /identical/);
+      assert.ok(profile.evidence.configuration && profile.limitations.length, "combined entries disclose the selected hardware configuration");
+    }
     assert.equal(profile.evidence.scope, "model");
     assert.ok(profile.evidence.front && profile.evidence.rear);
   } else assert.equal(profile.fidelity, "family", "untraced inventory stays explicitly classified as family");

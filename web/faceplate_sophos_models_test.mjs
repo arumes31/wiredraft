@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import test from "node:test";
 import { hardwareCatalog, instantiateProfile } from "./static/js/catalog.js";
 import { buildSophosModelFaceplate } from "./static/js/faceplate-sophos-models.js";
+import { buildFaceplateScene } from "./static/js/faceplate-scene.js";
 
 /** Instantiate the individual catalog SKU used by the source illustration. */
 function model(number) {
@@ -60,6 +62,42 @@ assert.equal(model(4300).faces.rear.components.filter((part) => part.kind === "p
 assert.ok(model(4300).faces.rear.components.some((part) => part.kind === "power" && part.variant === "ac"));
 assert.ok(model(2100).evidence.supplemental && model(3100).evidence.supplemental && model(4300).evidence.supplemental,
   "manual variation footnotes require verification against individual official product photographs");
-assert.equal(buildSophosModelFaceplate({ model: "XGS 126 / 136" }), null, "combined entries cannot inherit individual model fidelity");
+const xgs2100Power = model(2100).faces.rear.components.find((part) => part.role === "power-control");
+assert.equal(xgs2100Power?.kind, "button");
+assert.equal(xgs2100Power.variant, "oval");
+assert.ok(xgs2100Power.width * 438 > xgs2100Power.height * 44, "the exact power control is a horizontal oval push button");
+assert.equal(buildSophosModelFaceplate({ model: "XGS 126 / 136" }), null, "a model name without its catalog vendor cannot resolve hardware");
 assert.equal(buildSophosModelFaceplate({ model: "XGS 126", faceplate: { vendor: "Other" } }), null);
 assert.equal(buildSophosModelFaceplate({ model: "Unknown" }), null);
+
+test("combined Sophos aliases disclose a specific non-wireless chassis and preserve saved endpoint settings", () => {
+  for (const [name, selected, count] of [["XGS 126 / 136", "XGS 126", 16], ["XGS 2100 / 2300", "XGS 2100", 13]]) {
+    const device = instantiateProfile(hardwareCatalog.find((entry) => entry.model === name), name, { x: 0, y: 0 });
+    const profile = buildSophosModelFaceplate(device);
+    assert.equal(profile.fidelity, "model");
+    assert.equal(profile.evidence.selectedModel, selected);
+    assert.equal(profile.sku, selected);
+    assert.deepEqual(profile.evidence.models, [selected]);
+    assert.match(profile.limitations.join(" "), new RegExp(selected));
+    assert.equal(device.ports.length, count);
+    assert.equal(device.faceplate.inventoryRevision, 1);
+    if (selected === "XGS 126") {
+      assert.equal(device.ports[10].type, "RJ45_1G");
+      assert.equal(device.ports[10].speedMbps, 1000);
+      for (const port of device.ports.slice(10, 12)) { port.type = "RJ45_MGIG"; port.speedMbps = 2500; }
+    } else assert.match(profile.evidence.configuration, /XGS 2100.*empty.*Flexi/i);
+    delete device.faceplate.inventoryRevision;
+    device.ports = device.ports.filter((port) => port.portIndex !== 3).reverse();
+    for (const port of device.ports) { port.id = `saved-${port.portIndex}`; port.label = `Custom ${port.portIndex}`; port.allowedVlans = [125]; }
+    const before = structuredClone(device);
+    const bounds = { x: 0, y: 0, width: 690, height: 100 };
+    const scenes = ["front", "rear"].map((face) => buildFaceplateScene(device, bounds, { face }));
+    assert.equal(scenes[0].unmappedPorts.length, 0);
+    const sockets = scenes.flatMap((scene) => scene.ports);
+    assert.deepEqual(new Set(sockets.map((box) => box.port.id)), new Set(device.ports.map((port) => port.id)));
+    assert.ok(sockets.every((box) => box.displayLabel.startsWith("Custom ")));
+    assert.deepEqual(device, before);
+    device.faceplate.inventoryRevision = 99;
+    assert.equal(buildFaceplateScene(device, bounds).unmappedPorts.length, device.ports.length);
+  }
+});

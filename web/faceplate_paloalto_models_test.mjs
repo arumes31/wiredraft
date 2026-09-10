@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import test from "node:test";
 import { hardwareCatalog, instantiateProfile } from "./static/js/catalog.js";
 import { buildPaloAltoModelFaceplate } from "./static/js/faceplate-paloalto-models.js";
+import { buildFaceplateScene } from "./static/js/faceplate-scene.js";
 
 /** Build an individual Palo Alto model from its immutable catalog entry. */
 function model(name) {
@@ -36,6 +38,11 @@ for (const name of ["PA-440", "PA-450", "PA-460"]) {
   assert.match(profile.evidence.sharedChassis, /identical/);
   assert.equal(profile.faces.front.components.filter((part) => part.kind === "led").length, 6);
   assert.equal(profile.faces.front.components.filter((part) => part.kind === "usb").length, 2);
+  const rearPowerLEDs = profile.faces.rear.components.filter((part) => part.kind === "led" && part.role === "power-status");
+  assert.equal(rearPowerLEDs.length, 2, "the official shared rear panel shows a status lens beside each DC input");
+  for (const [index, inlet] of profile.faces.rear.components.filter((part) => part.kind === "power").entries()) {
+    assert.ok(rearPowerLEDs[index].x > inlet.x + inlet.width, "each PWR lens is beside its inlet, not inside the power connector");
+  }
   assert.equal(profile.faces.front.components.filter((part) => part.kind === "console").length, 1);
   assert.ok(profile.catalogDiscrepancies.some((note) => note.includes("RJ45 CONSOLE")));
   assert.equal(profile.faces.front.ports.filter((port) => port.type === "Console").length, 0,
@@ -54,3 +61,29 @@ assert.equal(p850.faces.front.ports.find((port) => port.label === "HA1").x,
 assert.equal(buildPaloAltoModelFaceplate({ model: "PA-440 / PA-450" }), null);
 assert.equal(buildPaloAltoModelFaceplate({ model: "PA-440", faceplate: { vendor: "Other" } }), null);
 assert.equal(buildPaloAltoModelFaceplate({ model: "PA-441" }), null);
+
+test("the PA-440 / PA-450 alias uses manufacturer-confirmed identical panels and appends the missing console", () => {
+  const alias = model("PA-440 / PA-450");
+  assert.equal(alias.fidelity, "model");
+  assert.equal(alias.inventoryComplete, true);
+  assert.equal(alias.sku, "PA-440 / PA-450 (identical panels)");
+  assert.deepEqual(alias.evidence.models, ["PA-440", "PA-450"]);
+  assert.match(alias.evidence.sharedChassis, /identical/);
+  assert.equal(alias.faces.front.ports.length, 11);
+  assert.equal(alias.faces.front.ports.find((slot) => slot.type === "Console").portIndex, 11);
+  assert.equal(alias.faces.front.components.filter((part) => part.kind === "console").length, 0);
+  assert.deepEqual(alias.faces.rear.components, model("PA-440").faces.rear.components);
+  const device = instantiateProfile(hardwareCatalog.find((entry) => entry.model === "PA-440 / PA-450"), "Saved firewall", { x: 0, y: 0 });
+  assert.equal(device.faceplate.inventoryRevision, 1);
+  delete device.faceplate.inventoryRevision;
+  device.ports = device.ports.slice(0, 10).filter((port) => port.portIndex !== 4).reverse();
+  device.ports.forEach((port) => { port.id = `saved-${port.portIndex}`; port.label = "Operator label"; port.allowedVlans = [107]; });
+  const before = structuredClone(device);
+  const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 });
+  assert.equal(scene.unmappedPorts.length, 0);
+  assert.deepEqual(scene.ports.map((box) => box.port.id), device.ports.map((port) => port.id));
+  assert.ok(scene.ports.every((box) => box.displayLabel === "Operator label"));
+  assert.deepEqual(device, before);
+  device.faceplate.inventoryRevision = 99;
+  assert.equal(buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 }).unmappedPorts.length, device.ports.length);
+});
