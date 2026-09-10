@@ -244,6 +244,79 @@ func TestLoginRateLimitCannotBeBypassedWithSourcePorts(t *testing.T) {
 	}
 }
 
+func TestLoginRateLimitCannotBeBypassedWithDistinctUsernames(t *testing.T) {
+	t.Parallel()
+	manager, err := New(t.TempDir(), Config{
+		AdminUsername: "admin", AdminPassword: testPassword,
+	}, testOrganizationRefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := range maxLoginAttempts {
+		_, err := manager.StartLogin(
+			fmt.Sprintf("spray-target-%d", attempt),
+			"incorrect password",
+			"192.0.2.10:443",
+		)
+		if !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("attempt %d error = %v, want invalid credentials", attempt+1, err)
+		}
+	}
+	if _, err := manager.StartLogin("admin", testPassword, "192.0.2.10:443"); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("post-spray error = %v, want rate limited", err)
+	}
+}
+
+func TestLoginRateLimitReservesConcurrentAttempts(t *testing.T) {
+	t.Parallel()
+	manager, err := New(t.TempDir(), Config{
+		AdminUsername: "admin", AdminPassword: testPassword,
+	}, testOrganizationRefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const attempts = maxLoginAttempts + 3
+	ready := make(chan struct{}, attempts)
+	start := make(chan struct{})
+	results := make(chan error, attempts)
+	for attempt := range attempts {
+		go func() {
+			ready <- struct{}{}
+			<-start
+			_, err := manager.StartLogin(
+				fmt.Sprintf("concurrent-target-%d", attempt),
+				"incorrect password",
+				"192.0.2.20:443",
+			)
+			results <- err
+		}()
+	}
+	for range attempts {
+		<-ready
+	}
+	close(start)
+
+	invalidCredentials := 0
+	rateLimited := 0
+	for range attempts {
+		switch err := <-results; {
+		case errors.Is(err, ErrInvalidCredentials):
+			invalidCredentials++
+		case errors.Is(err, ErrRateLimited):
+			rateLimited++
+		default:
+			t.Fatalf("concurrent login error = %v", err)
+		}
+	}
+	if invalidCredentials != maxLoginAttempts || rateLimited != attempts-maxLoginAttempts {
+		t.Fatalf(
+			"concurrent results = %d invalid credentials, %d rate limited; want %d and %d",
+			invalidCredentials, rateLimited, maxLoginAttempts, attempts-maxLoginAttempts,
+		)
+	}
+}
+
 func TestSecretEncryptionRoundTrip(t *testing.T) {
 	t.Parallel()
 	key := make([]byte, 32)
