@@ -19,6 +19,70 @@ function fixture(model) {
   return { device, profile: resolveMikroTikFaceplate(device) };
 }
 
+test("the remaining CCR aliases use explicit photographed revisions and retain saved port identities", () => {
+  for (const [model, count, fans, sku] of [["CCR1009", 11, 2, "CCR1009-7G-1C-1S+"],
+    ["CCR1016", 13, 3, "CCR1016-12G r2"], ["CCR1036", 17, 3, "CCR1036-12G-4S r2"]]) {
+    const { device, profile } = fixture(model);
+    assert.equal(profile?.fidelity, "model", model);
+    assert.equal(profile.sku, sku);
+    assert.equal(device.ports.length, count);
+    assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, fans);
+    assert.equal(profile.faces.rear.components.filter((part) => part.kind === "power").length, 2);
+    assert.deepEqual(profile.faces.rear.ports, []);
+    device.ports.reverse();
+    device.ports[0].label = "Site console";
+    device.ports[0].nativeVlan = 321;
+    const before = structuredClone(device);
+    const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 });
+    assert.deepEqual(scene.ports.map((box) => box.port.id).sort(), device.ports.map((port) => port.id).sort());
+    assert.equal(scene.unmappedPorts.length, 0);
+    assert.deepEqual(device, before);
+    const console = profile.faces.front.ports.find((port) => port.type === "Console");
+    assert.equal(console.connectorKind, model === "CCR1009" ? "db9" : undefined);
+    if (model === "CCR1009") {
+      assert.deepEqual(profile.faces.front.ports.slice(0, 3).map((port) => port.portIndex), [10, 9, 8]);
+      assert.ok(profile.faces.front.ports.find((port) => port.portIndex === 7).physicalLabel.includes("POE"));
+      assert.ok(profile.faces.rear.components.some((part) => part.kind === "card-slot" && part.variant === "micro-sd-recess"));
+      assert.ok(profile.faces.rear.components.every((part) => part.x < .8 || part.kind === "card-slot"), "rear microSD recess is not a ground bracket");
+      const smartCard = scene.components.find((part) => part.kind === "module-bay");
+      const caption = scene.ports.find((box) => box.port.type === "Console").labelPlacement;
+      assert.ok(caption.y + caption.boxHeight / 2 < smartCard.y, "console caption must leave the SMART CARD opening visible");
+    } else if (model === "CCR1036") {
+      const sfp = profile.faces.front.ports.filter((port) => port.type === "SFP_1G");
+      assert.equal(sfp[0].x, sfp[1].x);
+      assert.ok(sfp[0].y > sfp[1].y);
+    }
+    device.ports = device.ports.filter((port) => port.portIndex % 2);
+    assert.equal(buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 100 }).ports.length, device.ports.length);
+  }
+});
+
+test("CRS312 appends 100Mbps management while preserving all old combo and console identities", () => {
+  const { device, profile } = fixture("CRS312");
+  assert.equal(profile?.fidelity, "model");
+  assert.equal(device.ports.length, 18);
+  assert.equal(device.faceplate.inventoryRevision, 1);
+  assert.equal(device.ports[17].speedMbps, 100);
+  assert.equal(profile.faces.front.ports.find((slot) => slot.portIndex === 18).physicalLabel, "MGMT/BOOT");
+  assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, 4);
+  assert.equal(profile.faces.rear.components.filter((part) => part.kind === "power").length, 2);
+  assert.ok(profile.evidence.rear.endsWith("CRS312-4C8XG-RM_220517.pdf#page=1"));
+  const legacy = structuredClone(device);
+  delete legacy.faceplate.inventoryRevision;
+  legacy.ports.pop();
+  legacy.ports.reverse();
+  legacy.ports[0].label = "Console cable";
+  const before = structuredClone(legacy);
+  const scene = buildFaceplateScene(legacy, { x: 0, y: 0, width: 690, height: 100 });
+  assert.equal(scene.ports.length, 17);
+  assert.equal(scene.unmappedPorts.length, 0);
+  assert.deepEqual(legacy, before);
+  legacy.ports = legacy.ports.filter((port) => [3, 10, 15, 17].includes(port.portIndex));
+  assert.equal(buildFaceplateScene(legacy, { x: 0, y: 0, width: 690, height: 100 }).ports.length, 4);
+  legacy.faceplate.inventoryRevision = 99;
+  assert.equal(buildFaceplateScene(legacy, { x: 0, y: 0, width: 690, height: 100 }).unmappedPorts.length, 4);
+});
+
 test("CRS310, desktop CRS326 and CRS504 expose their exact panel inventories without rewriting old devices", () => {
   for (const [model, count, oldCount] of [["CRS310", 11, 10], ["CRS326", 27, 27], ["CRS504", 6, 6]]) {
     const { device, profile } = fixture(model);

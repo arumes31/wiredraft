@@ -74,15 +74,8 @@ assert.deepEqual(catalogDevice("SG3428").device.ports.slice(-2).map((port) => po
 assert.deepEqual(catalogDevice("SG3452").device.ports.slice(-2).map((port) => port.type), ["Console", "USB_MICRO_CONSOLE"]);
 assert.deepEqual(catalogDevice("GS748T").device.ports.slice(-4).map((port) => port.label), ["47F", "48F", "49", "50"]);
 
-for (const [model, portCount] of [
-  ["CCR1009", 11], ["CCR1016", 13], ["CCR1036", 17],
-  ["CRS312", 17],
-]) {
-  const { profile, device } = catalogDevice(model);
-  assert.equal(device.ports.length, portCount, `${model} representative connector count must match its cited chassis`);
-  assert.equal(profile.portLayout.sourceScope, "family", `${model} shorthand must not claim exact-SKU evidence`);
-}
 for (const [model, sku, count] of [["CCR2004", "CCR2004-1G-12S+2XS", 16], ["CCR2116", "CCR2116-12G-4S+", 18], ["CCR2216", "CCR2216-1G-12XS-2XQ", 16],
+  ["CCR1009", "CCR1009-7G-1C-1S+", 11], ["CCR1016", "CCR1016-12G r2", 13], ["CCR1036", "CCR1036-12G-4S r2", 17], ["CRS312", "CRS312-4C+8XG-RM", 18],
   ["CCR1072", "CCR1072-1G-8S+", 10], ["CRS305", "CRS305-1G-4S+IN", 5], ["CRS309", "CRS309-1G-8S+IN", 10],
   ["CRS317", "CRS317-1G-16S+RM", 18], ["CRS354", "CRS354-48G-4S+2Q+RM", 56], ["CRS518", "CRS518-16XS-2XQ-RM", 20],
   ["CRS310", "CRS310-1G-5S-4S+IN", 11], ["CRS326", "CRS326-24G-2S+IN", 27], ["CRS328", "CRS328-24P-4S+RM", 29], ["CRS504", "CRS504-4XQ-IN", 6]]) {

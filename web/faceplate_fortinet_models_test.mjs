@@ -109,7 +109,7 @@ for (const model of ["FortiSwitch 108F-POE", "FortiSwitch 108F-FPOE"]) {
   assert.ok(profile.faces.front.ports.some((port) => port.type === "Console"));
 }
 assert.equal(resolveFortinetFaceplate(deviceFor("FortiSwitch 224D-FPOE")).faces.rear.components.filter((item) => item.kind === "fan").length, 2);
-for (const model of ["FortiSwitch Rugged 108F", "FortiSwitch Rugged 112F-POE", "FortiSwitch Rugged 216F-POE"]) {
+for (const model of ["FortiSwitch Rugged 112F-POE", "FortiSwitch Rugged 216F-POE"]) {
   const profile = resolveFortinetFaceplate(deviceFor(model));
   assert.deepEqual(profile.verifiedFaces, ["front"]);
   assert.equal(profile.panelsVerified, false);
@@ -118,6 +118,75 @@ for (const model of ["FortiSwitch Rugged 108F", "FortiSwitch Rugged 112F-POE", "
 const rugged424 = resolveFortinetFaceplate(deviceFor("FortiSwitch Rugged 424F-POE"));
 assert.equal(rugged424.hardwareRevision, "P26913-05 and above");
 assert.equal(rugged424.fidelity, "model");
+for (const model of ["FortiGate 70G-POE", "FortiGate 71G-POE"]) {
+  const device = deviceFor(model);
+  const profile = resolveFortinetFaceplate(device);
+  assert.equal(profile.fidelity, "model", "the PoE variants need their separately illustrated panels");
+  assert.equal(profile.panelsVerified, true);
+  assert.equal(profile.inventoryComplete, true);
+  assert.equal(profile.defaultFace, "rear");
+  assert.equal(device.faceplate.inventoryRevision, 1);
+  assert.deepEqual(device.ports.filter((port) => port.isPoe).map((port) => port.label), ["1", "2", "3", "4"]);
+  assert.deepEqual(profile.faces.rear.ports.map((port) => port.physicalLabel),
+    ["1", "2", "3", "4", "5", "6", "A", "B", "WAN1", "WAN2", "CONSOLE"]);
+  assert.equal(profile.faces.front.ports.length, 0);
+  assert.match(profile.evidence.front, /#page=8$/);
+  assert.match(profile.evidence.provenance, /Fortinet-authored.*supplier/i);
+  const rear = profile.faces.rear;
+  const byLabel = (label) => rear.ports.find((port) => port.physicalLabel === label);
+  assert.equal(byLabel("WAN1").x, byLabel("WAN2").x);
+  assert.ok(byLabel("WAN1").y < byLabel("WAN2").y);
+  assert.ok(byLabel("WAN1").x < byLabel("A").x && byLabel("A").x < byLabel("5").x);
+  assert.ok(byLabel("5").x < byLabel("3").x && byLabel("3").x < byLabel("1").x);
+  assert.equal(rear.components.filter((item) => item.kind === "usb").length, 1);
+  assert.equal(rear.components.filter((item) => item.kind === "vent" && item.variant === "slit").length, 21);
+  assert.deepEqual(rear.components.filter((item) => item.kind === "power").map((item) => item.variant), ["dc-keyed2"]);
+  assert.equal(profile.faces.front.components.filter((item) => item.kind === "coax" && item.variant === "capped").length, 1);
+  const saved = structuredClone(device);
+  delete saved.faceplate.inventoryRevision;
+  saved.ports.forEach((port) => { port.id = `saved-${port.portIndex}`; port.label = `Customer ${port.portIndex}`;
+    port.isPoe = true; port.nativeVlan = 42; port.speedMbps = 100; });
+  saved.ports = [saved.ports[10], saved.ports[8], saved.ports[0], saved.ports[5]];
+  const before = structuredClone(saved);
+  assert.equal(upgradeInstalledPhysicalPorts({ devices: [saved] }), false);
+  const bounds = { x: 0, y: 0, width: 690, height: 100 };
+  const original = buildFaceplateScene(device, bounds);
+  const restored = buildFaceplateScene(saved, bounds);
+  assert.equal(restored.unmappedPorts.length, 0);
+  for (const port of restored.ports) {
+    const expected = original.ports.find((item) => item.port.portIndex === port.port.portIndex);
+    assert.deepEqual([port.centerX, port.centerY], [expected.centerX, expected.centerY]);
+  }
+  assert.deepEqual(saved, before, "old PoE flags, IDs, settings and sparse inventory stay intact");
+}
+const rugged108 = resolveFortinetFaceplate(deviceFor("FortiSwitch Rugged 108F"));
+assert.equal(rugged108.fidelity, "model");
+assert.equal(rugged108.panelsVerified, true);
+assert.equal(rugged108.inventoryComplete, true);
+assert.deepEqual(rugged108.verifiedFaces, ["front", "rear"]);
+assert.match(rugged108.evidence.rear, /FortiSwitchRugged108F_5487-BACK/);
+assert.match(rugged108.evidence.provenance, /Supplier-hosted.*photographer.*not independently established/i);
+assert.equal(rugged108.faces.rear.ports.length, 0);
+assert.deepEqual(rugged108.faces.rear.components.filter((item) => item.kind === "din-bracket").map((item) => item.variant), ["fsr108f"]);
+assert.ok(rugged108.faces.rear.components.every((item) => !["fan", "vent", "psu", "power"].includes(item.kind)));
+assert.deepEqual(rugged108.faces.front.components.filter((item) => item.kind === "terminal").map((item) => [item.pins, item.variant]),
+  [[5, "pluggable"], [4, "pluggable"]]);
+assert.equal(rugged108.faces.front.components.filter((item) => item.role === "chassis-ground").length, 1);
+assert.equal(rugged108.faces.front.components.filter((item) => item.kind === "coax" && item.variant === "capped").length, 1);
+assert.equal(rugged108.faces.front.components.filter((item) => item.role === "optical-status").length, 2);
+const rugged108Scene = buildFaceplateScene(deviceFor("FortiSwitch Rugged 108F"), { x: 0, y: 0, width: 690, height: 200 });
+assert.ok(rugged108Scene.chassis.width / rugged108Scene.chassis.height > 2.02 &&
+  rugged108Scene.chassis.width / rugged108Scene.chassis.height < 2.08, "the compact front preserves the photograph's body aspect within its2U allocation");
+for (const port of rugged108Scene.ports.filter((item) => ["RJ45_1G", "Console"].includes(item.port.type))) {
+  assert.ok(port.width / port.height > 1.2 && port.width / port.height < 1.6, "RJ45 cages must not flatten into wide2U slots");
+}
+for (const port of rugged108Scene.ports) {
+  const label = port.labelPlacement;
+  const width = Math.min(label.boxMaxWidth, Math.max(12, label.maxWidth + 6));
+  const caption = { x: label.x - width / 2, y: label.y - label.boxHeight / 2, width, height: label.boxHeight };
+  assert.ok(!rugged108Scene.ports.some((other) => overlaps(caption, other)), "compact captions clear every physical socket");
+  assert.ok(!rugged108Scene.components.some((other) => overlaps(caption, other)), "compact captions clear the covered USB, firmware plate and optical status lamps");
+}
 assert.deepEqual(rugged424.faces.rear.components.filter((item) => item.kind === "terminal").map((item) => item.pins), [3, 5]);
 assert.equal(rugged424.missingPorts[0].type, "Console");
 assert.equal(resolveFortinetFaceplate(deviceFor("FortiGate 120G")).inventoryComplete, true);

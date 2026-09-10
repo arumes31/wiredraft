@@ -1,6 +1,22 @@
 import { canonicalFaceplateDevice } from "./faceplate-profile.js";
 
 const definitions = {
+  CCR1009: { build: ccr1009, guide: "ccr1009-7g-1c-1s-plus", product: "CCR1009-7G-1C-1Splus", photos: [1228, 1229],
+    sku: "CCR1009-7G-1C-1S+",
+    configuration: "CCR1009-7G-1C-1S+ rack enclosure, not the passive PC variant: front DB9 console and LCD, two fixed rear AC inputs and two fans. Its 1G copper/SFP combo sockets represent one selectable interface; ETH7 accepts PoE input, not output." },
+  CCR1016: { build: ccr1016, guide: "ccr1016-12g", product: "CCR1016-12G", photos: [1818, 1822],
+    sku: "CCR1016-12G r2", drawing: "ccr1016-12G_210511.pdf",
+    configuration: "CCR1016-12G revision r2 with 2GB onboard RAM, front full-size USB-A and RJ45 console, dual fixed AC inputs and three rear fans. The current hardware guide's micro-USB wording describes an older version; the r2 datasheet and photographs establish the selected panel." },
+  CCR1036: { build: ccr1036, guide: "ccr1036-12g-4s-series", product: "CCR1036-12G-4S-149", photos: [1820, 1821],
+    sku: "CCR1036-12G-4S r2", drawing: "CCR1036-12G-4S_210526.pdf",
+    configuration: "CCR1036-12G-4S revision r2 with 4GB onboard RAM, four left SFP cages, twelve Gigabit ports, front full-size USB-A and RJ45 console, two fixed AC inputs and three rear fans. The EM memory option and older single-PSU revision are not selected." },
+  CRS312: { build: crs312, guide: "crs312-4c-plus-8xg-rm", product: "crs312_4c_8xg_rm", photos: [1825],
+    sku: "CRS312-4C+8XG-RM", inventoryRevision: 1, drawing: "CRS312-4C8XG_dimensions_230944.pdf",
+    rearEvidence: "https://cdn.mikrotik.com/web-assets/product_files/CRS312-4C8XG-RM_220517.pdf#page=1",
+    sourcePage: "Official product photograph 1825, dimension drawing and datasheet page 1 front/rear photographs",
+    configuration: "CRS312-4C+8XG-RM rack chassis with two fixed AC inputs and four rear fans. Eight dedicated 10G copper ports plus four copper/SFP+ combo interfaces; each combo permits one medium at a time. Front RJ45 console and separate 100Mbps MGMT/BOOT port.",
+    discrepancies: ["Revision 1 appends omitted 100Mbps management at index 18. All 17 existing copper, optical and console endpoints retain their identities and saved settings."],
+    legacyLayouts: [{ inventoryRevision: 0, portIndexMap: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [index + 1, index + 1])) }] },
   CCR1072: { build: ccr1072, guide: "ccr1072-1g-8s-plus", product: "CCR1072-1G-8Splus", photos: [1055, 1056],
     sku: "CCR1072-1G-8S+",
     configuration: "CCR1072-1G-8S+ with two hot-swap AC supplies, four fixed rear fans and the front LCD, as pictured in the manufacturer's product gallery." },
@@ -65,11 +81,11 @@ export function resolveMikroTikFaceplate(device) {
       ...(definition.inventoryRevision ? { inventoryRevision: definition.inventoryRevision, legacyLayouts: definition.legacyLayouts } : {}),
       panelFidelity: { front: "model", rear: provisional ? "schematic" : "model" },
       source: `https://manual.mikrotik.com/hardware/${definition.guide}/`,
-      sourcePage: definition.rearPhoto ? "MikroTik front/dimension drawings; ServeTheHome original rear photograph, June 23, 2020"
-        : `Hardware guide and official product panel photographs ${definition.photos.join(" / ")}`,
+      sourcePage: definition.sourcePage || (definition.rearPhoto ? "MikroTik front/dimension drawings; ServeTheHome original rear photograph, June 23, 2020"
+        : `Hardware guide and official product panel photographs ${definition.photos.join(" / ")}`),
       evidence: definition.sku ? { models: [device.model, definition.sku], scope: "model", reviewed: "2026-09-10",
         front: `https://cdn.mikrotik.com/web-assets/rb_images/${definition.photos[0]}_hi_res.png`,
-        rear: definition.rearPhoto || `https://cdn.mikrotik.com/web-assets/rb_images/${definition.photos[1]}_hi_res.png`,
+        rear: definition.rearEvidence || definition.rearPhoto || `https://cdn.mikrotik.com/web-assets/rb_images/${definition.photos[1]}_hi_res.png`,
         supplemental: definition.drawing ? `https://cdn.mikrotik.com/web-assets/product_files/${definition.drawing}`
           : `https://mikrotik.com/product/${definition.product}`,
         configuration: definition.configuration } : [
@@ -85,6 +101,69 @@ export function resolveMikroTikFaceplate(device) {
     });
   }
   return profiles.get(device.model);
+}
+
+/** Trace the CCR1009 rack unit's optical/combo row, DB9 console and two-fan rear. */
+function ccr1009(ports) {
+  const slots = [socket(ports[9], .092, .72, .035, .24, "SFP+"), socket(ports[8], .133, .72, .035, .24, "SFP"),
+    socket(ports[7], .181, .70, .035, .30, "COMBO")];
+  slots.push(...ports.slice(0, 7).map((port, index) => socket(port, .220 + index * .040, .70, .035, .30,
+    index === 6 ? "ETH7/POE IN" : `ETH${index + 1}`)),
+  { ...socket(ports[10], .535, .74, .068, .25, "CONSOLE"), connectorKind: "db9",
+    descriptionAnchor: { x: .535, y: .50, fontSize: 6, boxHeight: 8 } });
+  return panels([part("vent", .029, .10, .58, .24, undefined, "chevron"), part("button", .484, .75, .009, .065, undefined, "reset"),
+    part("module-bay", .512, .90, .047, .035, undefined, "populated"),
+    part("usb-micro", .590, .78, .019, .065), part("led", .574, .61, .007, .045), part("led", .574, .74, .007, .045),
+    { ...part("text", .562, .48, .029, .075, "USR"), fontSize: 4 },
+    { ...part("text", .572, .87, .029, .075, "PWR"), fontSize: 4 },
+    part("lcd", .627, .055, .122, .87), part("text", .835, .11, .145, .13, "CCR1009-7G-1C-1S+")], slots,
+  [part("power", .050, .36, .072, .44, "AC1"), part("power", .196, .36, .072, .44, "AC2"),
+    part("handle", .045, .015, .082, .68, undefined, "wire"), part("handle", .191, .015, .082, .68, undefined, "wire"),
+    part("fan", .585, .055, .09, .83, undefined, "fixed"), part("fan", .680, .055, .09, .83, undefined, "fixed"),
+    part("card-slot", .834, .29, .090, .71, undefined, "micro-sd-recess")]);
+}
+
+/** Trace the r2 CCR1016 panel with twelve Ethernet sockets and the documented common services. */
+function ccr1016(ports) {
+  return ccrR2Panels(ports, false);
+}
+
+/** Trace the r2 CCR1036 panel, including its additional two paired SFP columns. */
+function ccr1036(ports) {
+  return ccrR2Panels(ports, true);
+}
+
+/** Share only the r2 geometry independently pictured for both CCR1016 and CCR1036. */
+function ccrR2Panels(ports, hasSfp) {
+  const slots = ports.filter((port) => port.type === "RJ45_1G").map((port, index) =>
+    socket(port, .123 + index * .0375 + Math.floor(index / 4) * .010, .72, .033, .28, `ETH${index + 1}`));
+  if (hasSfp) slots.push(...paired(ports.filter((port) => port.type === "SFP_1G"), .043, .033, 2, 0, .030, [.72, .37]));
+  slots.push(socket(ports.find((port) => port.type === "Console"), .601, .72, .034, .28, "CONSOLE"));
+  return panels([part("vent", .10, .12, .57, .22, undefined, "chevron"), part("usb", .628, .55, .015, .30),
+    part("button", .651, .78, .010, .075, undefined, "reset"), part("button", .672, .78, .010, .075, undefined, "reset"),
+    ...status(.695, ["USR", "FAULT", "PWR2", "PWR1"], .36).map((component) =>
+      component.kind === "text" ? { ...component, width: .026, fontSize: 4 } : component), part("lcd", .737, .045, .127, .89),
+    part("text", .886, .09, .10, .12, hasSfp ? "CCR1036-12G-4S" : "CCR1016-12G")], slots,
+  [part("power", .025, .35, .072, .45, "AC1"), part("power", .221, .35, .072, .45, "AC2"),
+    part("handle", .02, .015, .082, .70, undefined, "wire"), part("handle", .216, .015, .082, .70, undefined, "wire"),
+    ...[.116, .615, .705].map((x) => part("fan", x, .055, .084, .83, undefined, "fixed"))]);
+}
+
+/** Trace CRS312's eight dedicated sockets, four paired-media interfaces and rear four-fan cooling. */
+function crs312(ports) {
+  const slots = ports.filter((port) => port.type === "RJ45_10G").map((port, index) =>
+    socket(port, .053 + index * .036 + Math.floor(index / 4) * .014, .72, .033, .26,
+      index < 8 ? String(index + 1) : `${index - 7}T`));
+  slots.push(...paired(ports.filter((port) => port.type === "SFP_PLUS_10G"), .519, .034, 2, 0, .031, [.72, .38])
+    .map((slot, index) => ({ ...slot, physicalLabel: `${index + 1}F` })),
+  socket(ports[16], .600, .40, .034, .25, "CONSOLE"), socket(ports[17], .600, .73, .034, .25, "MGMT/BOOT"));
+  return panels([part("vent", .035, .13, .45, .22, undefined, "chevron"), part("usb", .644, .53, .016, .31),
+    part("button", .626, .79, .010, .07, undefined, "reset"), ...status(.670),
+    part("text", .893, .13, .095, .13, "CRS312-4C+8XG")], slots,
+  [part("power", .025, .35, .072, .45, "AC1"), part("power", .219, .35, .072, .45, "AC2"),
+    part("handle", .02, .015, .082, .70, undefined, "wire"), part("handle", .214, .015, .082, .70, undefined, "wire"),
+    ...[.116, .427, .573, .664].map((x) => part("fan", x, .055, .084, .83, undefined, "fixed"))],
+  { x: .795, y: .78, width: .185, height: .15 });
 }
 
 /** Trace the CCR1072's eight low optical cages, horizontal service sockets, LCD and fixed rear fan row. */

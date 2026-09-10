@@ -77,6 +77,16 @@ export function hardwarePrimitives(component, palette = {}) {
     else addFan(art, colors, component.variant);
   } else if (kind === "drive-carrier") {
     addDriveCarrier(art, component, colors);
+  } else if (kind === "din-bracket") {
+    if (component.variant === "fsr108f") addRugged108Bracket(art);
+  } else if (kind === "card-slot") {
+    if (component.variant === "micro-sd-recess") {
+      art.rect(.015, .025, .97, .95, "#bac6cd", "#9daeb8", .19);
+      art.rect(.06, .085, .88, .86, "#aebac5", undefined, .17);
+      art.rect(.27, .36, .46, .055, "#102227", undefined, .01);
+      art.label("MICRO SD", .5, .57, 4);
+      art.rect(.025, .70, .95, .30, colors.surface, undefined, .13);
+    }
   } else if (kind === "handle") {
     if (component.variant === "wire") {
       art.line(.06, .95, .06, .24, "#708389", 1.2);
@@ -101,6 +111,36 @@ export function hardwarePrimitives(component, palette = {}) {
   }
   if (component.label) art.label(component.label, .5, .87, 8);
   return art.parts;
+}
+
+/** Trace the Rugged108F rear rail plate, slotted fixings and left spring-release wire. */
+function addRugged108Bracket(art) {
+  art.rect(.02, .02, .96, .96, "#9dabb3", "#77868e", .008);
+  for (const [left, width, fill] of [[.035, .035, "#d5dddf"], [.085, .035, "#bac7cd"],
+    [.15, .025, "#e1e6e7"], [.26, .022, "#82929d"], [.46, .035, "#b7c4ca"],
+    [.535, .025, "#8698a3"], [.61, .035, "#bac7cd"], [.68, .02, "#8798a2"],
+    [.89, .025, "#e1e6e7"], [.94, .025, "#c6d2d7"]]) {
+    art.rect(left, .025, width, .95, fill, undefined, 0);
+  }
+  for (const top of [.085, .545]) for (const center of [.377, .803]) {
+    art.rect(center - .04, top, .08, .365, "#dbe2e1", "#bcc7c8", .04);
+  }
+  art.rect(.214, .11, .035, .81, "#e6e7df", "#7d877e", .01);
+  for (let index = 0; index < 11; index++) {
+    const top = .14 + index * .067;
+    art.line(.219, top, .244, top + .029, "#a4aaa0");
+  }
+  art.circle(.116, .50, .022, "#9dabad", "#71818a");
+  for (const centerY of [.269, .827]) for (const centerX of [.377, .803]) {
+    art.circle(centerX, centerY, .07, "#65716c", "#47524e");
+    art.circle(centerX, centerY, .041, undefined, "#adb5af");
+    art.line(centerX - .024, centerY, centerX + .024, centerY, "#d6dcd7");
+    art.line(centerX, centerY - .021, centerX, centerY + .021, "#d6dcd7");
+  }
+  for (const [x1, y1, x2, y2] of [[.225, .555, .391, .811], [.391, .811, .225, .811], [.225, .811, .225, .555]]) {
+    art.line(x1, y1, x2, y2, "#545c52");
+    art.line(x1 + .006, y1, x2 + .006, y2, "#e7e8dd");
+  }
 }
 
 /** Provide normalized drawing helpers while keeping the public primitives absolute. */

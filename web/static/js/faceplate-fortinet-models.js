@@ -37,6 +37,7 @@ const GUIDES = {
   "R424F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/ea180604-eae6-11ed-8e6d-fa163e15d75b/FSR-424F-POE-QSG.pdf",
   "30G": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b0f32597-a216-11ef-a705-1222899fa4e9/FG-30G-31G-QSG.pdf",
   "50G": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/6a8514a8-4c87-11f0-a9d0-d2b0d2e22f7d/FG-50G-51G-QSG.pdf",
+  "70G-POE": "https://www.itk.co.th/Data-Sheet/Firewall/FortiGate/fortigate-fortiwifi-70g-series.pdf",
   "200G": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/ff9309bd-92ed-11ef-a705-1222899fa4e9/FG-200G-Series-QSG.pdf",
   "400G": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b659f32f-2d3f-11f1-b31d-02356ffb40d9/FG-400G-Series-QSG.pdf",
   "700G": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/60b7c7f8-4173-11f0-a9d0-d2b0d2e22f7d/FG-700G-Series-QSG.pdf",
@@ -170,6 +171,7 @@ function buildFortinetProfile({ catalog, device }) {
   }
   if (model === "FortiGate 40F-3G4G") add40FCellular(profile, device);
   else if (/^FortiGate 8[01]F-(?:Bypass|POE)$/.test(model)) add80FVariant(profile, device);
+  else if (/^FortiGate 7[01]G-POE$/.test(model)) add70GPOE(profile, device);
   else if (/^FortiGate (?:40F|6[01]F|7[01][FG]|8[01]F)(?:-|$)/.test(model)) addDesktopFamily(profile, device);
   else if (/^FortiSwitch 148F(?:-POE|-FPOE)?$/.test(model)) add148F(profile, device);
   else if (/^FortiSwitch 448E(?:-POE|-FPOE)?$/.test(model)) add448E(profile, device);
@@ -192,7 +194,8 @@ function buildFortinetProfile({ catalog, device }) {
   else if (/^FortiSwitch 348G(?:-FPOE)?$/.test(model)) add348G(profile, device);
   else if (/^FortiSwitch 108F(?:-POE|-FPOE)?$/.test(model)) add108F(profile, device);
   else if (model === "FortiSwitch 224D-FPOE") add224D(profile, device);
-  else if (/^FortiSwitch Rugged (?:108F|112F-POE)$/.test(model)) addRugged100F(profile, device);
+  else if (model === "FortiSwitch Rugged 108F") addRugged108F(profile, device);
+  else if (model === "FortiSwitch Rugged 112F-POE") addRugged100F(profile, device);
   else if (model === "FortiSwitch Rugged 216F-POE") addRugged216F(profile, device);
   else if (model === "FortiSwitch Rugged 424F-POE") addRugged424F(profile, device);
   else if (/^FortiGate 3[01]G$/.test(model)) add30G(profile, device);
@@ -837,6 +840,56 @@ function addRugged100F(profile, device) {
       ...[.52, .85, .90].map((x) => element("led", x, .09, .011, .03))];
 }
 
+/** Trace the 108F's own opposing panels, disclosing the supplier photograph used for its DIN bracket. */
+function addRugged108F(profile, device) {
+  inspected(profile, "R108F", "5–7 front and DIN mounting; exact-model supplier rear photograph");
+  profile.chassis = { x: .32, y: .157, width: .36, height: .686 };
+  profile.verifiedFaces = ["front", "rear"];
+  const supplier = "https://www.iptrading.com.au/cdn/shop/files/";
+  profile.evidence = { front: `${GUIDES.R108F}#page=7`,
+    rear: `${supplier}FortiSwitchRugged108F_5487-BACK-1440x960.jpg?v=1769660782&width=1946`,
+    supplemental: [`${supplier}FSR-108F-front.jpg?v=1769660719`],
+    provenance: "Supplier-hosted exact-model hardware photographs; photographer and original copyright owner are not independently established. The front photograph identifies FortiSwitchRugged108F and agrees with the official QSG. The same product gallery supplies the opposing rear view.",
+    configuration: "Supplied DIN bracket installed; covered USB and firmware selector; capped BLE fitting." };
+  profile.limitations.push("The rear photograph provides relative illustration geometry, not measured dimensions. The compact drawing retains the photographed body proportions inside the existing2U allocation; saved rack placement is unchanged. The supplier's automated image caption incorrectly calls it a light fixture; the exact-model gallery and visible hardware are the evidence. Side cooling and product labels outside these front/rear views are omitted.");
+  profile.faces.front.ports = device.ports.map((port) => {
+    if (port.type === "Console") return namedSlot(port, "CONSOLE", .390, .438, .120, .18);
+    if (port.label === "MGMT") return namedSlot(port, "MGMT", .374, .795, .120, .18);
+    const index = Number(port.label) - 1;
+    if (index < 6) return namedSlot(port, port.label, [.560, .690, .880][Math.floor(index / 2)],
+      index % 2 ? .515 : .252, .120, .18);
+    return namedSlot(port, port.label, .635 + (index - 6) * .162, .820, .125, .16);
+  });
+  const copperCaptions = [.553, .595, .677, .719, .854, .898];
+  for (const port of profile.faces.front.ports) {
+    const dataIndex = Number(port.label) - 1;
+    port.descriptionAnchor = { x: dataIndex < 6 ? copperCaptions[dataIndex] : port.x,
+      y: port.type === "Console" ? .606 : dataIndex < 6 ? .637 : .950, fontSize: 5.5, boxHeight: 7 };
+  }
+  profile.faces.front.components = [
+    ruggedTerminal(.040, .145, .250, .119, 5), ruggedTerminal(.040, .718, .222, .119, 4),
+    { ...element("screw", .032, .390, .073, .157), role: "chassis-ground" },
+    element("chassis", .306, .033, .166, .285),
+    element("screw", .326, .047, .044, .092), element("screw", .414, .047, .044, .092),
+    element("chassis", .579, .029, .190, .124), element("screw", .697, .045, .041, .085),
+    element("text", .578, .053, .110, .078, "SIGNED FW"),
+    element("coax", .883, .680, .090, .190, undefined, "capped"),
+    element("button", .499, .763, .028, .055, undefined, "reset"),
+    element("text", .473, .843, .084, .060, "RST/BLE"),
+    element("text", .103, .426, .194, .064, "FORTINET"),
+    element("text", .105, .491, .194, .064, "Rugged 108F"),
+    element("text", .047, .850, .218, .071, "12–57V DC1/DC2"),
+    element("text", .040, .267, .260, .066, "IN+ REF NC COM NO"),
+    ...[.638, .797].map((x) => ({ ...element("led", x - .015, .643, .030, .065), role: "optical-status" })),
+    ...[[.057, .086, "IN"], [.268, .086, "OUT"], [.539, .107, "FW"], [.852, .107, "PWR"],
+      [.900, .107, "ALM"], [.057, .678, "DC1"], [.240, .678, "DC2"], [.512, .678, "BLE"]]
+      .flatMap(([x, y, label]) => [element("led", x - .007, y, .014, .035),
+        element("text", x - .022, y - .065, .044, .060, label)]),
+  ];
+  profile.faces.rear.ports = [];
+  profile.faces.rear.components = [element("din-bracket", .219, .003, .423, .994, undefined, "fsr108f")];
+}
+
 /** Trace the 216F's portrait copper banks and four optical rows without stretching them into a rack switch layout. */
 function addRugged216F(profile, device) {
   ruggedFrontOnly(profile, "R216F");
@@ -1012,6 +1065,61 @@ function add900G(profile, device) {
     element("psu", .692, .025, .125, .95, "PWR2", device.model.endsWith("-DC") ? "dc" : "ac"),
     element("psu", .841, .025, .125, .95, "PWR1", device.model.endsWith("-DC") ? "dc" : "ac")];
   profile.limitations.push("The five internal fans are behind the common rear mesh. The guide depicts the SSD access cover closed for both storage variants.");
+}
+
+/** Trace the 70G/71G PoE datasheet panels with the source's reversed Ethernet banks and four PoE outputs. */
+function add70GPOE(profile, device) {
+  inspected(profile, "70G-POE", "8 front/rear; 10 hardware inventory");
+  profile.defaultFace = "rear";
+  profile.verifiedFaces = ["front", "rear"];
+  profile.evidence = { front: `${GUIDES["70G-POE"]}#page=8`, rear: `${GUIDES["70G-POE"]}#page=8`,
+    supplemental: [`${GUIDES["70G-POE"]}#page=10`],
+    provenance: "Fortinet-authored datasheet FGFWF-70G-DAT-R05-20250526, inspected from a public supplier mirror. PDF8 explicitly names FortiGate70G/71G-POE above these two panels, separately from the FortiWiFi illustrations.",
+    configuration: "Factory Ethernet bank; four PoE/+ ports1–4; covered signed-firmware selector and capped BLE fitting." };
+  profile.legacyLayouts = [{ inventoryRevision: 0,
+    portIndexMap: Object.fromEntries(device.ports.map((port) => [port.portIndex, port.portIndex])) }];
+  profile.catalogDiscrepancies.push("Revision0 incorrectly marked all ten GE sockets as PoE. Revision1 gives new devices PoE only on ports1–4; saved endpoint IDs, indices, labels and configured PoE values remain untouched.");
+  profile.limitations.push("The 71G's internal64GB storage does not add a panel connector. USB is hardware artwork, not a network endpoint. Positions follow the manufacturer illustration rather than measured dimensions.");
+  const positions = { "1": [.666, .284], "2": [.666, .596], "3": [.598, .284], "4": [.598, .596],
+    "5": [.456, .284], "6": [.456, .596], "A": [.387, .284], "B": [.387, .596],
+    "WAN1": [.284, .284], "WAN2": [.284, .596], "CONSOLE": [.181, .394] };
+  profile.faces.front.ports = [];
+  profile.faces.rear.ports = device.ports.map((port) => {
+    const [x, y] = positions[port.label];
+    return namedSlot(port, port.label, x, y, .061, .24);
+  });
+  profile.faces.rear.components = [
+    element("chassis", .055, .478, .036, .490), element("screw", .059, .488, .027, .150),
+    { ...element("screw", .025, .450, .026, .143), role: "chassis-ground" },
+    element("text", .037, .315, .070, .090, "SIGNED FW"),
+    element("usb", .154, .550, .055, .170, undefined, "a"),
+    element("text", .158, .760, .050, .075, "USB"),
+    element("power", .866, .270, .044, .530, undefined, "dc-keyed2"),
+    element("text", .850, .858, .083, .075, "DC+54V"),
+    ...Array.from({ length: 21 }, (_, index) => element("vent", .744 + Math.floor(index / 7) * .037,
+      .145 + index % 7 * .108, .024, .054, undefined, "slit")),
+  ];
+  profile.faces.front.components = [element("chassis", .018, .070, .965, .820),
+    element("text", .039, .205, .200, .165, "FORTINET"),
+    element("text", .075, .420, .220, .102, device.model.replace("-", " ")),
+    element("button", .112, .620, .015, .080, undefined, "reset"),
+    element("text", .083, .755, .078, .064, "BLE/RESET"),
+    element("led", .161, .680, .010, .055, undefined, "bar"),
+    element("text", .144, .768, .044, .064, "BLE"),
+    element("led", .214, .680, .011, .055, undefined, "bar"),
+    element("text", .180, .813, .100, .064, "SIGNED FW"),
+    element("coax", .891, .350, .042, .238, undefined, "capped"),
+    element("text", .881, .635, .062, .075, "BLE"),
+    ...[[.342, .705, "PWR"], [.367, .705, "HA"], [.391, .705, "WAN2"],
+      [.367, .568, "STATUS"], [.391, .568, "WAN1"], [.438, .705, "MAX PoE"]]
+      .flatMap(([x, y, label]) => [element("led", x - .005, y, .010, .055, undefined, "bar"),
+        element("text", x - .021, y < .6 ? y - .075 : y + .085, .042, .062, label)]),
+    ...["1", "2", "3", "4", "5", "6", "A", "B"].flatMap((label, index) => [
+      element("text", .445 + index * .024, .485, .023, .067, label),
+      element("led", .451 + index * .024, .568, .010, .055, undefined, "bar"),
+      ...(index < 4 ? [element("led", .451 + index * .024, .705, .010, .055, undefined, "bar")] : []),
+    ]),
+  ];
 }
 
 /** Trace the separately documented SFP, DSL and PoE 50G variants instead of inheriting the base rear panel. */

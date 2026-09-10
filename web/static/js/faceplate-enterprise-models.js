@@ -6,6 +6,7 @@ import { buildCiscoFirepowerModelFaceplate } from "./faceplate-cisco-firepower-m
 import { buildCiscoCatalystModelFaceplate } from "./faceplate-cisco-catalyst-models.js";
 import { buildCiscoNexusModelFaceplate } from "./faceplate-cisco-nexus-models.js";
 import { buildCiscoMerakiModelFaceplate } from "./faceplate-cisco-meraki-models.js";
+import { buildCiscoIndustrialModelFaceplate } from "./faceplate-cisco-industrial-models.js";
 import { buildJuniperSRXModelFaceplate } from "./faceplate-juniper-srx-models.js";
 import { buildJuniperEXModelFaceplate } from "./faceplate-juniper-ex-models.js";
 import { buildCheckPointModelFaceplate } from "./faceplate-checkpoint-models.js";
@@ -239,6 +240,7 @@ export function resolveEnterpriseFaceplate(device) {
     || buildCiscoCatalystModelFaceplate(canonical.device)
     || buildCiscoNexusModelFaceplate(canonical.device)
     || buildCiscoMerakiModelFaceplate(canonical.device)
+    || buildCiscoIndustrialModelFaceplate(canonical.device)
     || buildJuniperSRXModelFaceplate(canonical.device)
     || buildJuniperEXModelFaceplate(canonical.device)
     || buildCheckPointModelFaceplate(canonical.device)

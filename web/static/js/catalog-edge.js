@@ -122,8 +122,9 @@ const profiles = [
     group("access", "RJ45_1G", 100, ["FE1", "FE2", "FE3", "FE4"]),
     group("uplink", "RJ45_1G", 1000, ["GE WAN"]),
     group("uplink", "SFP_1G", 1000, ["SFP WAN"]),
-    group("management", "USB_MICRO_CONSOLE", 0, ["CONSOLE"]),
-  ], SOURCE.ciscoIR1101, "Base-platform Ethernet and combo WAN interfaces; cellular radio is modular.", { fidelity: "family", placement: "DIN / wall" }),
+    group("management", "USB_MINI_CONSOLE", 0, ["CONSOLE"]),
+    group("management", "Console", 0, ["SERIAL"]),
+  ], SOURCE.ciscoIR1101, "IR1101-K9 base without a PIM or expansion module: four Fast Ethernet LAN, combo Gigabit WAN, Mini-B console and independent RJ45 RS232 DTE serial interface. Revision 1 preserves indices 1–7 and appends serial at 8.", { placement: "DIN / wall", inventoryRevision: 1 }),
 ];
 
 export const edgeCatalogProfiles = Object.freeze(profiles);

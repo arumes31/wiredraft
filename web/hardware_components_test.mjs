@@ -3,6 +3,39 @@ import test from "node:test";
 
 import { drawHardwareComponent, hardwareComponentSVG, hardwarePrimitives } from "./static/js/hardware-components.js";
 
+test("microSD service recesses show a thin card slot without invented fasteners or connector contacts", () => {
+  const component = { kind: "card-slot", variant: "micro-sd-recess", x: 10, y: 20, width: 64, height: 52 };
+  const parts = hardwarePrimitives(component);
+  const slot = parts.find((part) => part.kind === "rect" && part.fill === "#102227");
+  assert.ok(slot.width > slot.height * 8);
+  assert.ok(parts.some((part) => part.kind === "text" && part.text === "MICRO SD"));
+  assert.ok(parts.every((part) => part.kind !== "circle"), "a card recess has no screw, grounding stud or socket pins");
+  assert.deepEqual(hardwarePrimitives({ ...component, variant: "unknown" }), []);
+  assert.match(hardwareComponentSVG(component), /MICRO SD/);
+});
+
+test("Rugged108F DIN brackets retain four slotted fixings and the separate spring release", () => {
+  const component = { kind: "din-bracket", variant: "fsr108f", x: 13, y: 21, width: 183, height: 208 };
+  const parts = hardwarePrimitives(component);
+  const slots = parts.filter((part) => part.kind === "rect" && part.fill === "#dbe2e1");
+  const screws = parts.filter((part) => part.kind === "circle" && part.fill === "#65716c");
+  assert.equal(slots.length, 4);
+  assert.equal(screws.length, 4);
+  assert.deepEqual(screws.map((part) => [Number(((part.cx - 13) / 183).toFixed(3)), Number(((part.cy - 21) / 208).toFixed(3))]),
+    [[.377, .269], [.803, .269], [.377, .827], [.803, .827]]);
+  for (const slot of slots) {
+    assert.ok(slot.height > slot.width * 4 && slot.rx > 0, "fixings occupy elongated rounded slots, not sockets");
+    assert.ok(screws.some((screw) => Math.abs(screw.cx - slot.x - slot.width / 2) < 1e-8 &&
+      screw.cy > slot.y && screw.cy < slot.y + slot.height));
+  }
+  const release = parts.filter((part) => part.kind === "line" && part.stroke === "#545c52");
+  assert.equal(release.length, 3, "the lower spring release is a transparent triangular wire loop");
+  assert.ok(release.every((part) => part.x1 < screws[1].cx && part.x2 < screws[1].cx &&
+    part.y1 > screws[0].cy && part.y2 > screws[0].cy));
+  assert.ok(!parts.some((part) => ["#d7b76c", "#07151a", "#42d98b"].includes(part.fill)), "mounting hardware has no invented contacts, vents or lamps");
+  assert.deepEqual(hardwarePrimitives({ ...component, variant: "unknown" }), [], "an untraced DIN bracket never falls back to a connector");
+});
+
 test("passive radial vents and wire retainers do not render connector contacts or obscure the inlet", () => {
   const component = { x: 0, y: 0, width: 70, height: 70 };
   const vent = hardwarePrimitives({ ...component, kind: "vent", variant: "radial" });
@@ -441,6 +474,7 @@ test("new connector, carrier and mesh-fan adapters retain finite bounded geometr
     { kind: "terminal", variant: "pluggable", pins: 9 }, { kind: "led", variant: "bar" }, { kind: "service-jack" },
     { kind: "fan", variant: "mesh-dual" }, { kind: "psu", variant: "ac-compact-c14" },
     { kind: "vent", variant: "radial" }, { kind: "handle", variant: "wire" },
+    { kind: "din-bracket", variant: "fsr108f" },
     ...["mesh-dual-end-top", "mesh-dual-end-bottom", "mesh-triple-end", "mesh-dual-7060e"].map((variant) => ({ kind: "fan", variant })),
     ...["ac-c16-portrait", "dc-keyed2-portrait", "ac-saf-d-grid", "ac-fan-left-c20", "ac-inlet-right-sideways", "ac-c16-horizontal", "dc-terminal2-7060e"].map((variant) => ({ kind: "psu", variant }))];
   for (const configuration of configurations) for (const [width, height] of [[80, 30], [30, 80], [12, 12]]) {

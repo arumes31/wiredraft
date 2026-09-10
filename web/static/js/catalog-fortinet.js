@@ -92,7 +92,10 @@ add(["FortiGate 50G-SFP"], "Firewall", 1, [ge(5, "PORT"), sfp(1), consolePort()]
 add(["FortiGate 50G-SFP-POE", "FortiGate 51G-SFP-POE"], "Firewall", 1, [ge(5, "PORT", true), sfp(1), consolePort()], { lifecycle: "current" });
 add(["FortiGate 60F", "FortiGate 61F"], "Firewall", 1, [ge(10, "PORT"), consolePort()], { lifecycle: "current" });
 add(["FortiGate 70F", "FortiGate 71F", "FortiGate 70G", "FortiGate 71G"], "Firewall", 1, [ge(10, "PORT"), consolePort()], { lifecycle: "current" });
-add(["FortiGate 70G-POE", "FortiGate 71G-POE"], "Firewall", 1, [ge(10, "PORT", true), consolePort()], { lifecycle: "current" });
+add(["FortiGate 70G-POE", "FortiGate 71G-POE"], "Firewall", 1,
+  [ge(4, "PORT", true), ge(6, "PORT"), consolePort()], { lifecycle: "current", inventoryRevision: 1,
+    source: "https://www.itk.co.th/Data-Sheet/Firewall/FortiGate/fortigate-fortiwifi-70g-series.pdf",
+    note: "Fortinet datasheet R05 PDF8/10: only ports1–4 supply PoE; all eleven endpoint indices remain unchanged." });
 add(["FortiGate 80F", "FortiGate 81F", "FortiGate 80F-Bypass"], "Firewall", 1, [ge(10, "PORT"), sfp(2, "SHARED"), consolePort()], { lifecycle: "current", note: "SFP1/SFP2 share media pairs with WAN1/WAN2." });
 add(["FortiGate 80F-POE", "FortiGate 81F-POE"], "Firewall", 1, [ge(10, "PORT", true), sfp(2, "SHARED"), consolePort()], { lifecycle: "current", note: "SFP1/SFP2 share media pairs with WAN1/WAN2." });
 add(["FortiGate 90G", "FortiGate 91G"], "Firewall", 1, [ge(8, "PORT"), sfpp(2, "SHARED"), consolePort()], { lifecycle: "current", note: "Two 10GE SFP+/RJ45 shared media pairs." });
