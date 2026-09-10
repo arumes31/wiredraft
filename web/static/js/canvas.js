@@ -1447,7 +1447,8 @@ export class CanvasEngine {
     ctx.strokeStyle = selected || multiSelected ? "#66eddd" : logicalPeer ? logicalPeerAccent : "#52666b";
     ctx.lineWidth = selected || multiSelected ? 2.5 : logicalPeer ? 2 : 1;
     if (logicalPeer) ctx.setLineDash([7, 4]);
-    ctx.beginPath(); ctx.roundRect(chassis.x, chassis.y, chassis.width, chassis.height, 8); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(chassis.x, chassis.y, chassis.width, chassis.height,
+      chassis.shape === "circle" ? chassis.width / 2 : 8); ctx.fill(); ctx.stroke();
     ctx.setLineDash([]);
     ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
     if (scene?.profile) {
@@ -1741,7 +1742,7 @@ export class CanvasEngine {
   /** Draw shared connector art while preserving selection and network-state overlays. */
   drawPort(ctx, box) {
     const { port } = box;
-    const kind = connectorKind(port.type);
+    const kind = box.connectorKind || connectorKind(port.type);
     const hovered = this.hoveredPort?.port.id === port.id;
     const selected = this.state.selection?.type === "port" && this.state.selection.id === port.id;
     const draftTarget = this.draft?.target?.port.id === port.id;
@@ -1819,15 +1820,16 @@ export class CanvasEngine {
       const selected = this.state.selection?.type === "port" && this.state.selection.id === box.port.id;
       ctx.save();
       ctx.font = `700 ${placement.fontSize}px Bahnschrift Condensed, sans-serif`;
-      const textWidth = Math.min(placement.maxWidth, ctx.measureText(box.port.label).width);
-      const width = Math.max(12, textWidth + 6); const height = 11;
+      const label = box.displayLabel ?? box.port.label;
+      const textWidth = Math.min(placement.maxWidth, ctx.measureText(label).width);
+      const width = Math.min(placement.boxMaxWidth ?? Infinity, Math.max(12, textWidth + 6)); const height = 11;
       const x = placement.x - width / 2; const y = placement.y - height / 2;
       ctx.globalAlpha = .94; ctx.fillStyle = template.surface; ctx.strokeStyle = hovered || selected ? "#42d9c8" : template.ink;
       ctx.lineWidth = hovered || selected ? 1.2 : .55;
       ctx.beginPath(); ctx.roundRect(x, y, width, height, 2); ctx.fill();
       ctx.globalAlpha = hovered || selected ? .9 : .35; ctx.stroke();
       ctx.globalAlpha = 1; ctx.fillStyle = template.ink; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(box.port.label, placement.x, placement.y + .25, placement.maxWidth);
+      ctx.fillText(label, placement.x, placement.y + .25, placement.maxWidth);
       ctx.restore();
     }
   }

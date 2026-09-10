@@ -94,7 +94,9 @@ export function endpointRouteSegment(route, side, bounds, padding = 6) {
   return curve ? endpointCurveSegment(curve, side, bounds, padding) : null;
 }
 
+/** Place socket names consistently, honoring spacing reserved by the shared hardware scene. */
 export function portDescriptionPlacement(portBox, deviceBounds) {
+  if (portBox.labelPlacement) return portBox.labelPlacement;
   const label = String(portBox.port?.label || "");
   const fontSize = label.length > 10 ? 5.5 : label.length > 6 ? 6.5 : 8;
   const maxWidth = label.length > 6 ? 38 : 30;

@@ -50,7 +50,8 @@ const profiles = [
   ], SOURCE.ciscoAP, "Vendor-documented multigigabit uplink and RJ45 management console.", { placement: "ceiling / wall" }),
   profile("HPE Aruba", "AP-635", "AccessPoint", FAMILIES.accessPoints, "#e7e9e5", [
     group("access", "RJ45_MGIG", 2500, ["E0", "E1"]),
-  ], SOURCE.arubaAP, "Vendor-documented dual 2.5G Ethernet interfaces.", { placement: "ceiling / wall" }),
+    group("management", "USB_MICRO_CONSOLE", 0, ["CONSOLE"]),
+  ], SOURCE.arubaAP, "Vendor-documented dual 2.5G Ethernet interfaces and Micro-B serial console.", { placement: "ceiling / wall" }),
   profile("Fortinet", "FortiAP 231F", "AccessPoint", FAMILIES.accessPoints, "#e5e7e4", [
     group("access", "RJ45_1G", 1000, ["ETH0", "ETH1"]),
   ], SOURCE.fortinetAP, "Vendor-documented dual 1G Ethernet uplinks.", { placement: "ceiling / wall" }),

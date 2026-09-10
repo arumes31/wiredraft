@@ -949,10 +949,15 @@ function renderDeviceInspector(deviceID) {
   const rackFace = normalizeRackFace(device.rackFace);
   const physicalProfile = resolveModelFaceplate(device);
   const physicalFace = state.deviceFaceplateFace(device.id, physicalProfile?.defaultFace);
+  const hardwareNotes = [...new Set([...(physicalProfile?.limitations || []), ...(physicalProfile?.catalogDiscrepancies || [])])];
   const physicalPanelMarkup = physicalProfile ? `
     <fieldset class="device-metadata-block hardware-panel-controls"><legend>HARDWARE PANEL</legend>
       <div class="radio-row">${["front", "rear"].map((face) => `<label><input type="radio" name="hardwarePanel" value="${face}" ${physicalFace === face ? "checked" : ""}><span>${face.toUpperCase()}</span></label>`).join("")}</div>
       <p>View this device's front or rear hardware. Connections on the opposite panel stay visible at its connection marker. This view is local to your session.</p>
+      <p class="hardware-panel-evidence">${physicalProfile.fidelity === "schematic" ? "Schematic layout; hardware options are configurable." : physicalProfile.fidelity === "family" ? "Family layout; hardware options and connector positions may vary." : "Model-specific panel layout."}${/^https:\/\//.test(physicalProfile.source || "") ? ` <a href="${escapeHTML(physicalProfile.source)}" target="_blank" rel="noopener noreferrer">Hardware reference</a>` : ""}</p>
+      ${physicalProfile.sku ? `<p>Drawn hardware: ${escapeHTML(physicalProfile.sku)}</p>` : ""}
+      ${(device.faceplate?.inventoryRevision || 0) !== (physicalProfile.inventoryRevision || 0) ? `<p>Saved inventory uses a different catalog revision. Existing cable endpoints and custom port names are preserved.</p>` : ""}
+      ${hardwareNotes.length ? `<details class="hardware-panel-notes"><summary>Hardware configuration and catalog notes</summary><ul>${hardwareNotes.map((note) => `<li>${escapeHTML(note)}</li>`).join("")}</ul></details>` : ""}
     </fieldset>` : "";
   const location = rack ? `${rack.name} · ${rackFace.toUpperCase()} · U${device.rackUnit}` : `${Math.round(device.positionX)}, ${Math.round(device.positionY)}`;
   const system = switchSystemForDevice(state.topology, device.id);

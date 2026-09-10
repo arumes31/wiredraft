@@ -41,6 +41,7 @@ const representative = (source, chassis) => ({
 function profile(vendor, model, category, units, color, groups, extra = {}) {
   return {
     vendor, model, category, units, color, groups,
+    inventoryRevision: extra.inventoryRevision || 0,
     layout: extra.layout || vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     fidelity: extra.fidelity || "family",
     source: extra.source || sources[vendor] || "built-in generic physical profile",
@@ -58,9 +59,15 @@ const profiles = [
   ...many("Cisco", ["Catalyst 9500 family"], "Switch", 1, "#263b4b", [u(48, "SFP28_25G", 25000, "SFP28"), u(4, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con("USB_C_CONSOLE"), stack()]),
   ...many("Cisco", ["Nexus 3000 family", "Nexus 5000 family", "Nexus 7000 family", "Nexus 9000 family"], "Switch", 2, "#263b4b", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP28"), mgmt(), con()]),
   ...many("Cisco", ["Meraki MS120", "Meraki MS210", "Meraki MS225", "Meraki MS250", "Meraki MS350", "Meraki MS390", "Meraki MS410", "Meraki MS425", "Meraki MS450"], "Switch", 1, "#263b4b", [r(48, 1000, true), u(4), mgmt()]),
-  ...many("Cisco", ["ASA 5506-X", "ASA 5508-X", "ASA 5516-X", "ASA 5525-X", "ASA 5545-X", "ASA 5555-X"], "Firewall", 1, "#263b4b", [r(8), mgmt(), con("USB_MICRO_CONSOLE")]),
-  ...many("Cisco", ["Secure Firewall 1010", "Secure Firewall 1120", "Secure Firewall 1140", "Secure Firewall 2110", "Secure Firewall 2120", "Secure Firewall 2130", "Secure Firewall 2140"], "Firewall", 1, "#263b4b", [r(12), u(4), mgmt(), con("USB_C_CONSOLE")]),
-  ...many("Cisco", ["Secure Firewall 4110", "Secure Firewall 4120", "Secure Firewall 4140", "Secure Firewall 4150", "Secure Firewall 9300"], "Firewall", 3, "#263b4b", [u(24, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP28"), mgmt(2), con()]),
+  profile("Cisco", "ASA 5506-X", "Firewall", 1, "#263b4b", [r(8), mgmt(), con("USB_MINI_CONSOLE"), con("Console", "RJ45-CONSOLE")], { ...verified("https://www.cisco.com/c/en/us/td/docs/security/asa/hw/maintenance/5506xguide/b_Install_Guide_5506/b_Install_Guide_5506_chapter_01.html"), inventoryRevision: 1 }),
+  ...many("Cisco", ["ASA 5508-X", "ASA 5516-X"], "Firewall", 1, "#263b4b", [r(8), mgmt(), con("USB_MINI_CONSOLE"), con("Console", "RJ45-CONSOLE")], { ...verified("https://www.cisco.com/c/en/us/td/docs/security/asa/hw/maintenance/5508xguide/b_install_guide_5508/b_install_guide_5508_chapter_0100.html"), inventoryRevision: 1 }),
+  ...many("Cisco", ["ASA 5525-X", "ASA 5545-X", "ASA 5555-X"], "Firewall", 1, "#263b4b", [r(8), mgmt(), con()], { ...verified("https://www.cisco.com/c/en/us/td/docs/security/asa/hw/maintenance/5500xguide/5500xhw/asa_overview.html"), inventoryRevision: 1 }),
+  profile("Cisco", "Secure Firewall 1010", "Firewall", 1, "#263b4b", [r(6), g("access", 2, "RJ45_1G", 1000, "", true, ["7", "8"]), mgmt(), con("USB_MINI_CONSOLE"), con("Console", "RJ45-CONSOLE")], { ...verified("https://www.cisco.com/c/en/us/td/docs/security/firepower/1010/hw/guide/hw-install-1010/overview.html"), inventoryRevision: 1 }),
+  ...many("Cisco", ["Secure Firewall 1120", "Secure Firewall 1140"], "Firewall", 1, "#263b4b", [r(8), u(4, "SFP_1G", 1000, "SFP"), mgmt(), con("USB_MINI_CONSOLE"), con("Console", "RJ45-CONSOLE")], { ...verified("https://www.cisco.com/c/en/us/td/docs/security/firepower/1100/hw/guide/hw-install-1100/overview.html"), inventoryRevision: 1 }),
+  ...many("Cisco", ["Secure Firewall 2110", "Secure Firewall 2120"], "Firewall", 1, "#263b4b", [r(12), u(4, "SFP_1G", 1000, "SFP"), mgmt(), con()], { ...verified("https://www.cisco.com/c/en/us/td/docs/security/firepower/2100/hw/guide/b_install_guide_2100/overview.html"), inventoryRevision: 1 }),
+  ...many("Cisco", ["Secure Firewall 2130", "Secure Firewall 2140"], "Firewall", 1, "#263b4b", [r(12), u(4), mgmt(), con()], { ...verified("https://www.cisco.com/c/en/us/td/docs/security/firepower/2100/hw/guide/b_install_guide_2100/overview.html"), inventoryRevision: 1 }),
+  ...many("Cisco", ["Secure Firewall 4110", "Secure Firewall 4120", "Secure Firewall 4140", "Secure Firewall 4150"], "Firewall", 1, "#263b4b", [u(8), g("management", 1, "SFP_1G", 1000, "MGMT"), con()], { ...verified("https://www.cisco.com/c/en/us/td/docs/security/firepower/4100/hw/guide/b_install_guide_4100/overview.html"), inventoryRevision: 1 }),
+  profile("Cisco", "Secure Firewall 9300", "Firewall", 3, "#263b4b", [u(24, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP28"), mgmt(2), con()]),
   ...many("Cisco", ["ISR 1100 family", "ISR 4300 family", "ISR 4400 family"], "Router", 2, "#263b4b", [r(8), u(4), mgmt(), con("USB_C_CONSOLE")]),
 
   // Aruba/HPE and Dell switching/server families.
@@ -112,7 +119,7 @@ const profiles = [
     g("access", 8, "RJ45_1G", 1000, "", false, labels(1, 8)),
     g("uplink", 2, "SFP_1G", 1000, "SFP", false, labels(9, 2)),
     g("management", 1, "Console", 0, "CONSOLE", false, ["CONSOLE"]),
-    g("management", 1, "USB_C_CONSOLE", 0, "CONSOLE", false, ["USB-C"]),
+    g("management", 1, "USB_MICRO_CONSOLE", 0, "CONSOLE", false, ["MICRO-USB"]),
   ], verified("https://static.tp-link.com/upload/manual/2024/202411/20241101/7106511506_Omada%20L2%2B%20Managed%20Switch_IG.pdf")),
   profile("TP-Link Omada", "SG3428", "Switch", 1, "#24442d", [
     g("access", 24, "RJ45_1G", 1000, "", false, labels(1, 24)),
@@ -137,11 +144,11 @@ const profiles = [
   ], verified(`https://www.juniper.net/documentation/us/en/hardware/${model.toLowerCase()}/${model.toLowerCase()}.pdf`))),
   ...["SRX340", "SRX345"].map((model) => profile("Juniper", model, "Firewall", 1, "#243b31", [
     g("access", 8, "RJ45_1G", 1000, "", false, labels(0, 8).map((label) => `0/${label}`)),
-    g("uplink", 8, "SFP_1G", 1000, "SFP", false, labels(0, 8).map((label) => `0/${label}`)),
+    g("uplink", 8, "SFP_1G", 1000, "SFP", false, labels(8, 8).map((label) => `0/${label}`)),
     g("management", 1, "RJ45_1G", 1000, "MGMT", false, ["MGMT"]),
     g("management", 1, "Console", 0, "CONSOLE", false, ["CONSOLE"]),
     g("management", 1, "USB_MINI_CONSOLE", 0, "CONSOLE", false, ["MINI-USB"]),
-  ], verified(`https://www.juniper.net/documentation/us/en/hardware/${model.toLowerCase()}/${model.toLowerCase()}.pdf`))),
+  ], { ...verified(`https://www.juniper.net/documentation/us/en/hardware/${model.toLowerCase()}/${model.toLowerCase()}.pdf`), inventoryRevision: 1 })),
   profile("Juniper", "SRX380", "Firewall", 1, "#243b31", [
     g("access", 16, "RJ45_1G", 1000, "", true, labels(0, 16).map((label) => `0/${label}`)),
     g("uplink", 4, "SFP_PLUS_10G", 10000, "SFP+", false, labels(16, 4).map((label) => `0/${label}`)),
@@ -183,8 +190,11 @@ const profiles = [
   ...many("Juniper", ["QFX5100 family", "QFX5110 family", "QFX5120 family", "QFX5130 family", "QFX5200 family", "QFX5210 family", "QFX5220 family", "QFX10000 family"], "Switch", 2, "#243b31", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP_DD_400G", 400000, "QSFP-DD"), mgmt(), con()]),
 
   ...many("Ubiquiti", ["EdgeSwitch legacy family", "EdgeRouter legacy family", "EdgeMAX legacy family"], "Router", 1, "#879296", [r(16), u(2), mgmt()]),
-  ...many("Ubiquiti", ["UDM-Pro-Max"], "Firewall", 1, "#879296", [r(8, 2500, true), u(2), mgmt()]),
-  ...many("Ubiquiti", ["USW-Enterprise-48-PoE", "USW-Pro-Max-48-PoE"], "Switch", 1, "#879296", [r(48, 2500, true), u(4), mgmt()]),
+  ...many("Ubiquiti", ["UDM-Pro-Max"], "Firewall", 1, "#879296", [r(8),
+    g("uplink", 2, "SFP_PLUS_10G", 10000, "SFP+", false, ["10", "11"]),
+    g("management", 1, "RJ45_MGIG", 2500, "WAN", false, ["9"])]),
+  ...many("Ubiquiti", ["USW-Enterprise-48-PoE"], "Switch", 1, "#879296", [r(48, 2500, true), u(4)]),
+  ...many("Ubiquiti", ["USW-Pro-Max-48-PoE"], "Switch", 1, "#879296", [r(32, 1000, true), r(16, 2500, true), u(4)]),
   profile("MikroTik", "CCR1009", "Router", 1, "#e1e4e1", [
     r(7), g("access", 1, "RJ45_1G", 1000, "COMBO-RJ45"),
     u(1, "SFP_1G", 1000, "COMBO-SFP"), u(1, "SFP_PLUS_10G", 10000, "SFP+"), con(),

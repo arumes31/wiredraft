@@ -82,6 +82,28 @@ test("USB-A tongues and contacts follow vertical or horizontal mounting", () => 
   assert.ok(vertical[1].height > vertical[1].width, "the vertical port's tongue rotates with its contacts");
 });
 
+test("single slits, vertical heatsink fins and chevrons retain bounded distinct primitives", () => {
+  const box = { kind: "vent", x: 10, y: 20, width: 140, height: 24 };
+  const slit = hardwarePrimitives({ ...box, variant: "slit" });
+  assert.equal(slit.length, 1);
+  assert.ok(slit[0].width > box.width * .95);
+  const fins = hardwarePrimitives({ ...box, variant: "fins" });
+  assert.ok(fins.some((part) => part.kind === "rect" && part.height > part.width));
+  assert.ok(fins.some((part) => part.kind === "line" && part.x1 === part.x2));
+  const chevrons = hardwarePrimitives({ ...box, variant: "chevron" });
+  assert.ok(chevrons.every((part) => part.kind === "line" && part.x1 !== part.x2 && part.y1 !== part.y2));
+  assert.equal(chevrons[0].x2, chevrons[1].x1);
+    assert.equal(chevrons[0].y2, chevrons[1].y1);
+    const louvers = hardwarePrimitives({ ...box, variant: "louver" });
+    assert.equal(louvers.length * 2, chevrons.length);
+    assert.ok(louvers.every((part) => part.kind === "line" && part.x2 > part.x1 && part.y2 > part.y1));
+    for (const part of [...slit, ...fins, ...chevrons, ...louvers]) {
+    const bounds = primitiveBounds(part);
+    assert.ok(bounds.x >= box.x && bounds.y >= box.y);
+    assert.ok(bounds.x + bounds.width <= box.x + box.width && bounds.y + bounds.height <= box.y + box.height);
+  }
+});
+
 test("selection stroke widths stay consistent between Canvas and SVG", () => {
   const component = { kind: "rj45", x: 10, y: 20, width: 18, height: 14 };
   const palette = { stroke: "#7affee", strokeWidth: 1.8 };
@@ -163,3 +185,48 @@ function recordingContext() {
     fill() {}, stroke() { this.strokeWidths.push(this.lineWidth); },
   };
 }
+
+test("displays, buttons and populated module bays retain their distinct hardware details", () => {
+  const bounds = { x: 10, y: 20, width: 40, height: 30 };
+  const display = hardwarePrimitives({ ...bounds, kind: "lcd" });
+  const button = hardwarePrimitives({ ...bounds, kind: "button" });
+  assert.equal(display.filter((part) => part.kind === "rect").length, 2);
+  assert.equal(button.filter((part) => part.kind === "circle").length, 3);
+  const cover = hardwarePrimitives({ ...bounds, kind: "module-bay", variant: "blank" });
+  const installed = hardwarePrimitives({ ...bounds, kind: "module-bay", variant: "populated" });
+  assert.equal(cover.filter((part) => part.kind === "line").length, 2);
+  assert.equal(installed.filter((part) => part.kind === "line").length, 0);
+  assert.equal(hardwarePrimitives({ ...bounds, kind: "text", label: "DEVICE", ink: "#abcdef" })[0].fill, "#abcdef");
+});
+
+test("keyed four-pin power and recessed controls do not resemble network sockets", () => {
+  const bounds = { x: 0, y: 0, width: 24, height: 24 };
+  const power = hardwarePrimitives({ ...bounds, kind: "power", variant: "dc-keyed4" });
+  const pins = power.filter((part) => part.fill === "#b9c3c4");
+  assert.equal(pins.length, 4);
+  assert.equal(new Set(pins.map((pin) => pin.x)).size, 2);
+  assert.equal(new Set(pins.map((pin) => pin.y)).size, 2);
+  const reset = hardwarePrimitives({ ...bounds, kind: "button", variant: "reset" });
+  assert.equal(reset.length, 2);
+  assert.ok(reset.every((part) => part.kind === "circle"));
+  const slider = hardwarePrimitives({ ...bounds, kind: "switch", variant: "firmware-slider" });
+  assert.deepEqual(slider.map((part) => part.kind), ["rect", "rect", "line"]);
+  const rps = hardwarePrimitives({ ...bounds, width: 70, kind: "power", variant: "dc-multipin", columns: 9 });
+  assert.equal(rps.filter((part) => part.fill === "#b9c3c4").length, 18);
+  const unknown = hardwarePrimitives({ ...bounds, kind: "power", variant: "dc-multipin" });
+  assert.equal(unknown.filter((part) => part.fill === "#b9c3c4").length, 0);
+  const terminal = hardwarePrimitives({ ...bounds, width: 80, kind: "terminal", pins: 5 });
+  assert.equal(terminal.filter((part) => part.kind === "circle").length, 5);
+  const verticalTerminal = hardwarePrimitives({ ...bounds, height: 80, kind: "terminal", pins: 4 });
+  assert.equal(new Set(verticalTerminal.filter((part) => part.kind === "circle").map((part) => part.cy)).size, 4);
+});
+
+test("right-inlet power supplies and grounding studs retain their actual physical roles", () => {
+  const bounds = { x: 0, y: 0, width: 100, height: 50 };
+  const power = hardwarePrimitives({ ...bounds, kind: "psu", variant: "ac-inlet-right" });
+  const contacts = power.filter((part) => part.fill === "#b9c3c4");
+  assert.equal(contacts.length, 3);
+  assert.ok(contacts.every((part) => part.x > 50), "the AC inlet belongs to the right of the release handle");
+  const stud = hardwarePrimitives({ ...bounds, width: 20, height: 20, kind: "screw" });
+  assert.deepEqual(stud.map((part) => part.kind), ["circle", "circle", "line", "line"]);
+});

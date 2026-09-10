@@ -1,0 +1,230 @@
+import assert from "node:assert/strict";
+import { hardwareCatalog, instantiateProfile, upgradeInstalledPhysicalPorts } from "./static/js/catalog.js";
+import { resolveFortinetFaceplate } from "./static/js/faceplate-fortinet-models.js";
+import { buildFaceplateScene } from "./static/js/faceplate-scene.js";
+
+/** Instantiate a catalog device with canonical inventory for panel assertions. */
+function deviceFor(model) {
+  return instantiateProfile(hardwareCatalog.find((item) => item.vendor === "Fortinet" && item.model === model), model, { x: 0, y: 0 });
+}
+
+/** Determine whether normalized rectangles visibly cover one another. */
+function overlaps(a, b) {
+  return a.x < b.x + b.width - .00001 && a.x + a.width > b.x + .00001 &&
+    a.y < b.y + b.height - .00001 && a.y + a.height > b.y + .00001;
+}
+
+const catalog = hardwareCatalog.filter((item) => item.vendor === "Fortinet");
+assert.equal(catalog.length, 225);
+for (const entry of catalog) {
+  const device = deviceFor(entry.model);
+  const profile = resolveFortinetFaceplate(device);
+  assert.ok(profile, entry.model);
+  assert.match(profile.source, /^https:\/\//);
+  assert.ok(profile.sourcePage);
+  assert.ok(["family", "model"].includes(profile.fidelity));
+  const ports = Object.values(profile.faces).flatMap((face) => face.ports);
+  assert.equal(ports.length, device.ports.length, `${entry.model} preserves every inventory socket`);
+  assert.deepEqual(new Set(ports.map((port) => port.portIndex)), new Set(device.ports.map((port) => port.portIndex)));
+  for (const port of device.ports) assert.ok(ports.some((item) => item.portIndex === port.portIndex && item.type === port.type && item.label === port.label));
+  for (const face of Object.values(profile.faces)) {
+    const boxes = face.ports.map((port) => ({ x: port.x - port.width / 2, y: port.y - port.height / 2, width: port.width, height: port.height }));
+    for (const [index, box] of boxes.entries()) {
+      assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1 && box.y + box.height <= 1, `${entry.model} port bounds`);
+      assert.ok(box.width > 0 && box.height > 0);
+      assert.ok(box.height * Math.max(1, entry.units || 1) <= .240001, `${entry.model} physical socket height must not scale with rack units`);
+      for (const other of boxes.slice(index + 1)) assert.equal(overlaps(box, other), false, `${entry.model} sockets overlap`);
+      for (const component of face.components) assert.equal(overlaps(box, component), false, `${entry.model} ${component.kind} overlaps socket`);
+    }
+    for (const component of face.components) assert.ok(component.x >= 0 && component.y >= 0 && component.x + component.width <= 1 && component.y + component.height <= 1);
+  }
+  if (!profile.rearHardwareVerified) assert.ok(profile.faces.rear.components.every((item) => item.kind === "text"), "unverified hardware must not acquire invented PSU/fan counts");
+  const renamed = structuredClone(device);
+  renamed.ports.forEach((port) => { port.label = "custom"; port.id = `kept-${port.portIndex}`; });
+  assert.equal(resolveFortinetFaceplate(renamed), profile, "editable port data must not alter the model geometry cache");
+}
+
+for (const model of ["FortiSwitch 148F", "FortiSwitch 148F-POE", "FortiSwitch 148F-FPOE", "FortiSwitch 624F", "FortiSwitch 624F-FPOE", "FortiSwitch 648F", "FortiSwitch 648F-FPOE"]) {
+  assert.equal(resolveFortinetFaceplate(deviceFor(model)).fidelity, "model");
+}
+assert.equal(resolveFortinetFaceplate(deviceFor("FortiSwitch 624F")).faces.rear.components.filter((item) => item.kind === "fan").length, 3);
+assert.equal(resolveFortinetFaceplate(deviceFor("FortiSwitch 648F")).faces.rear.components.filter((item) => item.kind === "fan").length, 4);
+assert.equal(resolveFortinetFaceplate(deviceFor("FortiSwitch 148F")).faces.rear.components.filter((item) => item.kind === "fan").length, 0);
+for (const model of ["FortiGate 90G", "FortiGate 120G"]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.equal(profile.fidelity, "model", "panel geometry is independently verified even when catalog labels or sockets need correction");
+  assert.ok(profile.catalogDiscrepancies.length);
+  assert.ok(profile.hardwareRevision);
+}
+assert.equal(resolveFortinetFaceplate({ model: "FortiGate unknown", faceplate: { vendor: "Fortinet" } }), null);
+assert.equal(resolveFortinetFaceplate({ model: "FortiGate 90G", faceplate: { vendor: "Other" } }), null);
+assert.equal(resolveFortinetFaceplate({}), null);
+for (const model of ["FortiGate 40F-3G4G", "FortiGate 70G-POE", "FortiGate 80F-POE", "FortiAP 231F"]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.equal(profile.defaultFace, "rear");
+  assert.equal(profile.faces.front.ports.length, 0);
+  assert.ok(profile.faces.front.components.some((item) => item.kind === "led"));
+}
+for (const [model, fans] of [["FortiSwitch 424E", 1], ["FortiSwitch 424E-Fiber", 0], ["FortiSwitch 424E-POE", 2], ["FortiSwitch 424E-FPOE", 2]]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "fan").length, fans);
+  assert.ok(profile.faces.rear.components.some((item) => item.kind === "console"));
+  assert.equal(profile.fidelity, "model");
+  assert.equal(profile.inventoryComplete, false);
+  assert.equal(profile.missingPorts[0].type, "Console");
+  assert.equal(profile.missingPorts[0].face, "rear");
+}
+for (const model of ["FortiSwitch 224E", "FortiSwitch 224E-POE", "FortiSwitch 248E-POE", "FortiSwitch 248E-FPOE"]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.ok(profile.faces.rear.components.some((item) => item.kind === "console"));
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "power").length, model.includes("POE") ? 1 : 2);
+}
+for (const [model, fans] of [["FortiSwitch 1048E", 4], ["FortiSwitch 1048G", 5], ["FortiSwitch 2048F", 6],
+  ["FortiSwitch 3032E", 5], ["FortiSwitch 3032G", 5], ["FortiSwitch 524D", 1], ["FortiSwitch 548D-FPOE", 1]]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.equal(profile.fidelity, "model");
+  assert.equal(profile.inventoryComplete, true);
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "fan").length, fans);
+}
+const highDensity = resolveFortinetFaceplate(deviceFor("FortiSwitch 2048F"));
+assert.equal(new Set(highDensity.faces.front.ports.filter((port) => port.type === "SFP28_25G").map((port) => port.y)).size, 3,
+  "2048F SFP28 ports occupy three physical rows");
+for (const model of ["FortiSwitch 124G", "FortiSwitch 124G-FPOE"]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.equal(profile.fidelity, "model");
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "fan").length, 0);
+  assert.equal(profile.faces.front.ports.filter((port) => port.type === "SFP_PLUS_10G").length, 6);
+}
+const base108 = resolveFortinetFaceplate(deviceFor("FortiSwitch 108F"));
+assert.equal(base108.missingPorts[0].type, "Console");
+assert.equal(base108.missingPorts[0].face, "rear");
+assert.ok(base108.faces.front.connectionMarker && base108.faces.rear.connectionMarker);
+for (const model of ["FortiSwitch 108F-POE", "FortiSwitch 108F-FPOE"]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.equal(profile.faces.rear.ports.length, 0);
+  assert.ok(profile.faces.front.ports.some((port) => port.type === "Console"));
+}
+assert.equal(resolveFortinetFaceplate(deviceFor("FortiSwitch 224D-FPOE")).faces.rear.components.filter((item) => item.kind === "fan").length, 2);
+for (const model of ["FortiSwitch Rugged 108F", "FortiSwitch Rugged 112F-POE", "FortiSwitch Rugged 216F-POE"]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.deepEqual(profile.verifiedFaces, ["front"]);
+  assert.equal(profile.panelsVerified, false);
+  assert.deepEqual(profile.faces.front.components.filter((item) => item.kind === "terminal").map((item) => item.pins).sort(), [4, 5]);
+}
+const rugged424 = resolveFortinetFaceplate(deviceFor("FortiSwitch Rugged 424F-POE"));
+assert.equal(rugged424.hardwareRevision, "P26913-05 and above");
+assert.equal(rugged424.fidelity, "model");
+assert.deepEqual(rugged424.faces.rear.components.filter((item) => item.kind === "terminal").map((item) => item.pins), [3, 5]);
+assert.equal(rugged424.missingPorts[0].type, "Console");
+assert.equal(resolveFortinetFaceplate(deviceFor("FortiGate 120G")).inventoryComplete, true);
+assert.equal(resolveFortinetFaceplate(deviceFor("FortiGate 90G")).missingPorts.length, 2);
+const cellular40 = resolveFortinetFaceplate(deviceFor("FortiGate 40F-3G4G"));
+assert.equal(cellular40.fidelity, "model");
+assert.equal(cellular40.faces.front.components.filter((item) => item.kind === "coax").length, 3,
+  "FortiGate cellular antenna connectors are on the front");
+assert.equal(cellular40.faces.rear.components.filter((item) => item.kind === "coax").length, 0,
+  "the FortiWiFi-only rear antennas must not appear on a FortiGate");
+assert.deepEqual([...cellular40.faces.rear.ports].sort((a, b) => a.x - b.x).map((port) => port.label),
+  ["CONSOLE", "WAN", "A", "3", "2", "1"]);
+for (const model of ["FortiGate 80F-POE", "FortiGate 81F-POE", "FortiGate 80F-Bypass"]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.equal(profile.fidelity, "model");
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "power").length, 2);
+  assert.equal(profile.faces.front.components.some((item) => item.kind === "vent"), model.endsWith("POE"),
+    "the PoE chassis has an additional front ventilation strip");
+}
+for (const model of ["FortiGate 900G", "FortiGate 901G", "FortiGate 900G-DC", "FortiGate 901G-DC"]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.equal(profile.fidelity, "model");
+  assert.deepEqual(profile.faces.rear.components.filter((item) => item.kind === "psu").map((item) => item.variant),
+    [model.endsWith("-DC") ? "dc" : "ac", model.endsWith("-DC") ? "dc" : "ac"]);
+  assert.equal(profile.faces.front.ports.find((port) => port.type === "RJ45_MGIG").physicalLabel, "HA",
+    "the catalog's editable management label must not relocate the physical HA socket");
+}
+const extender511 = resolveFortinetFaceplate(deviceFor("FortiExtender 511F"));
+assert.equal(extender511.fidelity, "model");
+assert.equal(extender511.inventoryComplete, false);
+assert.equal(extender511.missingPorts[0].type, "Console");
+assert.equal(extender511.missingPorts[0].face, "front");
+assert.ok(extender511.faces.rear.components.some((item) => item.kind === "button" && item.variant === "reset"));
+for (const model of ["FortiGate 400F-DC", "FortiGate 401F-DC", "FortiGate 1000F", "FortiGate 1001F", "FortiGate 1100E", "FortiGate 1101E"]) {
+  assert.equal(resolveFortinetFaceplate(deviceFor(model)).fidelity, "model", `${model} has separately traced panels`);
+}
+for (const model of ["FortiGate 1000F", "FortiGate 1100E"]) {
+  const profile = resolveFortinetFaceplate(deviceFor(model));
+  assert.ok(profile.faces.front.ports.every((port) => port.y > .55), "two-unit chassis keep connectors below the upper ventilation bank");
+  assert.equal(profile.faces.rear.components.filter((item) => item.kind === "psu").length, 2);
+}
+for (const model of ["FortiGate 1800F", "FortiGate 1801F"]) {
+  const device = deviceFor(model);
+  const profile = resolveFortinetFaceplate(device);
+  assert.equal(profile.fidelity, "model");
+  assert.equal(device.ports.length, 45);
+  assert.equal(device.faceplate.inventoryRevision, 1);
+  const legacy = structuredClone(device);
+  delete legacy.faceplate.inventoryRevision;
+  legacy.ports.at(-1).label = "Renamed console";
+  legacy.ports.push({ ...legacy.ports.at(-1), id: "saved-extra-console", portIndex: 46, label: "Legacy link" });
+  const before = structuredClone(legacy);
+  assert.equal(upgradeInstalledPhysicalPorts({ devices: [legacy] }), false,
+    "an old inventory revision must not be silently rewritten");
+  assert.deepEqual(legacy, before);
+  const scene = buildFaceplateScene(legacy, { x: 0, y: 0, width: 690, height: 200 });
+  assert.equal(scene.ports.length, 45);
+  assert.equal(scene.unmappedPorts.length, 1);
+  assert.equal(scene.unmappedPorts[0].id, "saved-extra-console");
+}
+for (const model of ["FortiGate 2600F", "FortiGate 2601F", "FortiGate 3000F", "FortiGate 3001F",
+  "FortiGate 3200F", "FortiGate 3201F", "FortiGate 3500F", "FortiGate 3501F"]) {
+  assert.equal(resolveFortinetFaceplate(deviceFor(model)).fidelity, "model");
+}
+const fresh3000 = deviceFor("FortiGate 3000F");
+const old3000 = structuredClone(fresh3000);
+delete old3000.faceplate.inventoryRevision;
+old3000.ports.forEach((port) => {
+  if (port.portIndex > 18) port.portIndex += 2;
+  if (port.portIndex < 3) { port.type = "RJ45_1G"; port.speedMbps = 1000; }
+  port.label = "Operator label";
+});
+old3000.ports.splice(18, 0, ...[19, 20].map((portIndex) => ({ ...old3000.ports[17],
+  id: `legacy-extra-${portIndex}`, portIndex, label: "Preserved connection" })));
+const old3000Before = structuredClone(old3000);
+assert.equal(upgradeInstalledPhysicalPorts({ devices: [old3000] }), false);
+assert.deepEqual(old3000, old3000Before);
+const testBounds = { x: 0, y: 0, width: 690, height: 200 };
+const fresh3000Scene = buildFaceplateScene(fresh3000, testBounds);
+const old3000Scene = buildFaceplateScene(old3000, testBounds);
+assert.equal(old3000Scene.ports.length, 41);
+assert.deepEqual(old3000Scene.unmappedPorts.map((port) => port.id), ["legacy-extra-19", "legacy-extra-20"]);
+for (const expected of fresh3000Scene.ports) {
+  const oldIndex = expected.port.portIndex <= 18 ? expected.port.portIndex : expected.port.portIndex + 2;
+  const actual = old3000Scene.ports.find((port) => port.port.portIndex === oldIndex);
+  assert.ok(actual, `saved 3000F index ${oldIndex} still resolves`);
+  assert.equal(actual.centerX, expected.centerX);
+  assert.equal(actual.centerY, expected.centerY);
+}
+const old3500 = deviceFor("FortiGate 3500F");
+delete old3500.faceplate.inventoryRevision;
+old3500.ports.slice(0, 2).forEach((port) => { port.type = "RJ45_1G"; port.speedMbps = 1000; });
+assert.equal(buildFaceplateScene(old3500, testBounds).unmappedPorts.length, 0,
+  "the media correction retains existing management endpoints at their physical sockets");
+for (const model of ["FortiGate 3700F", "FortiGate 3701F", "FortiGate 3000G", "FortiGate 3001G",
+  "FortiGate 3500G", "FortiGate 3501G", "FortiGate 3800G", "FortiGate 3801G"]) {
+  assert.equal(resolveFortinetFaceplate(deviceFor(model)).fidelity, "model");
+}
+const largeG = resolveFortinetFaceplate(deviceFor("FortiGate 3800G"));
+assert.equal(largeG.faces.rear.components.filter((item) => item.kind === "psu").length, 4);
+assert.equal(largeG.faces.rear.components.filter((item) => item.kind === "fan" && item.variant === "removable").length, 3);
+assert.equal(largeG.faces.front.components.filter((item) => item.kind === "lcd").length, 1);
+assert.deepEqual(largeG.faces.front.ports.filter((port) => /^HA/.test(port.physicalLabel || "")).map((port) => port.physicalLabel),
+  ["HA1", "HA2", "HA3", "HA4"]);
+assert.equal(resolveFortinetFaceplate(deviceFor("FortiGate 3500G")).faces.rear.components.filter((item) => item.kind === "fan").length, 3,
+  "the G model has a different rear assembly from the four-fan 3500F");
+const legacyG = structuredClone(old3000);
+legacyG.model = "FortiGate 3000G";
+const legacyGScene = buildFaceplateScene(legacyG, testBounds);
+assert.equal(legacyGScene.ports.length, 41);
+assert.equal(legacyGScene.unmappedPorts.length, 2);
+const expectedG = buildFaceplateScene(deviceFor("FortiGate 3000G"), testBounds);
+assert.equal(legacyGScene.ports.find((port) => port.port.portIndex === 21).centerX,
+  expectedG.ports.find((port) => port.port.portIndex === 19).centerX);

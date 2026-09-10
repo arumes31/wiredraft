@@ -31,6 +31,7 @@ const usbMicroConsole = () => group("management", 1, "USB_MICRO_CONSOLE", 0, "CO
 const managementRJ45 = (count, prefix = "MGMT") => group("management", count, "RJ45_1G", 1000, prefix);
 const dsl = (count = 1) => group("access", count, "DSL_RJ11", 1000, "DSL");
 
+/** Add explicit Fortinet SKUs while retaining the revision needed to interpret saved port indices. */
 function add(models, category, units, groups, options = {}) {
   for (const entry of models) {
     const model = typeof entry === "string" ? entry : entry.model;
@@ -48,6 +49,7 @@ function add(models, category, units, groups, options = {}) {
       fidelity: options.fidelity || "verified",
       source: options.source || (category === "Switch" ? FORTISWITCH_SPECS : PRODUCT_MATRIX),
       note: options.note || "",
+      ...(options.inventoryRevision ? { inventoryRevision: options.inventoryRevision } : {}),
     });
   }
 }
@@ -83,11 +85,28 @@ add(["FortiGate 900G", "FortiGate 901G"], "Firewall", 1, [ge(17), mg(1, 2500, "M
 
 // Current FortiGate data-center appliances.
 add(["FortiGate 1000F", "FortiGate 1001F"], "Firewall", 2, [ge(1), mg(1, 2500), tenT(8), sfpp(16), sfp28(8), qsfp100(2), consolePort()], { lifecycle: "current" });
-add(["FortiGate 1800F", "FortiGate 1801F"], "Firewall", 2, [ge(18), sfp(8), sfpp(2), sfp28(12), qsfp100(4), consolePort(2)], { lifecycle: "current" });
+add(["FortiGate 1800F", "FortiGate 1801F"], "Firewall", 2, [ge(18), sfp(8), sfpp(2), sfp28(12), qsfp100(4), consolePort()], {
+  lifecycle: "current", inventoryRevision: 1,
+  source: "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/fortigate-1800f-series.pdf",
+  note: "PDF page 7 shows one RJ45 console and one ancillary USB socket. Older saved extra-console endpoints remain unmapped.",
+});
 add(["FortiGate 2600F", "FortiGate 2601F"], "Firewall", 2, [ge(2), tenT(16), sfpp(2), sfp28(16), qsfp100(4), consolePort()], { lifecycle: "current" });
-add(["FortiGate 3000F", "FortiGate 3001F", "FortiGate 3000G", "FortiGate 3001G"], "Firewall", 2, [ge(2), tenT(18), sfp28(16), qsfp100(6), consolePort()], { lifecycle: "current" });
+add(["FortiGate 3000F", "FortiGate 3001F"], "Firewall", 2, [tenT(18), sfp28(16), qsfp100(6), consolePort()], {
+  lifecycle: "current", inventoryRevision: 1,
+  source: "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/fortigate-3000f-series.pdf",
+  note: "PDF page 7: two 10GE management and sixteen 10GE data sockets. Saved revision-0 extra copper endpoints remain unmapped.",
+});
+add(["FortiGate 3000G", "FortiGate 3001G"], "Firewall", 2, [tenT(18), sfp28(16), qsfp100(6), consolePort()], {
+  lifecycle: "current", inventoryRevision: 1,
+  source: "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/pdf/fortigate-3000g-series.pdf",
+  note: "PDF page 7: two management, two WAN and fourteen data RJ45 sockets, all 10GE; old extra copper endpoints remain unmapped.",
+});
 add(["FortiGate 3200F", "FortiGate 3201F"], "Firewall", 2, [tenT(2), sfp28(4), sfp56(12), qsfp400(4), consolePort()], { lifecycle: "current" });
-add(["FortiGate 3500F", "FortiGate 3501F"], "Firewall", 2, [ge(2), sfp28(32), qsfp100(6), consolePort()], { lifecycle: "current" });
+add(["FortiGate 3500F", "FortiGate 3501F"], "Firewall", 2, [tenT(2), sfp28(32), qsfp100(6), consolePort()], {
+  lifecycle: "current", inventoryRevision: 1,
+  source: "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/fortigate-3500f-series.pdf",
+  note: "PDF page 7 identifies both management sockets as 10GE; old saved port configuration is preserved by a revision map.",
+});
 add(["FortiGate 3500G", "FortiGate 3501G"], "Firewall", 2, [tenT(2), sfp28(30), qsfp100(4), qsfp400(2), consolePort()], { lifecycle: "current" });
 add(["FortiGate 3700F", "FortiGate 3701F"], "Firewall", 2, [tenT(2), sfp28(4, "ULL-SFP28"), sfp56(20), qsfp400(4), consolePort()], { lifecycle: "current" });
 add(["FortiGate 3800G", "FortiGate 3801G"], "Firewall", 3, [tenT(2), sfp56(18), qsfp200(6), qsfp400(4), consolePort()], { lifecycle: "current" });

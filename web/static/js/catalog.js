@@ -22,13 +22,13 @@ const profiles = [
   p("Cisco", "Meraki MS120-24P", "Switch", 1, "#263b4b", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_1G", 1000, "SFP"), m(1)]),
   p("Cisco", "Meraki MS225-48FP", "Switch", 1, "#263b4b", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
 
-  p("HPE Aruba", "CX 6100 24G 4SFP+", "Switch", 1, "#27383a", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("HPE Aruba", "CX 6100 48G 4SFP+", "Switch", 1, "#27383a", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("HPE Aruba", "CX 6200F 24G 4SFP+", "Switch", 1, "#27383a", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("HPE Aruba", "CX 6200F 48G 4SFP+", "Switch", 1, "#27383a", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
+  p("HPE Aruba", "CX 6100 24G 4SFP+", "Switch", 1, "#27383a", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), { ...m(1), type: "USB_C_CONSOLE" }], { inventoryRevision: 1 }),
+  p("HPE Aruba", "CX 6100 48G 4SFP+", "Switch", 1, "#27383a", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), { ...m(1), type: "USB_C_CONSOLE" }], { inventoryRevision: 1 }),
+  p("HPE Aruba", "CX 6200F 24G 4SFP+", "Switch", 1, "#27383a", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), { ...m(1), type: "USB_C_CONSOLE" }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
+  p("HPE Aruba", "CX 6200F 48G 4SFP+", "Switch", 1, "#27383a", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), { ...m(1), type: "USB_C_CONSOLE" }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
   p("HPE Aruba", "CX 6300M 24-port Smart Rate", "Switch", 1, "#27383a", [r(24, "RJ45_10G", 10000, true), u(4, "SFP56_50G", 50000, "SFP56"), m(1)]),
   p("HPE Aruba", "CX 6300M 48G", "Switch", 1, "#27383a", [r(48, "RJ45_1G", 1000, true), u(4, "SFP56_50G", 50000, "SFP56"), m(1)]),
-  p("HPE Aruba", "CX 8325-48Y8C", "Switch", 1, "#27383a", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP"), m(1)]),
+  p("HPE Aruba", "CX 8325-48Y8C", "Switch", 1, "#27383a", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP"), m(1), { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }, { ...m(1), type: "USB_MICRO_CONSOLE", labels: ["USB CONSOLE"] }], { inventoryRevision: 1 }),
 
   p("Juniper", "EX2300-24T", "Switch", 1, "#243b31", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
   p("Juniper", "EX2300-48P", "Switch", 1, "#243b31", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
@@ -37,30 +37,40 @@ const profiles = [
   p("Juniper", "EX4650-48Y", "Switch", 1, "#243b31", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP"), m(1)]),
 
   p("Ubiquiti", "UniFi Standard 24", "Switch", 1, "#879296", [r(24, "RJ45_1G", 1000, false), u(2, "SFP_1G", 1000, "SFP")]),
-  p("Ubiquiti", "UniFi Standard 48 PoE", "Switch", 1, "#879296", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_1G", 1000, "SFP")]),
-  p("Ubiquiti", "UniFi Pro Max 24 PoE", "Switch", 1, "#879296", [r(24, "RJ45_10G", 2500, true), u(2, "SFP_PLUS_10G", 10000, "SFP+")]),
-  p("Ubiquiti", "UniFi Pro Max 48 PoE", "Switch", 1, "#879296", [r(48, "RJ45_10G", 2500, true), u(4, "SFP_PLUS_10G", 10000, "SFP+")]),
-  p("Ubiquiti", "UniFi Pro XG 24 PoE", "Switch", 1, "#879296", [r(16, "RJ45_10G", 10000, true, "10G"), r(8, "RJ45_10G", 2500, true, "2.5G"), u(2, "SFP28_25G", 25000, "SFP28")]),
-  p("Ubiquiti", "UniFi Pro XG 48 PoE", "Switch", 1, "#879296", [r(32, "RJ45_10G", 10000, true, "10G"), r(16, "RJ45_10G", 2500, true, "2.5G"), u(4, "SFP28_25G", 25000, "SFP28")]),
+  p("Ubiquiti", "UniFi Standard 48 PoE", "Switch", 1, "#879296", [r(32, "RJ45_1G", 1000, true), r(16, "RJ45_1G", 1000, false), u(4, "SFP_1G", 1000, "SFP")]),
+  p("Ubiquiti", "UniFi Pro Max 24 PoE", "Switch", 1, "#879296", [r(16, "RJ45_1G", 1000, true), r(8, "RJ45_MGIG", 2500, true), u(2, "SFP_PLUS_10G", 10000, "SFP+")]),
+  p("Ubiquiti", "UniFi Pro Max 48 PoE", "Switch", 1, "#879296", [r(32, "RJ45_1G", 1000, true), r(16, "RJ45_MGIG", 2500, true), u(4, "SFP_PLUS_10G", 10000, "SFP+")]),
+  p("Ubiquiti", "UniFi Pro XG 24 PoE", "Switch", 1, "#879296", [r(8, "RJ45_MGIG", 2500, true, "2.5G"), r(16, "RJ45_10G", 10000, true, "10G"), u(2, "SFP28_25G", 25000, "SFP28")]),
+  p("Ubiquiti", "UniFi Pro XG 48 PoE", "Switch", 1, "#879296", [r(16, "RJ45_MGIG", 2500, true, "2.5G"), r(32, "RJ45_10G", 10000, true, "10G"), u(4, "SFP28_25G", 25000, "SFP28")]),
   p("Ubiquiti", "UniFi Enterprise Campus Aggregation", "Switch", 1, "#879296", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP")]),
 
   p("MikroTik", "CRS326-24G-2S+RM", "Switch", 1, "#e1e4e1", [r(24, "RJ45_1G", 1000, false), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
   p("MikroTik", "CRS328-24P-4S+RM", "Switch", 1, "#e1e4e1", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("MikroTik", "CRS354-48G-4S+2Q+RM", "Switch", 1, "#e1e4e1", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), u(2, "QSFP_PLUS_40G", 40000, "QSFP+"), { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGMT" }, m(1)]),
+  p("MikroTik", "CRS354-48G-4S+2Q+RM", "Switch", 1, "#e1e4e1", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), u(2, "QSFP_PLUS_40G", 40000, "QSFP+"), { zone: "management", count: 1, type: "RJ45_1G", speed: 100, poe: false, prefix: "MGMT" }, m(1)]),
   p("MikroTik", "CRS317-1G-16S+RM", "Switch", 1, "#e1e4e1", [r(1, "RJ45_1G", 1000, false), u(16, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("MikroTik", "CRS518-16XS-2XQ-RM", "Switch", 1, "#e1e4e1", [u(16, "SFP28_25G", 25000, "SFP28"), u(2, "QSFP28_100G", 100000, "QSFP"), { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGMT" }, m(1)]),
+  p("MikroTik", "CRS518-16XS-2XQ-RM", "Switch", 1, "#e1e4e1", [u(16, "SFP28_25G", 25000, "SFP28"), u(2, "QSFP28_100G", 100000, "QSFP"), { zone: "management", count: 1, type: "RJ45_1G", speed: 100, poe: false, prefix: "MGMT" }, m(1)]),
 
   p("Dell", "PowerSwitch N3248TE-ON", "Switch", 1, "#1d3d50", [r(48, "RJ45_1G", 1000, false), u(6, "QSFP28_100G", 100000, "QSFP"), m(1)]),
   p("Dell", "PowerSwitch S4148F-ON", "Switch", 1, "#1d3d50", [u(48, "SFP_PLUS_10G", 10000, "SFP+"), u(6, "QSFP28_100G", 100000, "QSFP"), m(1)]),
   p("Dell", "PowerSwitch S5248F-ON", "Switch", 1, "#1d3d50", [u(48, "SFP28_25G", 25000, "SFP28"), u(6, "QSFP28_100G", 100000, "QSFP"), m(1)]),
 
-  p("NETGEAR", "M4300-28G", "Switch", 1, "#30284a", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("NETGEAR", "M4300-52G", "Switch", 1, "#30284a", [r(48, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("NETGEAR", "M4250-26G4F-PoE+", "Switch", 1, "#30284a", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_1G", 1000, "SFP"), m(1)]),
+  p("NETGEAR", "M4300-28G", "Switch", 1, "#30284a", [r(24, "RJ45_1G", 1000, false), u(2, "RJ45_10G", 10000, "10G"), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(1),
+    { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "OOB" },
+    { zone: "management", count: 1, type: "USB_MINI_CONSOLE", speed: 0, poe: false, prefix: "USB", labels: ["MINI-USB"] }]),
+  p("NETGEAR", "M4300-52G", "Switch", 1, "#30284a", [r(48, "RJ45_1G", 1000, false), u(2, "RJ45_10G", 10000, "10G"), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(1),
+    { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "OOB" },
+    { zone: "management", count: 1, type: "USB_MINI_CONSOLE", speed: 0, poe: false, prefix: "USB", labels: ["MINI-USB"] }]),
+  { ...p("NETGEAR", "M4250-26G4F-PoE+", "Switch", 1, "#30284a", [r(24, "RJ45_1G", 1000, true), r(2, "RJ45_1G", 1000, false), u(4, "SFP_1G", 1000, "SFP"), m(1),
+    { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "OOB" },
+    { zone: "management", count: 1, type: "USB_C_CONSOLE", speed: 0, poe: false, prefix: "USB", labels: ["USB-C"] }]), inventoryRevision: 1 },
 
-  p("TP-Link Omada", "SG3428X", "Switch", 1, "#24442d", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("TP-Link Omada", "SG3452XP", "Switch", 1, "#24442d", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
-  p("TP-Link Omada", "SX6632YF", "Switch", 1, "#24442d", [u(24, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP"), m(1)]),
+  p("TP-Link Omada", "SG3428X", "Switch", 1, "#24442d", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1),
+    { zone: "management", count: 1, type: "USB_C_CONSOLE", speed: 0, poe: false, prefix: "USB", labels: ["USB-C"] }]),
+  p("TP-Link Omada", "SG3452XP", "Switch", 1, "#24442d", [r(48, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1),
+    { zone: "management", count: 1, type: "USB_MICRO_CONSOLE", speed: 0, poe: false, prefix: "USB", labels: ["MICRO-USB"] }]),
+  p("TP-Link Omada", "SX6632YF", "Switch", 1, "#24442d", [u(26, "SFP_PLUS_10G", 10000, "SFP+"), u(6, "SFP28_25G", 25000, "SFP28"), m(1),
+    { zone: "management", count: 1, type: "RJ45_1G", speed: 1000, poe: false, prefix: "MGMT" },
+    { zone: "management", count: 1, type: "USB_C_CONSOLE", speed: 0, poe: false, prefix: "USB", labels: ["USB-C"] }]),
 
   p("Arista", "7050SX3-48YC8", "Switch", 1, "#21363f", [u(48, "SFP28_25G", 25000, "SFP28"), u(8, "QSFP28_100G", 100000, "QSFP"), m(1)]),
   p("Arista", "7060CX2-32S", "Switch", 1, "#21363f", [u(32, "QSFP28_100G", 100000, "QSFP"), u(2, "SFP_PLUS_10G", 10000, "SFP+"), m(1)]),
@@ -168,33 +178,37 @@ export function upgradeInstalledPhysicalPorts(topology) {
   for (const device of topology?.devices || []) {
     const profile = hardwareCatalog.find((candidate) =>
       candidate.vendor === device.faceplate?.vendor && candidate.model === device.model);
-    if (!profile) continue;
+    if (!profile || (device.faceplate.inventoryRevision || 0) !== (profile.inventoryRevision || 0)) continue;
     const expected = instantiateProfile(profile, device.name, { x: device.positionX, y: device.positionY }).ports;
     if (upgradeFortiGateSharedPorts(device, expected)) {
       changed = true;
       continue;
     }
     if (expected.length === device.ports.length) {
-      for (let index = 0; index < expected.length; index += 1) {
-        const current = device.ports[index];
+      const expectedByIndex = new Map(expected.map((port) => [port.portIndex, port]));
+      const uniquePorts = new Map();
+      for (const port of device.ports) uniquePorts.set(port.portIndex, uniquePorts.has(port.portIndex) ? null : port);
+      for (const [portIndex, current] of uniquePorts) {
+        const template = expectedByIndex.get(portIndex);
+        if (!current || !template) continue;
         const generated = isGeneratedPortLabel(current.label);
-        if (generated && current.label !== expected[index].label) {
-          current.label = expected[index].label;
+        if (generated && current.label !== template.label) {
+          current.label = template.label;
           changed = true;
         }
         if (profile.portLayout?.fidelity === "exact" && generated &&
-          (current.type !== expected[index].type || current.speedMbps !== expected[index].speedMbps ||
-            current.isPoe !== expected[index].isPoe || current.group !== expected[index].group)) {
-          current.type = expected[index].type;
-          current.speedMbps = expected[index].speedMbps;
-          current.isPoe = expected[index].isPoe;
-          current.group = expected[index].group;
+          (current.type !== template.type || current.speedMbps !== template.speedMbps ||
+            current.isPoe !== template.isPoe || current.group !== template.group)) {
+          current.type = template.type;
+          current.speedMbps = template.speedMbps;
+          current.isPoe = template.isPoe;
+          current.group = template.group;
           changed = true;
         }
         if (profile.portLayout?.fidelity === "exact" &&
-          (current.faceplateX !== expected[index].faceplateX || current.faceplateY !== expected[index].faceplateY)) {
-          current.faceplateX = expected[index].faceplateX;
-          current.faceplateY = expected[index].faceplateY;
+          (current.faceplateX !== template.faceplateX || current.faceplateY !== template.faceplateY)) {
+          current.faceplateX = template.faceplateX;
+          current.faceplateY = template.faceplateY;
           changed = true;
         }
       }
@@ -239,6 +253,7 @@ function upgradeFortiGateSharedPorts(device, expected) {
   return true;
 }
 
+/** Validate imported hardware definitions before exposing them in the local catalog. */
 export function registerProfiles(input) {
   if (!Array.isArray(input)) throw new Error("Catalog import must be an array of profiles");
   for (const profile of input) {
@@ -246,6 +261,7 @@ export function registerProfiles(input) {
       ["Switch", "Firewall", "Router", "PatchPanel", "Server", "Modem", "AccessPoint"].includes(profile.category) &&
       (profile.family === undefined || (typeof profile.family === "string" && profile.family.trim().length >= 1 && profile.family.trim().length <= 60)) &&
       Number.isInteger(profile.units) && profile.units >= 1 && profile.units <= 12 && /^#[0-9a-f]{6}$/i.test(profile.color) &&
+      (profile.inventoryRevision === undefined || (Number.isInteger(profile.inventoryRevision) && profile.inventoryRevision >= 0 && profile.inventoryRevision <= 0xffffffff)) &&
       Array.isArray(profile.groups) && profile.groups.every((group) => Number.isInteger(group.count) && group.count > 0 &&
         ["access", "uplink", "management"].includes(group.zone) &&
         ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
@@ -293,6 +309,7 @@ export function instantiateProfile(profile, name, position) {
       unitsU: profile.units, totalPorts: ports.length, rows: 2, portSpacingX: 23, portSpacingY: 29,
       vendorColor: profile.color, hasSfpSlots: groups.some((group) => group.type.includes("SFP") || group.type.includes("QSFP")),
       vendor: profile.vendor, layout: profile.layout,
+      inventoryRevision: profile.inventoryRevision || 0,
     },
     ports,
   };
@@ -362,8 +379,10 @@ function layoutGroups(groups, x1, x2, maxColumns = 16) {
   return result;
 }
 
-function p(vendor, model, category, units, color, groups) {
-  const profile = { vendor, model, category, units, color, groups, layout: vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-") };
+/** Build a catalog definition with a persistent revision for its port-index namespace. */
+function p(vendor, model, category, units, color, groups, extra = {}) {
+  const profile = { vendor, model, category, units, color, groups, inventoryRevision: extra.inventoryRevision || 0,
+    layout: vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-") };
   Object.assign(profile, { portLayout: portLayoutMetadata(profile) });
   return profile;
 }

@@ -8,6 +8,7 @@ export function hardwarePrimitives(component, palette = {}) {
     component.width <= 0 || component.height <= 0) return [];
 
   const colors = { ...DEFAULT_PALETTE, ...palette };
+  if (component.ink) colors.ink = component.ink;
   const art = primitiveBuilder(component, colors);
   const { kind } = component;
   if (kind === "text") {
@@ -17,6 +18,43 @@ export function hardwarePrimitives(component, palette = {}) {
   if (kind === "chassis") {
     art.rect(.01, .025, .98, .95, colors.surface, colors.ink, .04);
     art.line(.025, .06, .975, .06, "#ffffff", .45);
+  } else if (kind === "ring") {
+    art.circle(.5, .5, .48, undefined, colors.ink);
+  } else if (kind === "screw") {
+    art.circle(.5, .5, .46, colors.surface, colors.ink);
+    art.circle(.5, .5, .32, colors.surfaceDark, colors.ink);
+    art.line(.28, .5, .72, .5, "#b9c3c4");
+    art.line(.5, .28, .5, .72, "#b9c3c4");
+  } else if (kind === "terminal") {
+    const pins = Number.isInteger(component.pins) && component.pins > 0 && component.pins <= 24 ? component.pins : 0;
+    const vertical = component.height > component.width;
+    art.rect(.02, .02, .96, .96, "#39745d", colors.ink, .025);
+    for (let index = 0; index < pins; index++) {
+      const center = .1 + (index + .5) * .8 / pins;
+      const cx = vertical ? .5 : center;
+      const cy = vertical ? center : .5;
+      art.circle(cx, cy, Math.min(.2, .25 / pins * (vertical ? component.height / component.width : component.width / component.height)),
+        "#172b23", "#a7b2b5");
+      if (vertical) art.line(.42, cy, .58, cy, "#a7b2b5");
+      else art.line(cx, .42, cx, .58, "#a7b2b5");
+    }
+  } else if (kind === "lcd") {
+    art.rect(.01, .015, .98, .97, "#17262d", colors.ink, .08);
+    art.rect(.12, .1, .76, .76, "#123a53", "#607d8b", .025);
+    art.line(.23, .3, .77, .3, "#86c9e6", .65);
+    art.line(.23, .46, .61, .46, "#86c9e6", .65);
+    art.line(.23, .62, .69, .62, "#86c9e6", .4);
+  } else if (kind === "switch") {
+    art.rect(.02, .2, .96, .6, "#07151a", colors.ink, .08);
+    art.rect(.14, .27, .3, .46, colors.surfaceDark, "#a5b2b6", .05);
+    art.line(.24, .35, .24, .65, "#a5b2b6");
+  } else if (kind === "button" && component.variant === "reset") {
+    art.circle(.5, .5, .45, colors.surfaceDark, colors.ink);
+    art.circle(.5, .5, .22, "#07151a");
+  } else if (kind === "button") {
+    art.circle(.5, .5, .45, colors.surfaceDark, colors.ink);
+    art.circle(.5, .5, .31, "#23383f", "#a5b2b6");
+    art.circle(.5, .5, .1, colors.accent);
   } else if (kind === "led") {
     art.circle(.5, .5, .43, colors.surfaceDark, colors.ink);
     art.circle(.5, .5, .27, component.active === false ? colors.surfaceDark : colors.accent);
@@ -34,10 +72,12 @@ export function hardwarePrimitives(component, palette = {}) {
     art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .025);
     art.circle(.075, .5, .05, colors.surfaceDark, colors.ink);
     art.circle(.925, .5, .05, colors.surfaceDark, colors.ink);
-    art.line(.17, .3, .83, .3, colors.surfaceDark, .4);
-    art.line(.17, .7, .83, .7, colors.surfaceDark, .4);
+    if (component.variant !== "populated") {
+      art.line(.17, .3, .83, .3, colors.surfaceDark, .4);
+      art.line(.17, .7, .83, .7, colors.surfaceDark, .4);
+    }
   } else {
-    addSocket(art, kind, colors, component.variant, component.width < component.height);
+    addSocket(art, kind, colors, component.variant, component.width < component.height, component.columns);
   }
   if (component.label) art.label(component.label, .5, .87, 8);
   return art.parts;
@@ -80,9 +120,29 @@ function primitiveBuilder(component, colors) {
 }
 
 /** Draw connector cages, keyed openings, contacts, and optical release latches. */
-function addSocket(art, kind, colors, variant, portrait) {
+function addSocket(art, kind, colors, variant, portrait, columns) {
   const fill = colors.fill ?? "#07151a";
   const stroke = colors.stroke ?? "#708389";
+  if (kind === "power" && variant === "dc-multipin") {
+    art.rect(.02, .12, .96, .84, colors.surfaceDark, stroke, .05);
+    art.rect(.11, .27, .78, .53, fill, "#a7b2b5", .05);
+    art.rect(.42, .015, .16, .14, colors.surfaceDark, stroke, .015);
+    if (Number.isInteger(columns) && columns > 0 && columns <= 24) {
+      for (let column = 0; column < columns; column++) for (const top of [.39, .6]) {
+        art.rect(.145 + column * .7 / columns, top, .35 / columns, .055, "#b9c3c4", undefined, .005);
+      }
+    }
+    return;
+  }
+  if (kind === "power" && variant === "dc-keyed4") {
+    art.rect(.08, .15, .84, .78, colors.surfaceDark, stroke, .05);
+    art.rect(.32, .03, .36, .18, colors.surfaceDark, stroke, .025);
+    for (const left of [.2, .56]) for (const top of [.3, .62]) {
+      art.rect(left, top, .24, .22, fill, undefined, .035);
+      art.rect(left + .075, top + .065, .09, .09, "#b9c3c4", undefined, .01);
+    }
+    return;
+  }
   if (kind === "power" && variant === "dc-keyed2") {
     art.rect(.17, .26, .66, .68, colors.surfaceDark, stroke, .035);
     art.rect(.17, .06, .18, .25, colors.surfaceDark, stroke, .05);
@@ -157,8 +217,28 @@ function addSocket(art, kind, colors, variant, portrait) {
   }
 }
 
-/** Fill a bounded grille with the specified slot, perforation, or mesh pattern. */
+/** Fill a bounded grille with its repeated openings, heatsink fins, or single slit. */
 function addVent(art, component, colors) {
+  if (component.variant === "slit") {
+    art.rect(.01, .12, .98, .76, colors.surfaceDark, undefined, .04, .9);
+    return;
+  }
+  if (["fins", "chevron", "louver"].includes(component.variant)) {
+    const count = Math.max(2, Math.min(64, Math.floor(component.width / 7)));
+    for (let index = 0; index < count; index++) {
+      const x = .025 + index * .95 / count;
+      if (component.variant === "fins") {
+        art.rect(x, .04, .35 / count, .92, colors.surfaceDark, colors.ink, 0);
+        art.line(x + .35 / count, .06, x + .35 / count, .94, "#b2bdc1", .5);
+      } else if (component.variant === "louver") {
+        art.line(x, .18, x + .60 / count, .82, colors.surfaceDark, 1.5);
+      } else {
+        art.line(x, .82, x + .46 / count, .18, colors.surfaceDark, 1.5);
+        art.line(x + .46 / count, .18, x + .92 / count, .82, colors.surfaceDark, 1.5);
+      }
+    }
+    return;
+  }
   const slots = !["perforated", "mesh"].includes(component.variant);
   const columns = Math.max(2, Math.min(32, Math.floor(component.width / (slots ? 11 : 6))));
   const rows = Math.max(1, Math.min(10, Math.floor(component.height / (slots ? 7 : 6))));
@@ -204,17 +284,29 @@ function addHandle(art, colors) {
 function addPowerSupply(art, component, colors) {
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
-  art.rect(.11, .23, .25, .54, "#0d1c21", colors.ink, .05);
+  if (component.variant === "ac-fan-left") {
+    art.circle(.31, .48, .34, "#122327", "#a7b2b5");
+    art.circle(.31, .48, .24, colors.surfaceDark, "#708389");
+    art.line(.16, .19, .46, .76, "#a7b2b5");
+    art.line(.16, .76, .46, .19, "#a7b2b5");
+    art.rect(.61, .22, .27, .60, "#0d1c21", colors.ink, .05);
+    for (const [cx, cy] of [[.745, .4], [.68, .62], [.81, .62]]) art.rect(cx - .012, cy - .055, .024, .11, "#b9c3c4");
+    art.circle(.92, .86, .035, "#42d98b", colors.ink);
+    return;
+  }
+  const inletOffset = component.variant === "ac-inlet-right" ? .49 : 0;
+  const handleOffset = inletOffset ? -.71 : 0;
+  art.rect(.11 + inletOffset, .23, .25, .54, "#0d1c21", colors.ink, .05);
   if (component.variant === "dc") {
     for (let index = 0; index < 3; index += 1) art.circle(.16 + index * .075, .5, .045, "#d7b76c", colors.ink);
   } else {
-    for (const [cx, cy] of [[.235, .4], [.17, .62], [.3, .62]]) art.rect(cx - .012, cy - .055, .024, .11, "#b9c3c4");
+    for (const [cx, cy] of [[.235, .4], [.17, .62], [.3, .62]]) art.rect(cx + inletOffset - .012, cy - .055, .024, .11, "#b9c3c4");
   }
-  for (let index = 0; index < 5; index += 1) art.rect(.43 + index * .065, .25, .023, .5, colors.surfaceDark);
-  art.rect(.81, .19, .08, .62, colors.surfaceDark, colors.ink, .06);
-  art.rect(.83, .28, .035, .44, colors.surface, colors.ink, .02);
+  for (let index = 0; index < 5; index += 1) art.rect((inletOffset ? .26 : .43) + index * (inletOffset ? .052 : .065), .25, .023, .5, colors.surfaceDark);
+  art.rect(.81 + handleOffset, .19, .08, .62, colors.surfaceDark, colors.ink, .06);
+  art.rect(.83 + handleOffset, .28, .035, .44, colors.surface, colors.ink, .02);
   art.circle(.94, .22, .035, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
-  if (component.variant !== "fixed") art.rect(.78, .73, .08, .1, colors.accent, colors.ink, .02);
+  if (component.variant !== "fixed") art.rect(.78 + handleOffset, .73, .08, .1, colors.accent, colors.ink, .02);
 }
 
 /** Paint shared primitives without retaining changes to the caller's Canvas state. */

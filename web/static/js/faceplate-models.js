@@ -1,4 +1,9 @@
 import { resolvePhysicalPortGroups } from "./catalog-port-layouts.js";
+import { resolveFortinetFaceplate } from "./faceplate-fortinet-models.js";
+import { resolveEnterpriseFaceplate } from "./faceplate-enterprise-models.js";
+import { resolveEquipmentFaceplate } from "./faceplate-equipment-models.js";
+import { resolveUbiquitiFaceplate } from "./faceplate-ubiquiti-models.js";
+import { resolveArubaFaceplate } from "./faceplate-aruba-models.js";
 
 // Coordinates are normalized drawings traced from the cited panel illustrations,
 // not manufacturing measurements. Only explicitly listed hardware variants match.
@@ -26,10 +31,11 @@ addFortiGate(["400F", "401F"], "400F", "6–7", 18, 8, 8);
 addFortiGate(["600F", "601F"], "600F", "6–7", 18, 8, 4, 4);
 for (const suffix of ["", "-POE", "-FPOE"]) addFortiSwitch124(suffix);
 
-/** Return documented front/rear model geometry, or null for an unverified variant. */
+/** Resolve exact model artwork first, then sourced family or configurable catalog panels. */
 export function resolveModelFaceplate(device) {
-  if (device?.faceplate?.vendor !== "Fortinet") return null;
-  return models.get(device.model) || null;
+  if (device?.faceplate?.vendor === "Fortinet" && models.has(device.model)) return models.get(device.model);
+  return resolveFortinetFaceplate(device) || resolveArubaFaceplate(device) || resolveEnterpriseFaceplate(device) ||
+    resolveUbiquitiFaceplate(device) || resolveEquipmentFaceplate(device);
 }
 
 /** Build a normalized physical element from a reusable component kind. */
@@ -70,7 +76,7 @@ function addFortiGate(skus, guide, page, copper, sfp, sfpp, sfp28 = 0) {
     const base = skus[0];
     const ports = fortiGatePorts(model, copper, sfp, sfpp, sfp28, desktop);
     models.set(model, {
-      id: `fortinet-${sku.toLowerCase()}`, defaultFace: desktop ? "rear" : "front",
+      id: `fortinet-${sku.toLowerCase()}`, defaultFace: desktop ? "rear" : "front", fidelity: "model",
       source: GUIDES[guide], sourcePage: `PDF ${page}`,
       chassis: desktop ? { x: .175, y: .08, width: .65, height: .84 } : { x: 0, y: .04, width: 1, height: .92 },
       faces: desktop ? desktopFaces(model, base, ports) : rackFaces(model, base, ports),
@@ -184,12 +190,12 @@ function addFortiSwitch124(suffix) {
       x: index < 2 ? .865 : .945, y: index % 2 ? .68 : .38, width: .042, height: .24 });
   }
   ports.push({ label: "CONSOLE", type: "Console", portIndex: 29, x: .135, y: .43, width: .037, height: .25 });
-  const front = [component("text", .025, .02, .18, .14, model), component("usb", .115, .65, .04, .15, "USB", "a"),
+  const front = [component("text", .025, 0, .18, .12, model), component("usb", .115, .65, .04, .15, "USB", "a"),
     ...statusLEDs(suffix ? ["POWER", "ALARM", "POE MAX"] : ["POWER", "ALARM"], .18, .37, .12, true)];
   const rear = [component("power", suffix ? .615 : .83, .27, .09, .53, "AC", "ac")];
   if (suffix) rear.push(component("fan", .75, .12, .088, .76, undefined, "fixed"), component("fan", .855, .12, .088, .76, undefined, "fixed"));
   models.set(model, {
-    id: `fortinet-124f${suffix.toLowerCase()}`, defaultFace: "front", source: GUIDES["124F"],
+    id: `fortinet-124f${suffix.toLowerCase()}`, defaultFace: "front", fidelity: "model", source: GUIDES["124F"],
     sourcePage: `PDF ${suffix === "-POE" ? "6–7" : suffix === "-FPOE" ? "8–9" : "4–5"}`,
     chassis: { x: 0, y: .04, width: 1, height: .92 },
     faces: { front: { components: front, ports }, rear: { components: rear, ports: [] } },

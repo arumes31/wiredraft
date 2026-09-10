@@ -188,7 +188,7 @@ test("installs access points and browses the edge device families", async ({ pag
   const topology = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
   const installed = topology.devices.filter((device) => device.name === deviceName).at(-1);
   expect(installed).toMatchObject({ category: "AccessPoint", model: "AP-635" });
-  expect(installed.ports.map((port) => port.label)).toEqual(["E0", "E1"]);
+  expect(installed.ports.map((port) => port.label)).toEqual(["E0", "E1", "CONSOLE"]);
 });
 
 test("edits device inventory, management identity, location, and STP priority", async ({ page, request }) => {

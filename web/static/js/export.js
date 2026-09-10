@@ -513,7 +513,7 @@ export function buildSVGDocument(topology, engine) {
   const renderedPortLabels = [];
   const renderedPanelPortals = [];
   const parts = [`<svg id="topology-map" data-export-version="2" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">`,
-    `<style>text{font-family:'DIN Condensed',sans-serif}.name{font-size:14px;font-weight:bold;letter-spacing:1px}.model{font-size:9px}.port{fill:#091012;stroke:#60757a;stroke-width:1}.port-label{font-weight:700;text-anchor:middle;dominant-baseline:middle}</style>`,
+    `<style>text{font-family:'DIN Condensed',sans-serif}.name{font-size:14px;font-weight:bold;letter-spacing:1px}.model{font-size:9px}.port{fill:#091012;stroke:#60757a;stroke-width:1}.port-label{font-family:'Bahnschrift Condensed',sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:middle}</style>`,
     `<rect width="100%" height="100%" fill="#0a0f11"/>`];
   for (const box of rackBoxes) {
     const x = box.x + offsetX; const y = box.y + offsetY;
@@ -571,10 +571,10 @@ export function buildSVGDocument(topology, engine) {
     const statusX = x + statusArea.x * 690;
     const statusY = y + statusArea.y * heightU - statusArea.height / 2;
     const rackFace = device.rackId ? (device.rackFace === "rear" ? "rear" : "front") : "free";
-    parts.push(`<g data-layer="faceplate" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${rackFace}" data-name="${escapeXML(device.name)}" data-template="${template.id}"${scene?.profile ? ` data-hardware-face="${scene.face}"` : ""}><title>${escapeXML(device.name)} · ${escapeXML(device.model || device.category || "Device")}</title>`);
+    parts.push(`<g data-layer="faceplate" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${rackFace}" data-name="${escapeXML(device.name)}" data-template="${template.id}"${scene?.profile ? ` data-hardware-face="${scene.face}" data-faceplate-fidelity="${escapeXML(scene.profile.fidelity || "model")}" data-hardware-source="${escapeXML(scene.profile.source || "")}"` : ""}><title>${escapeXML(device.name)} · ${escapeXML(device.model || device.category || "Device")}</title>`);
     if (scene?.profile) {
       const chassis = scene.chassis;
-      parts.push(`<rect data-layer="physical-chassis" x="${chassis.x + offsetX}" y="${chassis.y + offsetY}" width="${chassis.width}" height="${chassis.height}" rx="4" fill="${template.surface}" stroke="#687b7f"/>`);
+      parts.push(`<rect data-layer="physical-chassis" x="${chassis.x + offsetX}" y="${chassis.y + offsetY}" width="${chassis.width}" height="${chassis.height}" rx="${chassis.shape === "circle" ? chassis.width / 2 : 4}" fill="${template.surface}" stroke="#687b7f"/>`);
       parts.push(`<g transform="translate(${offsetX} ${offsetY})">`);
       for (const component of scene.components) {
         parts.push(`<g data-component="${escapeXML(component.kind)}">${hardwareComponentSVG(component, template)}</g>`);
@@ -670,16 +670,17 @@ export function buildSVGDocument(topology, engine) {
       if (geometry) {
         const point = { x: geometry.centerX, y: geometry.centerY };
         const size = geometry;
-        const kind = connectorKind(port.type);
+        const kind = geometry.connectorKind || connectorKind(port.type);
         const portLabel = String(port.label || `PORT ${port.portIndex || ""}`).trim();
-        parts.push(`<g data-entity="port" data-port-id="${escapeXML(port.id)}" data-device-id="${escapeXML(device.id)}" data-name="${escapeXML(portLabel)}"><title>${escapeXML(device.name)}:${escapeXML(portLabel)} · ${escapeXML(port.type || "PORT")}</title>`);
+        parts.push(`<g data-entity="port" data-port-id="${escapeXML(port.id)}" data-device-id="${escapeXML(device.id)}" data-connector-kind="${escapeXML(kind)}" data-name="${escapeXML(portLabel)}"><title>${escapeXML(device.name)}:${escapeXML(portLabel)} · ${escapeXML(port.type || "PORT")}</title>`);
         parts.push(hardwareComponentSVG({ kind, x: geometry.x + offsetX, y: geometry.y + offsetY, width: size.width, height: size.height }, template));
         parts.push(`</g>`);
         const portBox = {
           port: { ...port, label: portLabel }, centerX: point.x, centerY: point.y,
+          labelPlacement: geometry.labelPlacement,
           x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height,
         };
-        renderedPortLabels.push({ ...portDescriptionPlacement(portBox, box), label: portLabel, template, offsetX, offsetY });
+        renderedPortLabels.push({ ...portDescriptionPlacement(portBox, box), label: geometry.displayLabel ?? portLabel, template, offsetX, offsetY });
       }
     }
     parts.push(`</g>`);
@@ -735,9 +736,10 @@ export function buildSVGDocument(topology, engine) {
   parts.push(...renderedPanelPortals);
   for (const label of renderedPortLabels) {
     const x = label.x + label.offsetX; const y = label.y + label.offsetY;
-    const width = Math.max(12, Math.min(label.maxWidth, label.label.length * label.fontSize * .55) + 6);
+    const textWidth = Math.min(label.maxWidth, portLabelWidth(label, engine.ctx));
+    const width = Math.min(label.boxMaxWidth ?? Infinity, Math.max(12, textWidth + 6));
     parts.push(`<rect data-layer="port-description" x="${x - width / 2}" y="${y - 5.5}" width="${width}" height="11" rx="2" fill="${label.template.surface}" opacity=".94" stroke="${label.template.ink}" stroke-opacity=".35"/>`);
-    parts.push(`<text class="port-label" data-layer="port-description" x="${x}" y="${y}" font-size="${label.fontSize}" fill="${label.template.ink}">${escapeXML(label.label)}</text>`);
+    parts.push(`<text class="port-label" data-layer="port-description" x="${x}" y="${y}" font-size="${label.fontSize}" fill="${label.template.ink}"${label.boxMaxWidth && textWidth > 0 ? ` textLength="${textWidth}" lengthAdjust="spacingAndGlyphs"` : ""}>${escapeXML(label.label)}</text>`);
   }
   for (const annotation of topology.annotations || []) {
     const x1 = annotation.x1 + offsetX; const y1 = annotation.y1 + offsetY;
@@ -755,6 +757,16 @@ export function buildSVGDocument(topology, engine) {
   }
   parts.push(`</svg>`);
   return parts.join("");
+}
+
+/** Measure port names with the Canvas font; bound the fallback when exporting without a browser. */
+function portLabelWidth(label, context) {
+  if (!context?.measureText) return label.label.length * label.fontSize * .55;
+  context.save();
+  context.font = `700 ${label.fontSize}px Bahnschrift Condensed, sans-serif`;
+  const width = context.measureText(label.label).width;
+  context.restore();
+  return width;
 }
 
 function translateRoute(route, offsetX, offsetY) {

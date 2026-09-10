@@ -55,8 +55,10 @@ for (const model of ["FortiGate 40F", "FortiGate 60F", "FortiGate 70F", "FortiGa
   assert.equal(layout.defaultFace, "rear");
   assert.equal(layout.faces.front.ports.length, 0, `${model} front has indicators, not sockets`);
 }
-for (const model of ["FortiGate 40F-3G4G", "FortiGate 80F-POE", "FortiGate 400F-DC", "FortiGate 6000F"]) {
-  assert.equal(resolveModelFaceplate(deviceFor(model)), null, "unverified variants must keep the schematic fallback");
+for (const model of ["FortiGate 40F", "FortiGate 80F", "FortiGate 400F"]) {
+  const unverified = deviceFor(model);
+  unverified.model += "-UNVERIFIED";
+  assert.equal(resolveModelFaceplate(unverified), null, "unverified variants must not inherit exact model claims");
 }
 assert.equal(resolveModelFaceplate({ model: "FortiGate 100F", faceplate: { vendor: "Other" } }), null);
 assert.equal(resolveModelFaceplate({}), null);

@@ -1,0 +1,88 @@
+# Hardware faceplates
+
+WireDraft renders physical front and rear panels from one shared scene. Canvas,
+SVG export, picking and cable attachment use the same connector geometry.
+`web/static/js/faceplate-models.js` resolves an explicit vendor/model registry;
+the vendor modules link to the manufacturer's panel drawings.
+
+## Evidence and fidelity
+
+A `model` profile must trace both panels of the named hardware. Its metadata
+records the source, relevant pages or images, and any selected hardware revision,
+power supply population or other configuration. Common drawing primitives may
+be shared; port counts, bank placement, service connectors and rear cooling must
+follow the individual model. A nearby model or a family datasheet without the
+required panel drawing does not establish the missing layout.
+
+The remaining `family` profiles are provisional. `schematic` identifies
+configurable equipment whose actual hardware population is unspecified. These
+states appear in the inspector and must not be counted as finished model layouts.
+The catalog-wide conversion remains in progress until every applicable entry
+passes the strict audit. Combined model names and chassis families require an
+exact SKU or explicit configuration before their drawing can be verified.
+
+Run `npm run audit:faceplates` to check both panels of every catalog entry for
+finite bounds, duplicate or missing inventory identities, overlapping sockets,
+and collisions with hardware components. Run
+`node scripts/audit-faceplates.mjs --require-model-specific --json` to list all
+remaining named hardware that lacks a verified model layout. The strict command
+intentionally fails while that backlog exists.
+
+## Correcting catalog inventories safely
+
+New devices receive the current catalog connector types, counts and speeds.
+Existing saved port IDs, user labels, configuration and cable references remain
+intact when the physical drawing changes. A historical endpoint with no real
+socket appears in the application connection marker as unmapped inventory;
+the renderer must not invent an extra physical connector.
+
+When a correction changes the meaning of an inventory index, increment the
+catalog profile's `inventoryRevision` and set the same revision on the physical
+profile. `instantiateProfile` saves it in `device.faceplate.inventoryRevision`.
+The Go `FaceplateSpec` preserves that optional field through save/load; absent
+or zero identifies the original catalog inventory. Catalog refresh does not
+rewrite a device across revisions.
+
+Provide an explicit mapping for each supported old revision:
+
+```js
+{
+  inventoryRevision: 1,
+  legacyLayouts: [{
+    inventoryRevision: 0,
+    portIndexMap: { 1: 1, 2: 2, 17: 9 },
+    portLabels: { 17: "MGMT1" },
+  }],
+}
+```
+
+The map is old index to current physical slot index. Enumerate every retained
+endpoint, including unchanged indices. An omitted old index stays unmapped;
+it must never fall through to the current index or match a coincidental label.
+Unknown revisions also remain unmapped. Never select a revision by port count,
+array order or display name. Add regression tests for renamed and reordered
+historical inventory, especially when an obsolete port and a new service socket
+share the same index and media type.
+
+`portLabels` is optional and records known old generated labels. Together with
+the slot's `physicalLabel`, it allows printed hardware numbering to appear for
+an unchanged default name while preserving user renames. `compatibleTypes`
+permits an explicitly documented historical media assignment to bind to the
+correct socket. `connectorKind` selects the real socket artwork without
+modifying the saved port's type.
+
+## Rendering and verification
+
+Model coordinates are normalized connection-planning illustrations, not
+manufacturing measurements. Application identity and connections on hidden
+panels occupy a title strip outside the physical body. Round or square access
+point chassis retain their aspect ratio. Port labels have bounded space shared
+by Canvas and SVG; exported widths remain constrained across font substitution.
+
+Run `npm run test:coverage` for unit and compatibility checks and the existing
+80% coverage gates. `e2e/faceplate-catalog.spec.mjs` renders both panels of the
+entire catalog in the real application, compares Canvas/SVG port identities,
+checks selected-face export and exercises dense-label rendering. Rebuild the
+Go server before running this browser test because frontend assets are embedded.
+Inspect each new model's rendered front and rear against the cited source;
+passing a geometry test alone is not evidence of physical accuracy.
