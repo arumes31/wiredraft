@@ -184,6 +184,8 @@ type FaceplateSpec struct {
 	HasSFPSlots  bool    `json:"hasSfpSlots"`
 	Vendor       string  `json:"vendor,omitempty"`
 	Layout       string  `json:"layout,omitempty"`
+	// InventoryRevision identifies catalog port indices; zero denotes the original inventory.
+	InventoryRevision uint32 `json:"inventoryRevision,omitempty"`
 }
 
 // Rack is a movable whole-unit equipment enclosure on the topology canvas.
@@ -469,7 +471,34 @@ func NewID() (string, error) {
 	return string(encoded), nil
 }
 
-// Normalize initializes slices and canonicalizes derived port fields.
+// NormalizePortIndices preserves the first occurrence of each positive port index.
+// Missing, nonpositive and duplicate indices receive the smallest unused positive
+// values in slice order, after reserving all existing indices.
+func (d *Device) NormalizePortIndices() {
+	used := make(map[int]bool, len(d.Ports))
+	for index := range d.Ports {
+		port := &d.Ports[index]
+		if port.PortIndex < 1 || used[port.PortIndex] {
+			port.PortIndex = 0
+			continue
+		}
+		used[port.PortIndex] = true
+	}
+	next := 1
+	for index := range d.Ports {
+		port := &d.Ports[index]
+		if port.PortIndex > 0 {
+			continue
+		}
+		for used[next] {
+			next++
+		}
+		port.PortIndex = next
+		used[next] = true
+	}
+}
+
+// Normalize initializes slices and repairs derived fields while retaining stable port indices.
 func (t *Topology) Normalize() {
 	t.Name = strings.TrimSpace(t.Name)
 	t.OrganizationID = strings.TrimSpace(t.OrganizationID)
@@ -530,10 +559,10 @@ func (t *Topology) Normalize() {
 			device.Ports = []Port{}
 		}
 		device.Faceplate.TotalPorts = len(device.Ports)
+		device.NormalizePortIndices()
 		for portIndex := range device.Ports {
 			port := &device.Ports[portIndex]
 			port.DeviceID = device.ID
-			port.PortIndex = portIndex + 1
 			if port.AllowedVLANs == nil {
 				port.AllowedVLANs = []int{}
 			}
