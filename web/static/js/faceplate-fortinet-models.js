@@ -9,7 +9,6 @@ const GUIDES = {
   "148F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/3f38a8b3-0a5f-11eb-96b9-00505692583a/FortiSwitch-148F-Series-QSG.pdf",
   "448E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/9f94e4e9-920c-11ea-aafb-00505692583a/FortiSwitch-448E-Series-QSG.pdf",
   "624F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/073bc97f-589d-11ee-8e6d-fa163e15d75b/FS-624F-648F-Series-QSG.pdf",
-  "231F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/c03ec18a-01b9-11eb-96b9-00505692583a/FortiAP-231F-QSG.pdf",
   "511F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/1268d682-14fb-11ec-a4c4-00505692583a/FortiExtender-511F-QuickStart_Online.pdf",
   "224E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/e80c525a-202f-11e9-b6f6-f8bc1258b856/FortiSwitch-224E-Series-QSG.pdf",
   "248E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/e6a256ac-202f-11e9-b6f6-f8bc1258b856/FortiSwitch-248E-Series-QSG.pdf",
@@ -96,6 +95,7 @@ const GUIDES = {
   "R70G-dual": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/a1edabaa-6ec8-11ef-8355-fa163e15d75b/FGR-70G-5G-DUAL-QSG.pdf",
   "7030E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/496f257b-1a0a-11e9-9685-f8bc1258b856/fortigate-7030E-system-guide.pdf",
   "7040E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/18bec63c-1a0a-11e9-9685-f8bc1258b856/fortigate-7040E-system-guide.pdf",
+  "7060E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/5bada950-1a11-11e9-9685-f8bc1258b856/fortigate-7060E-system-guide.pdf",
   "FIM7901E": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/279bdb1a-1a0a-11e9-9685-f8bc1258b856/fim-7901E-guide.pdf",
   "7081F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/17ef7271-b6d2-11ed-8e6d-fa163e15d75b/fortigate-7081F-system-guide.pdf",
   "7121F": "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/c7e69026-9283-11eb-b70b-00505692583a/fortigate-7121F-system-guide.pdf",
@@ -105,7 +105,7 @@ const GUIDES = {
 
 /** Resolve Fortinet catalog panels without treating unverified variants as exact hardware. */
 export function resolveFortinetFaceplate(device) {
-  if (device?.faceplate?.vendor !== "Fortinet") return null;
+  if (device?.faceplate?.vendor !== "Fortinet" || device.model === "FortiAP 231F") return null;
   const canonical = canonicalFaceplateDevice(device);
   if (!canonical) return null;
   if (!profiles.has(device.model)) profiles.set(device.model, buildFortinetProfile(canonical));
@@ -176,7 +176,6 @@ function buildFortinetProfile({ catalog, device }) {
   else if (/^FortiSwitch (?:624F|648F)(?:-FPOE)?$/.test(model)) addCampusF(profile, device);
   else if (/^FortiGate 12[01]G$/.test(model)) add120G(profile, device);
   else if (/^FortiGate 9[01]G$/.test(model)) add90G(profile, device);
-  else if (model === "FortiAP 231F") add231F(profile, device);
   else if (model === "FortiExtender 511F") add511F(profile, device);
   else if (/^FortiSwitch (?:224E|248E)(?:-POE|-FPOE)?$/.test(model)) addAccessE(profile, device);
   else if (/^FortiSwitch 424E(?:-Fiber|-POE|-FPOE)?$/.test(model)) add424E(profile, device);
@@ -235,6 +234,7 @@ function buildFortinetProfile({ catalog, device }) {
   else if (model === "FortiGate Rugged 70G") addRugged70G(profile, device);
   else if (/^FortiGate Rugged (?:50G-5G|70G-5G-Dual)$/.test(model)) addRuggedGCellular(profile, device);
   else if (/^FortiGate 70[34]0E$/.test(model)) add70307040E(profile, device);
+  else if (/^FortiGate 7060E(?:-8-DC)?$/.test(model)) add7060E(profile, device);
   else if (/^FortiGate (?:7081F(?:-DC|-2-DC)?|7121F(?:-2)?(?:-DC)?)$/.test(model)) add7000FChassis(profile, device);
   if (/^FortiGate (?:180[01]F(?:-DC)?|350[01]F)$/.test(model)) profile.legacyLayouts = [{ inventoryRevision: 0,
     portIndexMap: Object.fromEntries(device.ports.map((port) => [port.portIndex, port.portIndex])) }];
@@ -430,22 +430,6 @@ function add90G(profile, device) {
   profile.faces.rear.components = [element("vent", .075, .17, .65, .16, undefined, "slots"),
     element("vent", .075, .47, .65, .30, undefined, "slots"),
     element("power", .835, .38, .032, .45, "DC1", "dc-keyed2"), element("power", .897, .38, .032, .45, "DC2", "dc-keyed2")];
-}
-
-/** Project the 231F underside connector edge and front indicator strip without inventing a console endpoint. */
-function add231F(profile, device) {
-  inspected(profile, "231F", "3–4", ["Catalog ETH0/ETH1 correspond to LAN1/PoE and LAN2. The separate RJ45 console is absent from inventory."]);
-  profile.defaultFace = "rear";
-  profile.limitations.push("The mounting underside and its connector edge are projected into one rear diagram; dimensions are schematic.");
-  profile.chassis = { x: .30, y: .04, width: .40, height: .92 };
-  profile.faces.front = { ports: [], components: [element("text", .2, .30, .6, .15, "FortiAP 231F"),
-    ...familyIndicators(["PWR", "LAN1", "LAN2", "WIFI", "BLE"], .28, .68, .105)] };
-  profile.faces.rear = { ports: device.ports.map((port, index) => slot(port, index ? .55 : .71, .73, .075, .21)),
-    components: [element("vent", .07, .23, .14, .61, undefined, "slots"),
-      element("vent", .82, .23, .11, .61, undefined, "slots"),
-      element("module-bay", .28, .23, .45, .30, "MOUNT", "blank"),
-      element("console", .352, .625, .075, .21), element("power", .245, .68, .047, .13, undefined, "dc-barrel"),
-      element("usb", .44, .04, .12, .11, undefined, "a")] };
 }
 
 /** Draw the 511F Ethernet edge and opposite SIM/Bluetooth panel from its illustrated QSG. */
@@ -2477,6 +2461,93 @@ function add70307040E(profile, device) {
     ...[.013, .050, .266, .493, .723, .977].flatMap((x) => [.850, .970].map((y) => element("screw", x, y, .012, .016))),
   ] };
   profile.faces.rear = { ports: [], components: rear70307040E() };
+}
+
+/** Trace a 7060E SMM from the actual six-slot front, correcting the guide's copied four-slot enlargement. */
+function management7060E(ports, number) {
+  const components = [element("chassis", .002, .015, .996, .020), element("chassis", .002, .950, .996, .020),
+    ...[.008, .953].map((x) => element("screw", x, .43, .032, .23)),
+    ...["STATUS", "ALARM", "TEMP", "POWER"].flatMap((label, index) => [
+      element("text", .042, .26 + index * .13, .060, .11, label), element("led", .106, .28 + index * .13, .012, .09),
+    ]),
+    element("text", .135, .245, .054, .12, "FAN"), element("text", .135, .55, .054, .12, "PSU"),
+    ...Array.from({ length: 3 }, (_, index) => element("led", .191 + index * .026, .32, .012, .09)),
+    ...Array.from({ length: 6 }, (_, index) => ({
+      ...element("led", .191 + index * .026, .60, .012, .09), role: `smm${number}-psu`, active: index < 4,
+    })),
+    element("button", .432, .48, .017, .13), element("led", .437, .75, .009, .065),
+  ];
+  for (const x of [.600, .846]) {
+    for (const [column, row] of [[0, 0], [0, 1], [0, 2], [0, 3], [1, 0], [1, 3]]) {
+      components.push({ ...element("led", x + column * .026, .26 + row * .13, .012, .09), role: `smm${number}-selection` });
+    }
+    components.push(element("button", x + .074, .54, .024, .19));
+  }
+  return { components, ports: ports.map((port, index) => ({
+    ...namedSlot(port, index ? `CONSOLE${index}` : "MGMT", [.372, .511, .757][index], .54, .073, .42),
+    descriptionAnchor: { x: [.372, .511, .757][index], y: .87 },
+  })) };
+}
+
+/** Trace the 7060E rear's three numbered dual-rotor trays, end handles and separate grounding pair. */
+function rear7060E() {
+  return [
+    ...[.029, .344, .659].flatMap((x, index) => [
+      element("fan", x, .061, .309, .834, undefined, "mesh-dual-7060e"),
+      element("text", x + .107, .912, .095, .025, `FAN ${3 - index}`),
+    ]),
+    ...[.046, .497, .950].map((x) => element("screw", x, .005, .012, .016)),
+    ...[.006, .979].flatMap((x) => [.042, .125, .372, .623, .856, .966].map((y) => element("screw", x, y, .012, .016))),
+    ...[.806, .848].map((x) => ({ ...element("screw", x, .954, .024, .031), role: "chassis-ground" })),
+    element("text", .801, .929, .084, .018, "GROUND"),
+    element("text", .083, .955, .184, .026, "READ MANUAL BEFORE REPLACING FAN TRAY"),
+  ];
+}
+
+/** Install the documented two-FIM/two-FPM base in the separate 8U AC and DC 7060E chassis. */
+function add7060E(profile, device) {
+  const dc = device.model.endsWith("-DC");
+  inspected(profile, "7060E", "7 front, 10 rear, 17 fan, 19 AC supply, 21 DC supply, 29 FIM-7920E; 52 SMM status table");
+  const configuration = `Two FIM-7920E in slots 1/2, two FPM-7620E in slots 3/4, blanks in slots 5/6, two SMMs and four ${dc ? "DC" : "AC"} supplies in PWR1–4; PWR5/6 covered`;
+  profile.chassis = { x: 0, y: 0, width: 1, height: 1 };
+  profile.evidence = { scope: "model", models: [device.model], configuration,
+    front: `${GUIDES["7060E"]}#page=7`, rear: `${GUIDES["7060E"]}#page=10`,
+    supplemental: [`${GUIDES["7060E"]}#page=29`, `${GUIDES["7060E"]}#page=52`,
+      "https://www.fortinet.com/content/dam/fortinet/assets/data-sheets/FortiGate_7000_Series_Bundle.pdf#page=10"] };
+  const managers = [1, 2].map((number) => device.ports.filter((port) => port.group.startsWith(`SMM${number}-`)));
+  profile.legacyLayouts = [{ inventoryRevision: 0,
+    portIndexMap: { 1: managers[0][0].portIndex, 2: managers[1][0].portIndex }, portLabels: { 1: "MGMT1", 2: "MGMT2" } }];
+  profile.catalogDiscrepancies = ["New instances use 8U and all 26 usable connectors in the selected base population. Saved 12U allocations and port settings remain unchanged.",
+    "Old MGMT1/2 map to the two SMM management sockets. Two historical consoles cannot uniquely identify four SMM console sockets and remain unmapped saved endpoints."];
+  profile.limitations = [`Selected configuration: ${configuration}. FIM-7920E is the explicitly selected FIM-79xxE-C option; other ordered card populations need their own configuration.`,
+    "The guide's page 49 enlargement repeats a four-slot SMM. Actual front page 7 and the six-PSU table on page 52 establish six PSU lenses and six selection lenses per console. The guide's references to slots 3–12 are also copy errors for this six-slot chassis.",
+    "The example full-front drawing uses four FPM-7630E and FIM-7910E; the selected base instead follows the ordering table and the separately illustrated FIM-7920E.",
+    ...(dc ? ["DC terminal covers are removed in the illustrated selected supply detail so its two terminals and protective-earth screw remain visible."] : [])];
+  const front = { ports: [], components: [] };
+  for (const [index, ports] of managers.entries()) {
+    const panel = position7000FPanel(management7060E(ports, index + 1), .034 + index * .466, .002, .466, .082);
+    front.ports.push(...panel.ports); front.components.push(...panel.components);
+  }
+  for (const [number, y] of [[5, .089], [3, .223], [1, .357], [2, .491], [4, .625], [6, .759]]) {
+    if (number === 5 || number === 6) {
+      front.components.push({ ...element("module-bay", .027, y, .946, .130, `SLOT ${number}`, "blank"), role: "unused-module" });
+    } else {
+      const panel = position7000FPanel(number < 3 ? interface7000E(installed7000EPorts(device.ports, number), 0, true)
+        : { ports: [], components: blade7000EFrame(0, "FPM-7620E", true) }, 0, y, 1, .770);
+      front.ports.push(...panel.ports); front.components.push(...panel.components);
+    }
+  }
+  for (const [index, x] of [.032, .171, .310, .564].entries()) {
+    front.components.push(element("psu", x, .898, .127, .099, `PWR${index + 1}`, dc ? "dc-terminal2-7060e" : "ac-c16-horizontal"));
+  }
+  for (const [index, x] of [.713, .850].entries()) front.components.push({
+    ...element("module-bay", x, .898, .120, .098, `PWR${index + 5}`, "blank"), role: "unused-psu",
+  });
+  front.components.push(element("text", .447, .930, .111, .024, "FortiGate 7060E"),
+    { ...element("service-jack", .978, .944, .018, .018), role: "esd" },
+    element("text", .973, .968, .026, .013, "ESD"));
+  profile.faces.front = front;
+  profile.faces.rear = { ports: [], components: rear7060E() };
 }
 
 /** Place a separately traced module in its documented chassis slot without changing port identity. */

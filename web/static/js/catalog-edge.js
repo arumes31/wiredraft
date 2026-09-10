@@ -32,6 +32,7 @@ function profile(vendor, model, category, family, color, groups, source, note, e
     layout: extra.layout || `edge-${family.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
     fidelity: extra.fidelity || "exact",
     placement: extra.placement || "edge / shelf",
+    ...(extra.inventoryRevision ? { inventoryRevision: extra.inventoryRevision } : {}),
     source,
     note,
   };
@@ -53,8 +54,9 @@ const profiles = [
     group("management", "USB_MICRO_CONSOLE", 0, ["CONSOLE"]),
   ], SOURCE.arubaAP, "Vendor-documented dual 2.5G Ethernet interfaces and Micro-B serial console.", { placement: "ceiling / wall" }),
   profile("Fortinet", "FortiAP 231F", "AccessPoint", FAMILIES.accessPoints, "#e5e7e4", [
-    group("access", "RJ45_1G", 1000, ["ETH0", "ETH1"]),
-  ], SOURCE.fortinetAP, "Vendor-documented dual 1G Ethernet uplinks.", { placement: "ceiling / wall" }),
+    group("access", "RJ45_1G", 1000, ["LAN1/PoE", "LAN2"]),
+    group("management", "Console", 0, ["CONSOLE"]),
+  ], SOURCE.fortinetAP, "FAP-231F with dual 1G Ethernet and RJ45 serial console. LAN1 accepts PoE input. Revision 1 retains both old Ethernet indices and appends the console.", { placement: "ceiling / wall", inventoryRevision: 1 }),
   profile("Ubiquiti", "UniFi U7 Pro", "AccessPoint", FAMILIES.accessPoints, "#ebedeb", [
     group("access", "RJ45_MGIG", 2500, ["2.5 GbE"]),
   ], SOURCE.ubiquitiAP, "Vendor-documented single 2.5 GbE PoE+ uplink.", { placement: "ceiling / wall" }),

@@ -14,6 +14,12 @@ be shared; port counts, bank placement, service connectors and rear cooling must
 follow the individual model. A nearby model or a family datasheet without the
 required panel drawing does not establish the missing layout.
 
+Use manufacturer specifications and panel drawings where available. An original
+photograph of the exact review unit can establish a missing panel when its source
+and pictured configuration are identified explicitly and corroborated by the
+manufacturer's specifications. Record that photograph's actual provenance;
+do not describe it as manufacturer artwork or redistribute it in the application.
+
 The remaining `family` profiles are provisional. `schematic` identifies
 configurable equipment whose actual hardware population is unspecified. These
 states appear in the inspector and must not be counted as finished model layouts.

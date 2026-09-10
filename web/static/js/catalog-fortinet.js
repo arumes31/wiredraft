@@ -229,7 +229,13 @@ add(["FortiGate 6001F", "FortiGate 6300F", "FortiGate 6301F", "FortiGate 6500F",
     source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/ffef9904-1a11-11e9-9685-f8bc1258b856/fortigate-6000F-system-guide.pdf",
     note: "PDF pages 7–8 and 13: twenty-four SFP28, four QSFP28, two RJ45 management, three SFP+ management/HA and one console. Revision 1 preserves existing indices and corrects management media; a surplus saved second console remains unmapped.",
   });
-add(["FortiGate 7000E", "FortiGate 7000F", "FortiGate 7060E"], "Firewall", 12, [ge(2, "MGMT"), consolePort(2)], { lifecycle: "supported", fidelity: "modular", source: FORTIGATE_MATRIX, note: "Modular chassis; data interfaces depend on installed FIM/FPM modules." });
+add(["FortiGate 7000E", "FortiGate 7000F"], "Firewall", 12, [ge(2, "MGMT"), consolePort(2)], { lifecycle: "supported", fidelity: "modular", source: FORTIGATE_MATRIX, note: "Modular chassis; data interfaces depend on installed FIM/FPM modules." });
+add(["FortiGate 7060E", "FortiGate 7060E-8-DC"], "Firewall", 8, modularLabels([
+  ...[1, 2].flatMap((number) => [managementRJ45(1, `SMM${number}-MGMT`), group("management", 2, "Console", 0, `SMM${number}-CONSOLE`)]),
+  ...[1, 2].flatMap((number) => [managementRJ45(4, `FIM${number}-MGMT`), sfpp(2, `FIM${number}-M`), qsfp100(4, `FIM${number}-C`)]),
+]), { fidelity: "modular", inventoryRevision: 1,
+  source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/5bada950-1a11-11e9-9685-f8bc1258b856/fortigate-7060E-system-guide.pdf",
+  note: "Selected 8U base with two FIM-7920E and two FPM-7620E cards, two SMMs, empty slots 5/6 and four AC or SKU-specific DC supplies. New inventory includes 26 usable connectors; saved 12U allocations and ambiguous old consoles are retained without reassignment." });
 add(["FortiGate 7030E"], "Firewall", 6, modularLabels([managementRJ45(1, "SMM-MGMT"), consolePort(2),
   managementRJ45(4, "FIM1-MGMT"), sfpp(2, "FIM1-M"), sfpp(32, "FIM1-A")]), {
   lifecycle: "supported", fidelity: "modular", inventoryRevision: 1,
@@ -268,7 +274,7 @@ const dcAliases = {
   "FortiGate 4400F-DC": "FortiGate 4400F", "FortiGate 4401F-DC": "FortiGate 4401F", "FortiGate 4800F-DC": "FortiGate 4800F",
   "FortiGate 4801F-DC": "FortiGate 4801F", "FortiGate 4801F-DC-NEBS": "FortiGate 4801F",
   "FortiGate 6300F-DC": "FortiGate 6300F", "FortiGate 6301F-DC": "FortiGate 6301F", "FortiGate 6500F-DC": "FortiGate 6500F",
-  "FortiGate 6501F-DC": "FortiGate 6501F", "FortiGate 7060E-8-DC": "FortiGate 7060E",
+  "FortiGate 6501F-DC": "FortiGate 6501F",
 };
 for (const [model, baseModel] of Object.entries(dcAliases)) {
   const base = profiles.find((profile) => profile.model === baseModel);

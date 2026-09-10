@@ -153,7 +153,7 @@ test("public inspector switches representative family panels and exports the sel
   const cases = [
     { model: "ASA 5506-X", defaultFace: "rear", portFaces: "rear" },
     { model: "M4250 family", defaultFace: "rear", portFaces: "rear" },
-    { model: "PowerEdge R650", defaultFace: "rear", portFaces: "rear" },
+    { model: "PowerEdge R650", defaultFace: "rear", portFaces: { front: [4], rear: [1, 2, 3] } },
     { model: "Cat6 copper panel 24", defaultFace: "front", portFaces: "front" },
     { model: "UniFi Cable Internet", defaultFace: "front", portFaces: "split" },
     { model: "AP-635", defaultFace: "rear", portFaces: "rear" },
@@ -186,8 +186,10 @@ test("public inspector switches representative family panels and exports the sel
         return { face: parsed.querySelector(`[data-layer="faceplate"][data-device-id="${id}"]`)?.getAttribute("data-hardware-face"),
           ports: [...parsed.querySelectorAll(`[data-entity="port"][data-device-id="${id}"]`)].map((port) => port.getAttribute("data-port-id")) };
       }, { svg, id: device.id });
-      const expected = device.ports.filter((port) => entry.portFaces === "split"
-        ? (port.type === "COAX_F" ? "rear" : "front") === face : entry.portFaces === face).map((port) => port.id);
+      const expected = device.ports.filter((port) => typeof entry.portFaces === "object"
+        ? entry.portFaces[face].includes(port.portIndex)
+        : entry.portFaces === "split" ? (port.type === "COAX_F" ? "rear" : "front") === face
+          : entry.portFaces === face).map((port) => port.id);
       expect(displayed.face, entry.model).toBe(face);
       expect(displayed.ports.sort(), `${entry.model} ${face}`).toEqual(expected.sort());
     }

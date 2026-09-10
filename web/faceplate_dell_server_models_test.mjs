@@ -14,6 +14,8 @@ const cases = [
   { model: "PowerEdge R7525", units: 2, drives: 8, endpoints: 4, watts: 2400 },
   { model: "PowerEdge R6615", units: 1, drives: 8, endpoints: 4, watts: 800 },
   { model: "PowerEdge R7615", units: 2, drives: 8, endpoints: 4, watts: 2400 },
+  { model: "PowerEdge R6625", units: 1, drives: 8, endpoints: 4, watts: 800 },
+  { model: "PowerEdge R7625", units: 2, drives: 8, endpoints: 4, watts: 2400 },
 ];
 
 /** Reconstruct the original family record when checking saved topology compatibility. */
@@ -153,6 +155,34 @@ test("R350 fixed serial and model-specific VGA positions differ from optional-se
     const profile = resolveEquipmentFaceplate(deviceFor(model));
     assert.ok(profile.faces.rear.ports.every((port) => port.type !== "Console"));
     assert.equal(profile.faces.front.components.filter((part) => part.kind === "vga").length, 1);
+  }
+});
+
+test("R6625 and R7625 trace their own selected front banks and standard covered rear configurations", () => {
+  const r6625 = resolveEquipmentFaceplate(deviceFor("PowerEdge R6625"));
+  const r7625 = resolveEquipmentFaceplate(deviceFor("PowerEdge R7625"));
+  const separated = r6625.faces.front.components.filter((part) => part.kind === "drive-carrier");
+  assert.equal(separated.filter((part) => part.x < .4).length, 4);
+  assert.equal(separated.filter((part) => part.x > .55).length, 4);
+  assert.ok(separated.every((part) => part.x + part.width < .405 || part.x > .55), "the middle front bank is ventilation");
+  assert.equal(r6625.faces.rear.components.filter((part) => part.role === "pcie-cover").length, 3);
+  assert.match(r6625.evidence.configuration, /risers uninstalled/);
+  assert.deepEqual(r6625.faces.rear.components.filter((part) => part.kind === "psu").map((part) => part.variant),
+    ["ac-inlet-right-sideways", "ac-inlet-right-sideways"]);
+  const vertical = r7625.faces.front.components.filter((part) => part.kind === "drive-carrier");
+  assert.equal(new Set(vertical.map((part) => part.y)).size, 1);
+  assert.ok(vertical.every((part) => part.width < .05 && part.height > .7));
+  assert.deepEqual(r7625.faces.rear.components.filter((part) => part.role === "pcie-cover").map((part) => part.label).sort(),
+    ["1", "2", "3", "4", "5", "6", "7", "8"]);
+  assert.deepEqual(r7625.faces.rear.components.filter((part) => part.kind === "psu").map((part) => part.variant),
+    ["ac-fan-left-c20", "ac-fan-left-c20"]);
+  for (const profile of [r6625, r7625]) {
+    assert.match(profile.evidence.configuration, /optional two-port 1GbE LOM installed/);
+    assert.match(profile.evidence.configuration, /BOSS-N1/);
+    assert.equal(profile.faces.rear.components.filter((part) => part.role === "ocp-blank").length, 1);
+    assert.equal(profile.faces.rear.components.filter((part) => part.kind === "drive-carrier" && part.variant === "boss").length, 2);
+    assert.notDeepEqual(profile.faces.rear.ports.map((port) => [port.x, port.y]),
+      resolveEquipmentFaceplate(deviceFor(profile.family === "PowerEdge R6625" ? "PowerEdge R6615" : "PowerEdge R7615")).faces.rear.ports.map((port) => [port.x, port.y]));
   }
 });
 

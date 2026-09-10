@@ -76,7 +76,7 @@ assert.deepEqual(catalogDevice("GS748T").device.ports.slice(-4).map((port) => po
 
 for (const [model, portCount] of [
   ["CCR1009", 11], ["CCR1016", 13], ["CCR1036", 17],
-  ["CRS310", 10], ["CRS312", 17], ["CRS326", 27], ["CRS328", 29], ["CRS504", 6],
+  ["CRS312", 17],
 ]) {
   const { profile, device } = catalogDevice(model);
   assert.equal(device.ports.length, portCount, `${model} representative connector count must match its cited chassis`);
@@ -84,11 +84,12 @@ for (const [model, portCount] of [
 }
 for (const [model, sku, count] of [["CCR2004", "CCR2004-1G-12S+2XS", 16], ["CCR2116", "CCR2116-12G-4S+", 18], ["CCR2216", "CCR2216-1G-12XS-2XQ", 16],
   ["CCR1072", "CCR1072-1G-8S+", 10], ["CRS305", "CRS305-1G-4S+IN", 5], ["CRS309", "CRS309-1G-8S+IN", 10],
-  ["CRS317", "CRS317-1G-16S+RM", 18], ["CRS354", "CRS354-48G-4S+2Q+RM", 56], ["CRS518", "CRS518-16XS-2XQ-RM", 20]]) {
+  ["CRS317", "CRS317-1G-16S+RM", 18], ["CRS354", "CRS354-48G-4S+2Q+RM", 56], ["CRS518", "CRS518-16XS-2XQ-RM", 20],
+  ["CRS310", "CRS310-1G-5S-4S+IN", 11], ["CRS326", "CRS326-24G-2S+IN", 27], ["CRS328", "CRS328-24P-4S+RM", 29], ["CRS504", "CRS504-4XQ-IN", 6]]) {
   const { profile, device } = catalogDevice(model);
   assert.equal(device.ports.length, count);
   assert.equal(profile.portLayout.sourceScope, "model");
-  assert.ok(profile.note.startsWith(`Selected ${sku} chassis`));
+  assert.ok(profile.note.startsWith(`Selected ${sku}`));
 }
 for (const model of ["CRS354", "CRS518", "CRS354-48G-4S+2Q+RM", "CRS518-16XS-2XQ-RM"]) {
   const types = catalogDevice(model).device.ports.slice(-2).map((port) => port.type);

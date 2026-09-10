@@ -4,6 +4,7 @@ import { resolveEnterpriseFaceplate } from "./faceplate-enterprise-models.js";
 import { resolveEquipmentFaceplate } from "./faceplate-equipment-models.js";
 import { resolveUbiquitiFaceplate } from "./faceplate-ubiquiti-models.js";
 import { resolveArubaFaceplate } from "./faceplate-aruba-models.js";
+import { resolveAccessPointFaceplate } from "./faceplate-access-point-models.js";
 
 // Coordinates are normalized drawings traced from the cited panel illustrations,
 // not manufacturing measurements. Only explicitly listed hardware variants match.
@@ -34,7 +35,7 @@ for (const suffix of ["", "-POE", "-FPOE"]) addFortiSwitch124(suffix);
 /** Resolve exact model artwork first, then sourced family or configurable catalog panels. */
 export function resolveModelFaceplate(device) {
   if (device?.faceplate?.vendor === "Fortinet" && models.has(device.model)) return models.get(device.model);
-  return resolveFortinetFaceplate(device) || resolveArubaFaceplate(device) || resolveEnterpriseFaceplate(device) ||
+  return resolveAccessPointFaceplate(device) || resolveFortinetFaceplate(device) || resolveArubaFaceplate(device) || resolveEnterpriseFaceplate(device) ||
     resolveUbiquitiFaceplate(device) || resolveEquipmentFaceplate(device);
 }
 

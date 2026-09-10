@@ -19,21 +19,57 @@ function fixture(model) {
   return { device, profile: resolveMikroTikFaceplate(device) };
 }
 
-test("the five full SKUs preserve every typed port while unspecified short names remain unresolved", () => {
+test("CRS310, desktop CRS326 and CRS504 expose their exact panel inventories without rewriting old devices", () => {
+  for (const [model, count, oldCount] of [["CRS310", 11, 10], ["CRS326", 27, 27], ["CRS504", 6, 6]]) {
+    const { device, profile } = fixture(model);
+    assert.equal(profile?.fidelity, "model", model);
+    assert.equal(device.ports.length, count);
+    const legacy = structuredClone(device);
+    delete legacy.faceplate.inventoryRevision;
+    legacy.ports = legacy.ports.filter((port) => port.portIndex <= oldCount).reverse();
+    legacy.ports[0].label = "Customer service";
+    legacy.ports[0].nativeVlan = 177;
+    legacy.ports[0].speedMbps = 1000;
+    const before = structuredClone(legacy);
+    const scene = buildFaceplateScene(legacy, { x: 0, y: 0, width: 690, height: 100 });
+    assert.equal(scene.ports.length, oldCount);
+    assert.equal(scene.unmappedPorts.length, 0);
+    assert.deepEqual(legacy, before);
+    if (model === "CRS310") {
+      assert.equal(profile.faces.front.ports.find((slot) => slot.type === "Console").portIndex, 11);
+      assert.equal(profile.faces.front.ports.filter((slot) => slot.type === "SFP_1G").length, 5);
+      assert.deepEqual(profile.faces.front.ports.filter((slot) => slot.type === "SFP_PLUS_10G").map((slot) => slot.physicalLabel), ["1+", "2+", "3+", "4+"]);
+      assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, 1);
+      legacy.faceplate.inventoryRevision = 99;
+      assert.equal(buildFaceplateScene(legacy, { x: 0, y: 0, width: 690, height: 100 }).unmappedPorts.length, oldCount);
+    } else if (model === "CRS326") {
+      assert.equal(profile.sku, "CRS326-24G-2S+IN");
+      assert.ok(profile.chassis.width < 1);
+      assert.ok(profile.faces.rear.components.every((part) => part.kind !== "fan"), "circular passive grille is not an installed fan");
+    } else {
+      assert.equal(profile.faces.front.components.filter((part) => part.kind === "psu").length, 2);
+      assert.equal(profile.faces.rear.components.filter((part) => part.kind === "psu").length, 0);
+      assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, 2);
+      assert.ok(profile.faces.front.components.some((part) => part.kind === "terminal" && part.pins === 2));
+      assert.equal(device.ports.find((port) => port.group === "MGMT").speedMbps, 100);
+    }
+  }
+});
+
+test("the five full SKUs preserve every typed port with explicit panel evidence", () => {
   for (const model of ["CRS317-1G-16S+RM", "CRS326-24G-2S+RM", "CRS328-24P-4S+RM", "CRS354-48G-4S+2Q+RM", "CRS518-16XS-2XQ-RM"]) {
     const { device, profile } = fixture(model);
     assert.deepEqual(profile.faces.front.ports.map((port) => [port.portIndex, port.type]).sort((a, b) => a[0] - b[0]),
       device.ports.map((port) => [port.portIndex, port.type]));
     assert.deepEqual(profile.faces.rear.ports, []);
     assert.equal(resolveMikroTikFaceplate(device), profile);
-    assert.ok(profile.evidence.length >= 3);
+    assert.ok(Array.isArray(profile.evidence) ? profile.evidence.length >= 3 : profile.evidence.front && profile.evidence.rear);
     assert.ok(profile.catalogDiscrepancies.length);
     assert.ok(profile.faces.rear.connectionMarker);
     device.ports[0].label = "Edited logical name";
     assert.equal(resolveMikroTikFaceplate(device), profile);
     assert.equal(profile.faces.front.ports.some((port) => port.label === "Edited logical name"), false);
   }
-  for (const model of ["CRS326", "CRS328"]) assert.equal(fixture(model).profile, null);
   assert.equal(resolveMikroTikFaceplate({}), null);
   assert.equal(resolveMikroTikFaceplate({ model: "CRS317-1G-16S+RM", faceplate: { vendor: "Other" } }), null);
 });
@@ -179,14 +215,18 @@ test("CRS518 places QSFPs before eight SFP28 pairs and exposes four distinct rea
   assert.equal(profile.fidelity, "model");
 });
 
-test("CRS328's verified front does not hide its unresolved rear illustration gap", () => {
+test("CRS328 traces the original review rear and preserves the full-SKU and alias inventory", () => {
   const { profile } = fixture("CRS328-24P-4S+RM");
-  assert.equal(profile.fidelity, "family");
-  assert.deepEqual(profile.panelFidelity, { front: "model", rear: "schematic" });
-  assert.match(profile.limitations[0], /provisional/);
+  assert.equal(profile.fidelity, "model");
+  assert.deepEqual(profile.panelFidelity, { front: "model", rear: "model" });
+  assert.match(profile.evidence.rear, /servethehome.*Rear\.jpg$/);
+  assert.match(profile.evidence.configuration, /2020.*ServeTheHome/);
   assert.equal(profile.faces.front.ports.filter((port) => port.type === "RJ45_1G").length, 24);
   assert.equal(profile.faces.rear.components.filter((part) => part.kind === "power").length, 1);
   assert.equal(profile.faces.rear.components.filter((part) => part.kind === "fan").length, 0);
+  assert.ok(profile.faces.rear.components.find((part) => part.kind === "power").x > .8);
+  assert.equal(profile.faces.rear.components.filter((part) => part.kind === "screw").length, 3);
+  assert.deepEqual(fixture("CRS328").profile.faces, profile.faces);
 });
 
 test("CCR2216 resolves its explicit 1G-12XS-2XQ configuration with independently numbered optical banks", () => {

@@ -37,7 +37,7 @@ function verifyGeometry(device, profile) {
   }
 }
 
-test("all 132 equipment models preserve the catalog inventory in distinct, bounded panels", () => {
+test("all 133 equipment models preserve the catalog inventory in distinct, bounded panels", () => {
   let count = 0;
   for (const catalog of hardwareCatalog) {
     const device = instantiateProfile(catalog, catalog.model, { x: 0, y: 0 });
@@ -50,7 +50,7 @@ test("all 132 equipment models preserve the catalog inventory in distinct, bound
     assert.notDeepEqual(profile.faces.front, profile.faces.rear, device.model);
     assert.equal(resolveEquipmentFaceplate(device), profile, "canonical layouts should be cached");
   }
-  assert.equal(count, 132);
+  assert.equal(count, 133);
 });
 
 test("documented connector panel roles distinguish networking, AV switches, servers and APs", () => {
@@ -92,7 +92,7 @@ test("generic passive rear artwork never duplicates connectable inventory or pat
 });
 
 test("configurable equipment identifies schematic service areas without invented fan or PSU populations", () => {
-  for (const model of ["PowerEdge R6625", "ProLiant DL380", "RackStation family", "PowerStore family", "FAS family",
+  for (const model of ["ProLiant DL360", "ProLiant DL380", "RackStation family", "PowerStore family", "FAS family",
     "Smart-UPS Network family", "KVM-over-IP 16 port", "EdgeMAX legacy family"]) {
     const profile = resolveEquipmentFaceplate(deviceFor(model));
     assert.equal(profile.fidelity, "schematic", model);

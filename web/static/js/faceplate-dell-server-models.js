@@ -50,6 +50,20 @@ const definitions = {
     specification: "https://www.delltechnologies.com/asset/en-gb/products/servers/technical-support/poweredge-r7615-technical-guide.pdf",
     optionalLOM: true,
     configuration: "2U R7615: eight vertical 2.5-inch front carriers, eight covered PCIe positions, BOSS-N1 installed, optional two-port 1GbE LOM installed and two 86mm 2400W AC supplies with C20 inlets; no OCP card, rear drives, bezel, liquid cooling or optional serial." },
+  "PowerEdge R6625": { key: "r6625",
+    frontSource: "https://i.dell.com/sites/csdocuments/Product_Docs/en/poweredge-r6625-technical-guide.pdf#page=10",
+    rearSource: "https://i.dell.com/sites/csdocuments/Product_Docs/en/poweredge-r6625-technical-guide.pdf#page=11",
+    figures: "Technical guide front Figure 2, page 10; no-riser rear Figure 6, page 11; 60mm 800W/C13-cord table page 32 and optional LOM page 63",
+    specification: "https://i.dell.com/sites/csdocuments/Product_Docs/en/poweredge-r6625-technical-guide.pdf",
+    optionalLOM: true,
+    configuration: "1U R6625: eight 2.5-inch NVMe carriers in two separated four-drive banks, three covered expansion openings with risers uninstalled, BOSS-N1 installed, optional two-port 1GbE LOM installed and two 60mm 800W AC supplies; no OCP card, rear drives, bezel, liquid cooling or optional serial." },
+  "PowerEdge R7625": { key: "r7625",
+    frontSource: "https://www.delltechnologies.com/asset/no-no/products/servers/technical-support/poweredge-r7625-technical-guide.pdf#page=10",
+    rearSource: "https://www.delltechnologies.com/asset/no-no/products/servers/technical-support/poweredge-r7625-technical-guide.pdf#page=12",
+    figures: "Technical guide front Figure 3, page 10; standard rear Figure 9, page 12; 86mm 2400W/C19-cord table page 37 and optional LOM page 55",
+    specification: "https://www.delltechnologies.com/asset/no-no/products/servers/technical-support/poweredge-r7625-technical-guide.pdf",
+    optionalLOM: true,
+    configuration: "2U R7625: eight vertical 2.5-inch front carriers, eight covered PCIe positions, BOSS-N1 installed, optional two-port 1GbE LOM installed and two 86mm 2400W AC supplies with C20 inlets; no OCP card, rear drives, bezel, liquid cooling or optional serial." },
 };
 const cache = new Map();
 
@@ -70,7 +84,8 @@ function serverProfile(device, definition) {
   const rear = definition.rearSource || `${base}rear-view-of-the-system?guid=guid-${definition.rear}&lang=en-us`;
   const builders = { r350: [frontR350, rearR350], r450: [frontR450, rearR450], r550: [frontR550, rearR550],
     r650: [frontR650, rearR650], r6525: [frontR6525, rearR6525], r750: [frontR750, rearR750],
-    r7525: [frontR7525, rearR7525], r6615: [frontR6615, rearR6615], r7615: [frontR7615, rearR7615] };
+    r7525: [frontR7525, rearR7525], r6615: [frontR6615, rearR6615], r7615: [frontR7615, rearR7615],
+    r6625: [frontR6625, rearR6625], r7625: [frontR7625, rearR7625] };
   const [frontBuilder, rearBuilder] = builders[definition.key];
   return { id: `dell-${definition.key}`, family: device.model, fidelity: "model", defaultFace: "rear",
     source: front, sourcePage: definition.figures, inventoryRevision: 1, inventoryComplete: true,
@@ -82,7 +97,7 @@ function serverProfile(device, definition) {
     catalogDiscrepancies: [definition.configuration,
       `${definition.optionalLOM ? "The selected optional LOM card has" : "LOM networking is"} two 1GbE sockets. The older four-10GbE family inventory retains NIC1/2 and iDRAC identities and settings; NIC3/4 remain unmapped because no installed add-in card was specified.`,
       "New inventory adds front iDRAC Direct micro-USB and the R350's fixed DB9 serial socket. USB storage and VGA are hardware artwork rather than network endpoints.",
-      "New R350/R450/R650/R6525/R6615 instances occupy 1U; existing saved rack heights and positions remain unchanged. A non-native saved height scales the physical drawing to its reserved space."],
+      "New R350/R450/R650/R6525/R6615/R6625 instances occupy 1U; existing saved rack heights and positions remain unchanged. A non-native saved height scales the physical drawing to its reserved space."],
     chassis: { x: 0, y: .05, width: 1, height: .9 },
     faces: { front: frontBuilder(device), rear: rearBuilder(device) },
   };
@@ -369,4 +384,58 @@ function rearR7615(device) {
     part("vent", .667, .535, .109, .23), part("usb", .664, .825, .031, .045), part("usb", .664, .925, .031, .045),
     part("vga", .710, .845, .067, .087), part("button", .594, .835, .017, .08)];
   return { components, ports: lowerRearPorts(device, [.292, .341, .638], .89, .08, .785) };
+}
+
+/** Trace the R6625 eight-NVMe front and its central cooling opening from the individual eight-drive illustration. */
+function frontR6625(device) {
+  const components = [part("vent", .413, .16, .158, .76), part("vga", .920, .31, .019, .40),
+    part("button", .953, .045, .016, .14), part("usb", .952, .29, .014, .30),
+    { ...part("led", .037, .15, .012, .65, undefined, "bar"), color: "#168fd3" }];
+  for (const [x, width] of [[.070, .168], [.246, .154], [.587, .154], [.757, .152]]) {
+    for (const y of [.17, .60]) components.push(part("drive-carrier", x, y, width, .32));
+  }
+  for (let index = 0; index < 5; index++) components.push(part("led", .030, .19 + index * .12, .004, .035));
+  return { components, ports: [directManagement(device, .960, .79, .14, .92)] };
+}
+
+/** Trace the R6625 no-riser rear with three covered openings, selected LOM and BOSS-N1 alongside the left supply. */
+function rearR6625(device) {
+  const components = [part("drive-carrier", .013, .16, .022, .68, undefined, "boss"),
+    part("drive-carrier", .042, .16, .022, .68, undefined, "boss"),
+    part("psu", .077, .035, .143, .93, "800W", "ac-inlet-right-sideways"),
+    part("psu", .849, .035, .142, .93, "800W", "ac-inlet-right-sideways"),
+    pcieCover(.291, .09, .145, .38), pcieCover(.455, .09, .147, .38), pcieCover(.631, .09, .177, .38),
+    { ...part("module-bay", .383, .645, .172, .27), role: "ocp-blank" },
+    part("vent", .229, .075, .044, .33), part("vent", .781, .61, .047, .31),
+    part("usb", .665, .655, .031, .075), part("usb", .665, .895, .031, .075),
+    part("vga", .709, .705, .069, .21), part("button", .584, .690, .017, .16)];
+  return { components, ports: lowerRearPorts(device, [.280, .332, .634], .81, .20, .55) };
+}
+
+/** Trace the R7625's selected eight vertical carriers and two separate ventilation blanks from its own front figure. */
+function frontR7625(device) {
+  const components = [part("vent", .360, .06, .282, .89), part("vent", .659, .06, .284, .89),
+    part("vga", .975, .20, .018, .18), part("usb", .950, .20, .013, .17),
+    part("button", .950, .045, .017, .085),
+    { ...part("led", .038, .12, .012, .25, undefined, "bar"), color: "#168fd3" }];
+  for (let index = 0; index < 8; index++) components.push(part("drive-carrier", .060 + index * .0375, .085, .033, .845));
+  for (let index = 0; index < 5; index++) components.push(part("led", .038, .42 + index * .055, .004, .02));
+  return { components, ports: [directManagement(device, .959, .805, .09, .93)] };
+}
+
+/** Trace the R7625 standard eight-slot rear, excluding its distinct two-drive, four-drive and E3.S rear alternatives. */
+function rearR7625(device) {
+  const components = [part("psu", .022, .535, .212, .435, "2400W", "ac-fan-left-c20"),
+    part("psu", .773, .535, .207, .435, "2400W", "ac-fan-left-c20"),
+    part("drive-carrier", .300, .14, .025, .30, undefined, "boss"),
+    part("drive-carrier", .331, .15, .025, .30, undefined, "boss"),
+    part("button", .365, .24, .016, .085),
+    pcieCover(.061, .08, .199, .135, "1"), pcieCover(.061, .32, .199, .135, "2"),
+    pcieCover(.405, .08, .202, .135, "4"), pcieCover(.405, .32, .202, .135, "5"),
+    pcieCover(.728, .105, .196, .135, "7"), pcieCover(.728, .335, .196, .135, "8"),
+    pcieCover(.301, .585, .131, .155, "3"), pcieCover(.468, .585, .129, .155, "6"),
+    { ...part("module-bay", .386, .825, .161, .12), role: "ocp-blank" },
+    part("vent", .664, .545, .100, .22), part("usb", .650, .810, .031, .045), part("usb", .650, .925, .031, .045),
+    part("vga", .698, .845, .070, .087), part("button", .576, .835, .017, .08)];
+  return { components, ports: lowerRearPorts(device, [.287, .335, .620], .89, .085, .785) };
 }

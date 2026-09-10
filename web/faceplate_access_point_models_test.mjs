@@ -143,3 +143,98 @@ test("CW9166I square scenes stay bounded and export the same two rear socket ide
   }
   assert.equal(device.faceplate.unitsU, 1);
 });
+
+/** Reconstruct the original two-Ethernet FAP-231F inventory independently of its corrected catalog row. */
+function fortiApFixture() {
+  const device = instantiateProfile({ vendor: "Fortinet", model: "FortiAP 231F", category: "AccessPoint", units: 1, color: "#e5e7e4",
+    groups: [{ zone: "access", count: 2, type: "RJ45_1G", speed: 1000, labels: ["ETH0", "ETH1"], prefix: "", poe: false }],
+  }, "Existing FortiAP", { x: 0, y: 0 });
+  device.id = "saved-fap";
+  for (const port of device.ports) { port.id = `saved-fap-${port.portIndex}`; port.deviceId = device.id; }
+  delete device.faceplate.inventoryRevision;
+  return device;
+}
+
+test("FAP-231F traces its cover and unfolded connector edges while appending only the missing console", () => {
+  const current = instantiateProfile(hardwareCatalog.find((item) => item.vendor === "Fortinet" && item.model === "FortiAP 231F"),
+    "New FortiAP", { x: 0, y: 0 });
+  const profile = resolveAccessPointFaceplate(current);
+  assert.equal(resolveModelFaceplate(current), profile, "exact AP takes priority over the old Fortinet fallback");
+  assert.equal(profile.sku, "FAP-231F");
+  assert.equal(profile.fidelity, "model");
+  assert.equal(profile.inventoryRevision, 1);
+  assert.equal(current.faceplate.inventoryRevision, 1);
+  assert.equal(profile.chassis.shape, "square");
+  assert.match(profile.evidence.rear, /FortiAP-231F-QSG\.pdf#page=3$/);
+  assert.match(profile.limitations.join(" "), /folded out.*CONSOLE, LAN2, LAN1\/PoE, RESET, DC/);
+  assert.deepEqual(current.ports.map(({ portIndex, type, speedMbps, label, isPoe }) => ({ portIndex, type, speedMbps, label, isPoe })), [
+    { portIndex: 1, type: "RJ45_1G", speedMbps: 1000, label: "LAN1/PoE", isPoe: false },
+    { portIndex: 2, type: "RJ45_1G", speedMbps: 1000, label: "LAN2", isPoe: false },
+    { portIndex: 3, type: "Console", speedMbps: 0, label: "CONSOLE", isPoe: false },
+  ]);
+  assert.deepEqual(profile.faces.front.ports, []);
+  assert.equal(profile.faces.front.components.filter((part) => part.kind === "led").length, 5);
+  const sockets = [...profile.faces.rear.ports].sort((a, b) => a.x - b.x);
+  assert.deepEqual(sockets.map((slot) => slot.physicalLabel), ["CONSOLE", "LAN2", "LAN1/PoE"]);
+  const parts = profile.faces.rear.components;
+  const reset = parts.find((part) => part.role === "reset");
+  const dc = parts.find((part) => part.role === "12VDC");
+  assert.ok(sockets.at(-1).x < reset.x && reset.x < dc.x);
+  assert.ok(parts.find((part) => part.role === "usb-host").y < .1);
+  assert.equal(parts.filter((part) => part.role === "mounting-keyhole").length, 2);
+  assert.equal(parts.filter((part) => part.role === "cover-screw").length, 4);
+  assert.equal(parts.filter((part) => ["fan", "psu"].includes(part.kind)).length, 0);
+  assert.equal(resolveAccessPointFaceplate({ ...current, model: "FortiAP U231F" }), null);
+});
+
+test("FAP-231F revision-zero identities and custom labels survive reordered, partial saved inventories", () => {
+  for (const retained of [[1, 2], [1], [2]]) {
+    const device = fortiApFixture();
+    device.ports = device.ports.filter((port) => retained.includes(port.portIndex)).reverse();
+    for (const port of device.ports) Object.assign(port, { label: `Site ${port.portIndex}`, speedMbps: 100, nativeVlan: 237, allowedVlans: [237, 238] });
+    const before = structuredClone(device);
+    const bounds = { x: 15, y: 10, ...faceplateDisplaySize(device) };
+    const rear = buildFaceplateScene(device, bounds, { face: "rear" });
+    const front = buildFaceplateScene(device, bounds, { face: "front" });
+    assert.deepEqual(rear.ports.map((box) => box.port.id), device.ports.map((port) => port.id));
+    assert.deepEqual(rear.ports.map((box) => box.displayLabel), device.ports.map((port) => port.label));
+    assert.equal(rear.unmappedPorts.length, 0);
+    assert.equal(front.hiddenPorts.length, retained.length);
+    assert.deepEqual(device, before);
+    device.faceplate.inventoryRevision = 99;
+    assert.equal(buildFaceplateScene(device, bounds).unmappedPorts.length, retained.length);
+  }
+  const legacy = fortiApFixture();
+  const bounds = { x: 0, y: 0, ...faceplateDisplaySize(legacy) };
+  assert.deepEqual(buildFaceplateScene(legacy, bounds).ports.map((box) => box.displayLabel), ["LAN1/PoE", "LAN2"]);
+  legacy.ports[1].label = "ETH0";
+  assert.equal(buildFaceplateScene(legacy, bounds).ports.find((box) => box.port.id === "saved-fap-2").displayLabel, "ETH0",
+    "a user rename to another old generated label must not move the port or be hidden");
+});
+
+test("FAP-231F square scenes and SVG keep all three connectors bounded on both mounting sizes", () => {
+  const device = instantiateProfile(hardwareCatalog.find((item) => item.vendor === "Fortinet" && item.model === "FortiAP 231F"),
+    "FortiAP", { x: 0, y: 0 });
+  device.id = "new-fap";
+  for (const port of device.ports) { port.id = `new-fap-${port.portIndex}`; port.deviceId = device.id; }
+  for (const mounted of [false, true]) {
+    const bounds = { x: 0, y: 0, ...faceplateDisplaySize(device, { mounted }) };
+    assert.equal(bounds.height, mounted ? 100 : 345);
+    const rear = buildFaceplateScene(device, bounds, { face: "rear" });
+    assert.equal(rear.chassis.width, rear.chassis.height);
+    assert.equal(rear.ports.length, 3);
+    assert.equal(rear.unmappedPorts.length, 0);
+    for (const box of [...rear.ports, ...rear.components]) {
+      assert.ok([box.x, box.y, box.width, box.height].every(Number.isFinite));
+      assert.ok(box.x >= bounds.x && box.y >= bounds.y && box.x + box.width <= bounds.width && box.y + box.height <= bounds.height);
+    }
+    const topology = { name: "FAP", devices: [device], links: [], racks: [], vlans: [], linkGroups: [] };
+    const svg = buildSVGDocument(topology, {
+      ctx: { save() {}, restore() {}, measureText: (text) => ({ width: text.length * 4 }) }, worldBounds: () => bounds,
+      portCenters: () => new Map(), portGeometry: () => rear.ports, routingPortGeometry: () => rear.ports,
+      faceplateScenes: () => new Map([[device.id, rear]]), deviceRectangles: () => [{ ...bounds, device }], rackRectangles: () => [],
+    });
+    for (const port of device.ports) assert.ok(svg.includes(`data-port-id="${port.id}"`));
+    assert.doesNotMatch(svg, /\b(?:NaN|Infinity)\b/);
+  }
+});

@@ -17,7 +17,9 @@ const definitions = {
   "CRS326-24G-2S+RM": { build: crs326, guide: "crs326-24g-2s-plus-rm", product: "CRS326-24G-2SplusRM", photos: [1301, 1941],
     drawing: "CRS_CSS326-24G-2S_dimensions_230943.pdf" },
   "CRS328-24P-4S+RM": { build: crs328, guide: "crs328-24p-4s-plus-rm", product: "crs328_24p_4s_rm", photos: [1493, 1494],
-    drawing: "CRS32824P4S_dimensions_230947.pdf", provisionalRear: true },
+    sku: "CRS328-24P-4S+RM", drawing: "CRS32824P4S_dimensions_230947.pdf",
+    rearPhoto: "https://www.servethehome.com/wp-content/uploads/2020/06/MikroTik-CRS328-24P-4SRM-Rear.jpg",
+    configuration: "CRS328-24P-4S+RM with one fixed AC inlet and two side fans, matching the unit photographed in Rohit Kumar's June 23, 2020 ServeTheHome review. Front/specifications follow MikroTik's documentation; the original review rear photograph establishes inlet and cable-retainer placement. No undocumented hardware revision is claimed." },
   "CRS354-48G-4S+2Q+RM": { build: crs354, guide: "crs354-48g-4s-plus-2q-plus-rm", product: "crs354_48g_4splus2qplusrm", photos: [1901, 1900] },
   "CRS518-16XS-2XQ-RM": { build: crs518, guide: "crs518-16xs-2xq-rm", product: "crs518_16xs_2xq", photos: [2196, 2197] },
   CRS305: { build: crs305, guide: "crs305-1g-4s-plus-in", product: "crs305_1g_4s_in", photos: [1661, 1660],
@@ -30,10 +32,21 @@ const definitions = {
     configuration: "CRS309-1G-8S+IN passive desktop chassis, without the optional rack ears, with rear DC input and external heatsink. Its front RS232 console is DB9. ETH/BOOT accepts PoE input, not output.",
     discrepancies: ["Revision 1 appends the omitted DB9 serial endpoint at index 10. All nine previous endpoints retain their indices and saved settings."],
     legacyLayouts: [{ inventoryRevision: 0, portIndexMap: { 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9 } }] },
+  CRS310: { build: crs310, guide: "crs310-1g-5s-4s-plus-in", product: "crs310_1g_5s_4s_in", photos: [2147, 2148],
+    sku: "CRS310-1G-5S-4S+IN", inventoryRevision: 1, chassis: { x: .23, y: .04, width: .54, height: .92 },
+    configuration: "CRS310-1G-5S-4S+IN bare desktop chassis with five 1G SFP and four 10G SFP+ cages, front Ethernet/PoE input and RJ45 console, one rear fan and DC barrel. Optional rack ears are omitted.",
+    discrepancies: ["Revision 1 appends the omitted RJ45 console at index 11; all ten old endpoints retain their indices and settings."],
+    legacyLayouts: [{ inventoryRevision: 0, portIndexMap: { 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10 } }] },
+  CRS326: { build: crs326Desktop, guide: "crs326-24g-2s-plus-in", product: "crs326_24g_2s_in", photos: [1938, 1939],
+    sku: "CRS326-24G-2S+IN", chassis: { x: .13, y: .04, width: .74, height: .92 },
+    configuration: "CRS326-24G-2S+IN desktop enclosure selected by the catalog product link. Twenty-four Gigabit ports, two SFP+ and RJ45 console; rear DC barrel and passive grilles. The circular rear opening has no installed fan." },
+  CRS504: { build: crs504, guide: "crs504-4xq-in", product: "crs504_4xq_in", photos: [2157, 2158],
+    sku: "CRS504-4XQ-IN", chassis: { x: .09, y: .04, width: .82, height: .92 },
+    configuration: "CRS504-4XQ-IN desktop chassis with both front AC modules installed, four QSFP28 cages, 100 Mbps management/PoE input and RJ45 console, front DC barrel and two-pin input; two fixed fans occupy the opposite panel. Optional rack ears are omitted." },
 };
-for (const [model, sku] of [["CRS317", "CRS317-1G-16S+RM"], ["CRS354", "CRS354-48G-4S+2Q+RM"], ["CRS518", "CRS518-16XS-2XQ-RM"]]) {
+for (const [model, sku] of [["CRS317", "CRS317-1G-16S+RM"], ["CRS328", "CRS328-24P-4S+RM"], ["CRS354", "CRS354-48G-4S+2Q+RM"], ["CRS518", "CRS518-16XS-2XQ-RM"]]) {
   definitions[model] = { ...definitions[sku], sku,
-    configuration: `Selected ${sku}, the full SKU already named by this catalog entry. Its own photographed panels are reused with the short entry's canonical inventory indices.` };
+    configuration: definitions[sku].configuration || `Selected ${sku}, the full SKU already named by this catalog entry. Its own photographed panels are reused with the short entry's canonical inventory indices.` };
 }
 const profiles = new Map();
 
@@ -52,10 +65,11 @@ export function resolveMikroTikFaceplate(device) {
       ...(definition.inventoryRevision ? { inventoryRevision: definition.inventoryRevision, legacyLayouts: definition.legacyLayouts } : {}),
       panelFidelity: { front: "model", rear: provisional ? "schematic" : "model" },
       source: `https://manual.mikrotik.com/hardware/${definition.guide}/`,
-      sourcePage: `Hardware guide and official product panel photographs ${definition.photos.join(" / ")}`,
+      sourcePage: definition.rearPhoto ? "MikroTik front/dimension drawings; ServeTheHome original rear photograph, June 23, 2020"
+        : `Hardware guide and official product panel photographs ${definition.photos.join(" / ")}`,
       evidence: definition.sku ? { models: [device.model, definition.sku], scope: "model", reviewed: "2026-09-10",
         front: `https://cdn.mikrotik.com/web-assets/rb_images/${definition.photos[0]}_hi_res.png`,
-        rear: `https://cdn.mikrotik.com/web-assets/rb_images/${definition.photos[1]}_hi_res.png`,
+        rear: definition.rearPhoto || `https://cdn.mikrotik.com/web-assets/rb_images/${definition.photos[1]}_hi_res.png`,
         supplemental: definition.drawing ? `https://cdn.mikrotik.com/web-assets/product_files/${definition.drawing}`
           : `https://mikrotik.com/product/${definition.product}`,
         configuration: definition.configuration } : [
@@ -123,6 +137,50 @@ function crs309(ports) {
     part("vent", .330, .015, .61, .97, undefined, "fins"),
     part("screw", .953, .71, .029, .19),
     part("screw", .074, .06, .021, .14), part("screw", .957, .06, .021, .14)]);
+}
+
+/** Trace CRS310's single optical row, left service stack and rear fan/DC inlet. */
+function crs310(ports) {
+  const optical = [...ports.filter((port) => port.type === "SFP_1G"), ...ports.filter((port) => port.type === "SFP_PLUS_10G")];
+  const slots = optical.map((port, index) => socket(port, .250 + index * .083, .75, .069, .24, index < 5 ? String(index + 1) : `${index - 4}+`));
+  slots.push(socket(ports.find((port) => port.type === "RJ45_1G"), .158, .74, .071, .26, "ETH/POE IN"),
+    socket(ports.find((port) => port.type === "Console"), .158, .39, .071, .26, "CONSOLE"));
+  return panels([part("vent", .213, .11, .61, .22, undefined, "chevron"),
+    part("text", .827, .06, .15, .14, "CRS310"), part("button", .078, .735, .02, .12, undefined, "reset"),
+    part("led", .047, .84, .016, .05), part("led", .101, .84, .016, .05)], slots,
+  [part("fan", .171, .045, .155, .87, undefined, "fixed"),
+    part("vent", .067, .25, .060, .34, undefined, "mesh"), part("vent", .380, .25, .45, .34, undefined, "mesh"),
+    part("handle", .681, .69, .072, .22), part("power", .865, .60, .053, .32, "18–57V DC", "dc-barrel"),
+    part("screw", .942, .82, .032, .15), part("screw", .125, .045, .025, .11), part("screw", .86, .045, .025, .11)]);
+}
+
+/** Trace the desktop CRS326 independently of its wider RM enclosure; its rear cooling remains passive. */
+function crs326Desktop(ports) {
+  const slots = paired(ports.filter((port) => port.type === "RJ45_1G"), .124, .050, 4, .022, .041, [.72, .39]);
+  slots.push(...ports.filter((port) => port.type === "SFP_PLUS_10G").map((port, index) => socket(port, .848 + index * .088, .71, .069, .25, String(index + 1))),
+    { ...socket(ports.find((port) => port.type === "Console"), .043, .70, .048, .27, "CONSOLE"),
+      descriptionAnchor: { x: .043, y: .94, fontSize: 5.5, boxHeight: 7 } });
+  const rear = [part("vent", .273, .30, .215, .38, undefined, "mesh"), part("vent", .59, .30, .14, .38, undefined, "mesh"),
+    part("handle", .765, .65, .066, .20), part("power", .910, .56, .044, .27, "10–30V DC", "dc-barrel"),
+    part("screw", .961, .83, .023, .11)];
+  for (const x of [.094, .532]) rear.push(part("ring", x, .45, .043, .27));
+  rear.push(part("vent", .128, .07, .13, .80, undefined, "radial"));
+  return panels([part("text", .827, .065, .15, .15, "CRS326-24G-2S+IN"),
+    part("led", .025, .89, .007, .045), part("led", .055, .89, .007, .045)], slots, rear);
+}
+
+/** Trace CRS504's front power supplies and service inputs with the two fans on the opposite panel. */
+function crs504(ports) {
+  const slots = ports.filter((port) => port.type === "QSFP28_100G").map((port, index) => socket(port, .477 + index * .081, .735, .066, .21, String(index + 1)));
+  slots.push(socket(ports.find((port) => port.type === "Console"), .815, .39, .046, .26, "CONSOLE"),
+    socket(ports.find((port) => port.type === "RJ45_1G"), .815, .735, .046, .26, "MGMT/POE IN"));
+  return panels([part("psu", .013, .035, .18, .93, "AC1", "ac-inlet-right"),
+    part("psu", .205, .035, .18, .93, "AC2", "ac-inlet-right"),
+    part("vent", .440, .22, .34, .20, undefined, "chevron"), part("text", .873, .06, .105, .12, "CRS504"),
+    { ...part("terminal", .872, .71, .037, .18, "DC1", "pluggable"), pins: 2 },
+    part("power", .941, .70, .035, .24, "DC2", "dc-barrel"),
+    part("button", .856, .82, .009, .055, undefined, "reset"), part("led", .850, .695, .008, .05)], slots,
+  [part("fan", .17, .045, .118, .87, undefined, "fixed"), part("fan", .30, .045, .118, .87, undefined, "fixed")]);
 }
 
 /** Trace the CCR2216's two left QSFPs, six SFP pairs and service stack, with its independently photographed rear modules. */
@@ -247,14 +305,16 @@ function crs326(ports) {
     part("power", .939, .35, .038, .31, undefined, "dc-barrel"), part("text", .878, .70, .11, .08, "10–30V DC")]);
 }
 
-/** Trace the CRS328 PoE front from its dimension drawing while retaining the rear evidence gap. */
+/** Trace the CRS328 PoE front and the original review unit's single-inlet rear with side cooling. */
 function crs328(ports) {
   const slots = paired(ports.filter((port) => port.type === "RJ45_1G"), .158, .033, 4, .027);
   slots.push(...paired(ports.filter((port) => port.type === "SFP_PLUS_10G"), .642, .032, 2, 0, .029),
     socket(ports.find((port) => port.type === "Console"), .724, .74));
   return panels([part("text", .83, .17, .15, .12, "CRS328-24P-4S+"),
     part("led", .752, .73, .007, .05), part("led", .774, .73, .007, .05)], slots,
-  [part("power", .095, .30, .067, .40, "AC")]);
+  [part("power", .8385, .36, .067, .43, "AC"),
+    part("handle", .831, .04, .083, .70, undefined, "wire"),
+    ...[.08, .503, .926].map((x) => part("screw", x, .80, .009, .085))]);
 }
 
 /** Trace CRS354's four copper banks and optical/service stacks, with three rear fans. */

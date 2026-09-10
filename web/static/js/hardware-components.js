@@ -73,12 +73,18 @@ export function hardwarePrimitives(component, palette = {}) {
   } else if (kind === "fan") {
     if (component.variant === "mesh-handle") addMeshHandleFan(art, component, colors);
     else if (component.variant === "mesh-dual") addMeshDualFan(art, component, colors);
-    else if (["mesh-dual-end-top", "mesh-dual-end-bottom", "mesh-triple-end"].includes(component.variant)) addEndHandleFan(art, component, colors);
+    else if (["mesh-dual-end-top", "mesh-dual-end-bottom", "mesh-triple-end", "mesh-dual-7060e"].includes(component.variant)) addEndHandleFan(art, component, colors);
     else addFan(art, colors, component.variant);
   } else if (kind === "drive-carrier") {
     addDriveCarrier(art, component, colors);
   } else if (kind === "handle") {
-    addHandle(art, colors);
+    if (component.variant === "wire") {
+      art.line(.06, .95, .06, .24, "#708389", 1.2);
+      art.line(.06, .24, .25, .05, "#708389", 1.2);
+      art.line(.25, .05, .75, .05, "#708389", 1.2);
+      art.line(.75, .05, .94, .24, "#708389", 1.2);
+      art.line(.94, .24, .94, .95, "#708389", 1.2);
+    } else addHandle(art, colors);
   } else if (kind === "psu") {
     addPowerSupply(art, component, colors);
   } else if (kind === "module-bay") {
@@ -371,6 +377,7 @@ function addMeshDualFan(art, component, colors) {
 /** Trace 7081F/7121F circular mesh guards, end pull handles and the tray's single status lamp. */
 function addEndHandleFan(art, component, colors) {
   const count = component.variant === "mesh-triple-end" ? 3 : 2;
+  const legacyE = component.variant === "mesh-dual-7060e";
   const { width, height } = component;
   const scale = Math.min(width, height);
   const radius = Math.min(width * .43, height * .82 / (count * 2.10));
@@ -378,7 +385,7 @@ function addEndHandleFan(art, component, colors) {
   const bar = cell * .13;
   art.rect(.015, .012, .97, .976, colors.surface, colors.ink, .035);
   for (let index = 0; index < count; index++) {
-    const center = (count === 3 ? [.180, .485, .790] : [.290, .735])[index];
+    const center = (count === 3 ? [.180, .485, .790] : legacyE ? [.260, .700] : [.290, .735])[index];
     art.circle(.5, center, radius / scale, "#122327", colors.surfaceDark);
     art.circle(.5, center, radius * .43 / scale, colors.surfaceDark, "#a7b2b5");
     for (let grid = 1; grid < 9; grid++) {
@@ -392,12 +399,12 @@ function addEndHandleFan(art, component, colors) {
     }
   }
   for (const top of [true, false]) {
-    const y = top ? .03 : .91;
+    const y = top ? .03 : legacyE ? .872 : .91;
     for (const x of [.35, .65]) {
       art.circle(x, top ? .028 : .972, .028, "#a7b2b5", colors.ink);
-      art.rect(x - .018, y, .036, .06, "#a7b2b5", colors.ink, .016);
+      art.rect(x - .018, y, .036, legacyE ? (top ? .090 : .100) : .06, "#a7b2b5", colors.ink, .016);
     }
-    art.rect(.35, top ? .077 : .91, .30, .013, "#a7b2b5", colors.ink, .016);
+    art.rect(.35, top ? (legacyE ? .105 : .077) : y, .30, .013, "#a7b2b5", colors.ink, .016);
   }
   for (const x of [.055, .945]) for (const y of [.027, .973]) {
     art.circle(x, y, .024, colors.surfaceDark, colors.ink);
@@ -434,6 +441,14 @@ function addDriveCarrier(art, component, colors) {
 
 /** Fill a bounded grille with its repeated openings, heatsink fins, or single slit. */
 function addVent(art, component, colors) {
+  if (component.variant === "radial") {
+    for (const radius of [.24, .40]) for (let index = 0; index < 8; index++) {
+      const angle = index * Math.PI / 4;
+      art.circle(.5 + Math.cos(angle) * radius, .5 + Math.sin(angle) * radius,
+        .055, colors.surfaceDark);
+    }
+    return;
+  }
   if (component.variant === "slit") {
     art.rect(.01, .12, .98, .76, colors.surfaceDark, undefined, .04, .9);
     return;
@@ -499,8 +514,12 @@ function addHandle(art, colors) {
 function addPowerSupply(art, component, colors) {
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
-  if (["ac-c16-portrait", "dc-keyed2-portrait", "ac-saf-d-grid"].includes(component.variant)) {
+  if (["ac-c16-portrait", "dc-keyed2-portrait", "ac-saf-d-grid", "ac-c16-horizontal"].includes(component.variant)) {
     add7000FPowerSupply(art, component, colors);
+    return;
+  }
+  if (component.variant === "dc-terminal2-7060e") {
+    add7060EDCSupply(art, component, colors);
     return;
   }
   if (component.variant === "ac-fan-left-c20") {
@@ -569,11 +588,11 @@ function addCompactACSupply(art, component, colors) {
   art.rect(.907, .655, .055, .295, "#53b454", colors.ink, .012);
 }
 
-/** Preserve the distinct 7000F Saf-D-Grid, portrait C16 and portrait two-contact DC supplies. */
+/** Preserve the distinct 7000-series Saf-D-Grid, C16 orientations and portrait two-contact DC supplies. */
 function add7000FPowerSupply(art, component, colors) {
   const saf = component.variant === "ac-saf-d-grid";
   const dc = component.variant === "dc-keyed2-portrait";
-  const face = orientedArt(art, !saf);
+  const face = orientedArt(art, !saf && component.variant !== "ac-c16-horizontal");
   for (let row = 0; row < 8; row++) for (let column = 0; column < 8; column++) {
     face.rect(.045 + column * .115, .075 + row * .108, .09, .085, colors.surfaceDark, undefined, .005);
   }
@@ -610,6 +629,29 @@ function add7000FPowerSupply(art, component, colors) {
   face.rect(.88, .70, .09, .25, dc ? "#a7b2b5" : "#4c73b2", colors.ink, .008);
   if (dc) for (const y of [.73, .78, .83, .88, .93]) face.line(.94, y, .98, y, colors.ink);
   face.circle(.84, dc ? .17 : .88, .031, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
+}
+
+/** Trace the 7060E exposed DC terminals, separate upper earth stud and right toothed release latch. */
+function add7060EDCSupply(art, component, colors) {
+  for (let row = 0; row < 3; row++) for (let column = 0; column < 4; column++) {
+    art.rect(.060 + column * .116, .10 + row * .096, .098, .073, colors.surfaceDark, undefined, .004);
+  }
+  for (let row = 0; row < 4; row++) art.rect(.800, .49 + row * .086, .080, .069, colors.surfaceDark);
+  for (const x of [.213, .446]) {
+    art.rect(x - .090, .43, .18, .39, "#15252a", colors.ink, .015);
+    art.rect(x - .078, .55, .156, .22, "#708389", undefined, .008);
+    art.circle(x, .655, .066, "#b9c3c4", colors.ink);
+    art.line(x - .041, .655, x + .041, .655, colors.ink);
+    art.line(x, .610, x, .700, colors.ink);
+    art.rect(x - .077, .82, .154, .07, "#708389", colors.ink, .006);
+  }
+  art.circle(.522, .185, .067, "#b9c3c4", colors.ink);
+  art.line(.484, .185, .560, .185, colors.ink);
+  art.line(.522, .145, .522, .225, colors.ink);
+  art.rect(.682, .075, .100, .85, "#39484d", colors.ink, .045);
+  art.circle(.835, .230, .037, component.active === false ? colors.surfaceDark : "#42d98b", colors.ink);
+  art.rect(.908, .655, .066, .31, "#56ada4", colors.ink, .008);
+  for (const y of [.67, .72, .77, .82, .87, .92]) art.line(.955, y, .987, y, colors.ink);
 }
 
 /** Trace Dell's narrow supply with a left pull handle, rotated C14 contacts and orange inlet-side latch. */

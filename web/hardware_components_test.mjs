@@ -3,6 +3,17 @@ import test from "node:test";
 
 import { drawHardwareComponent, hardwareComponentSVG, hardwarePrimitives } from "./static/js/hardware-components.js";
 
+test("passive radial vents and wire retainers do not render connector contacts or obscure the inlet", () => {
+  const component = { x: 0, y: 0, width: 70, height: 70 };
+  const vent = hardwarePrimitives({ ...component, kind: "vent", variant: "radial" });
+  assert.equal(vent.length, 16);
+  assert.ok(vent.every((part) => part.kind === "circle" && part.r < 5));
+  assert.ok(vent.every((part) => Math.hypot(part.cx - 35, part.cy - 35) > part.r), "no fictitious central rotor");
+  const wire = hardwarePrimitives({ ...component, kind: "handle", variant: "wire" });
+  assert.equal(wire.length, 5);
+  assert.ok(wire.every((part) => part.kind === "line"), "the retainer must stay transparent over the power inlet");
+});
+
 const kinds = [
   "rj45", "sfp", "qsfp", "osfp", "cfp", "lc", "sc", "mpo", "usb-mini", "usb-micro", "usb-c",
   "console", "stack", "dsl", "coax", "power", "usb", "led", "vent", "fan", "handle", "psu",
@@ -429,8 +440,9 @@ test("new connector, carrier and mesh-fan adapters retain finite bounded geometr
     { kind: "drive-carrier", variant: "boss" }, { kind: "fan", variant: "mesh-handle" },
     { kind: "terminal", variant: "pluggable", pins: 9 }, { kind: "led", variant: "bar" }, { kind: "service-jack" },
     { kind: "fan", variant: "mesh-dual" }, { kind: "psu", variant: "ac-compact-c14" },
-    ...["mesh-dual-end-top", "mesh-dual-end-bottom", "mesh-triple-end"].map((variant) => ({ kind: "fan", variant })),
-    ...["ac-c16-portrait", "dc-keyed2-portrait", "ac-saf-d-grid", "ac-fan-left-c20", "ac-inlet-right-sideways"].map((variant) => ({ kind: "psu", variant }))];
+    { kind: "vent", variant: "radial" }, { kind: "handle", variant: "wire" },
+    ...["mesh-dual-end-top", "mesh-dual-end-bottom", "mesh-triple-end", "mesh-dual-7060e"].map((variant) => ({ kind: "fan", variant })),
+    ...["ac-c16-portrait", "dc-keyed2-portrait", "ac-saf-d-grid", "ac-fan-left-c20", "ac-inlet-right-sideways", "ac-c16-horizontal", "dc-terminal2-7060e"].map((variant) => ({ kind: "psu", variant }))];
   for (const configuration of configurations) for (const [width, height] of [[80, 30], [30, 80], [12, 12]]) {
     const component = { ...configuration, x: -10, y: 20, width, height };
     const parts = hardwarePrimitives(component);
@@ -620,4 +632,32 @@ test("Dell narrow supplies rotate C14 blades toward the left handle and retain t
   assert.ok(!parts.some((part) => part.fill === "#42d98b"), "the source does not establish a separate upper-right PSU lamp");
   assert.ok(!hardwarePrimitives({ ...component, variant: "ac-inlet-right" }).some((part) => part.fill === "#d68c40"),
     "the existing inlet-right PSU variant is unchanged");
+});
+
+test("7060E fans and horizontal supplies retain their individually illustrated centers and contact arrangements", () => {
+  const fan = hardwarePrimitives({ kind: "fan", variant: "mesh-dual-7060e", x: 0, y: 0, width: 220, height: 550 });
+  const rotors = fan.filter((part) => part.kind === "circle" && part.fill === "#122327");
+  assert.equal(rotors.length, 2);
+  assert.deepEqual(rotors.map((part) => Math.round(part.cy)), [143, 385]);
+  const lamp = fan.filter((part) => part.fill === "#42d98b");
+  assert.equal(lamp.length, 1);
+  assert.ok(lamp[0].cy > rotors[1].cy + rotors[1].r);
+  const component = { kind: "psu", x: 0, y: 0, width: 130, height: 90 };
+  const ac = hardwarePrimitives({ ...component, variant: "ac-c16-horizontal" });
+  const blades = ac.filter((part) => part.kind === "rect" && part.fill === "#b9c3c4");
+  assert.equal(blades.length, 3);
+  assert.ok(blades.every((part) => part.height > part.width));
+  assert.ok(blades[0].y < blades[1].y && blades[1].y === blades[2].y);
+  assert.ok(ac.some((part) => part.kind === "circle" && part.fill === "#708389"), "C16 temperature key remains visible");
+  assert.ok(ac.some((part) => part.fill === "#4c73b2" && part.x > 110), "AC blue latch stays at the right edge");
+  const dc = hardwarePrimitives({ ...component, variant: "dc-terminal2-7060e" });
+  const terminals = dc.filter((part) => part.kind === "circle" && part.fill === "#b9c3c4");
+  assert.equal(terminals.length, 3, "two power terminals and one separate earth stud");
+  assert.equal(terminals[0].cy, terminals[1].cy);
+  assert.ok(terminals[2].cy < terminals[0].cy && terminals[2].cx > terminals[1].cx);
+  const latch = dc.find((part) => part.kind === "rect" && part.fill === "#56ada4");
+  assert.ok(latch.x > 115 && latch.height > 20);
+  assert.equal(dc.filter((part) => part.kind === "line" && part.x1 > 120 && part.x2 > 120).length, 6, "DC latch has six source-visible teeth");
+  assert.ok(dc.find((part) => part.fill === "#42d98b").cy < 30, "DC status lamp is above the handle midpoint");
+  assert.ok(!hardwarePrimitives({ ...component, variant: "dc-terminal2-7060e", active: false }).some((part) => part.fill === "#42d98b"));
 });

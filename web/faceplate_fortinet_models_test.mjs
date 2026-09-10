@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { hardwareCatalog, instantiateProfile, upgradeInstalledPhysicalPorts } from "./static/js/catalog.js";
 import { resolveFortinetFaceplate } from "./static/js/faceplate-fortinet-models.js";
+import { resolveModelFaceplate } from "./static/js/faceplate-models.js";
 import { buildFaceplateScene } from "./static/js/faceplate-scene.js";
 import { hardwarePrimitives } from "./static/js/hardware-components.js";
 
@@ -19,7 +20,8 @@ const catalog = hardwareCatalog.filter((item) => item.vendor === "Fortinet");
 assert.equal(catalog.length, 225);
 for (const entry of catalog) {
   const device = deviceFor(entry.model);
-  const profile = resolveFortinetFaceplate(device);
+  const resolve = entry.model === "FortiAP 231F" ? resolveModelFaceplate : resolveFortinetFaceplate;
+  const profile = resolve(device);
   assert.ok(profile, entry.model);
   assert.match(profile.source, /^https:\/\//);
   assert.ok(profile.sourcePage);
@@ -42,7 +44,7 @@ for (const entry of catalog) {
   if (!profile.rearHardwareVerified) assert.ok(profile.faces.rear.components.every((item) => item.kind === "text"), "unverified hardware must not acquire invented PSU/fan counts");
   const renamed = structuredClone(device);
   renamed.ports.forEach((port) => { port.label = "custom"; port.id = `kept-${port.portIndex}`; });
-  assert.equal(resolveFortinetFaceplate(renamed), profile, "editable port data must not alter the model geometry cache");
+  assert.equal(resolve(renamed), profile, "editable port data must not alter the model geometry cache");
 }
 
 for (const model of ["FortiSwitch 148F", "FortiSwitch 148F-POE", "FortiSwitch 148F-FPOE", "FortiSwitch 624F", "FortiSwitch 624F-FPOE", "FortiSwitch 648F", "FortiSwitch 648F-FPOE"]) {
@@ -60,7 +62,8 @@ for (const model of ["FortiGate 90G", "FortiGate 120G"]) {
 assert.equal(resolveFortinetFaceplate({ model: "FortiGate unknown", faceplate: { vendor: "Fortinet" } }), null);
 assert.equal(resolveFortinetFaceplate({ model: "FortiGate 90G", faceplate: { vendor: "Other" } }), null);
 assert.equal(resolveFortinetFaceplate({}), null);
-for (const model of ["FortiGate 40F-3G4G", "FortiGate 70G-POE", "FortiGate 80F-POE", "FortiAP 231F"]) {
+assert.equal(resolveFortinetFaceplate(deviceFor("FortiAP 231F")), null, "the dedicated AP resolver owns its cover and underside geometry");
+for (const model of ["FortiGate 40F-3G4G", "FortiGate 70G-POE", "FortiGate 80F-POE"]) {
   const profile = resolveFortinetFaceplate(deviceFor(model));
   assert.equal(profile.defaultFace, "rear");
   assert.equal(profile.faces.front.ports.length, 0);
@@ -618,5 +621,56 @@ for (const model of ["7081F", "7081F-DC", "7081F-2-DC", "7121F", "7121F-2", "712
     const width = Math.min(placement.boxMaxWidth, Math.max(12, placement.maxWidth + 6));
     const caption = { x: placement.x - width / 2, y: placement.y - 5.5, width, height: 11 };
     assert.ok(!scene.ports.some((other) => overlaps(caption, other)), `${model} module caption ${port.port.portIndex} covers a socket`);
+  }
+}
+
+for (const model of ["7060E", "7060E-8-DC"]) {
+  const device = deviceFor(`FortiGate ${model}`);
+  const profile = resolveFortinetFaceplate(device);
+  assert.equal(profile.fidelity, "model");
+  assert.equal(profile.inventoryComplete, true);
+  assert.equal(device.faceplate.unitsU, 8);
+  assert.equal(device.faceplate.inventoryRevision, 1);
+  assert.equal(device.ports.length, 26);
+  assert.equal(new Set(device.ports.map((port) => port.label)).size, 26);
+  assert.equal(profile.faces.front.ports.length, 26);
+  assert.equal(profile.faces.rear.ports.length, 0);
+  assert.match(profile.evidence.front, /#page=7$/);
+  assert.match(profile.evidence.rear, /#page=10$/);
+  assert.match(profile.evidence.configuration, /two FIM-7920E.*two FPM-7620E/i);
+  assert.match(profile.limitations.join(" "), /page 49.*four-slot/);
+  const components = profile.faces.front.components;
+  assert.deepEqual(components.filter((item) => item.role === "unused-module").map((item) => item.label), ["SLOT 5", "SLOT 6"]);
+  assert.deepEqual(components.filter((item) => item.role === "unused-psu").map((item) => item.label), ["PWR5", "PWR6"]);
+  assert.deepEqual(components.filter((item) => item.kind === "psu").map((item) => item.label), ["PWR1", "PWR2", "PWR3", "PWR4"]);
+  assert.ok(components.filter((item) => item.kind === "psu").every((item) => item.variant === (model.endsWith("-DC") ? "dc-terminal2-7060e" : "ac-c16-horizontal")));
+  assert.equal(components.filter((item) => item.kind === "usb").length, 2);
+  for (const number of [1, 2]) {
+    assert.equal(components.filter((item) => item.role === `smm${number}-selection`).length, 12);
+    const supplyLEDs = components.filter((item) => item.role === `smm${number}-psu`);
+    assert.equal(supplyLEDs.length, 6, "all physical PSU status lenses are retained");
+    assert.equal(supplyLEDs.filter((item) => item.active === false).length, 2, "the two blank bays have inactive lenses");
+    const fim = profile.faces.front.ports.filter((item) => item.label.startsWith(`FIM${number}-`));
+    assert.equal(fim.length, 10);
+    assert.deepEqual(fim.filter((item) => item.type === "QSFP28_100G").map((item) => item.physicalLabel), ["C1", "C2", "C3", "C4"]);
+  }
+  const trays = profile.faces.rear.components.filter((item) => item.kind === "fan");
+  assert.equal(trays.length, 3);
+  assert.ok(trays.every((item) => item.variant === "mesh-dual-7060e"));
+  assert.equal(profile.faces.rear.components.filter((item) => item.role === "chassis-ground").length, 2);
+  verifyLegacyE(model, [["RJ45_1G", 2], ["Console", 2]], { 1: 13, 2: 16 });
+  const saved = structuredClone(device);
+  saved.faceplate.unitsU = 12;
+  saved.rackPosition = 11;
+  saved.rackId = "installed-rack";
+  const before = structuredClone(saved);
+  assert.equal(upgradeInstalledPhysicalPorts({ devices: [saved] }), false);
+  assert.deepEqual(saved, before);
+  const scene = buildFaceplateScene(device, { x: 0, y: 0, width: 690, height: 800 });
+  for (const port of scene.ports) {
+    const placement = port.labelPlacement;
+    const width = Math.min(placement.boxMaxWidth, Math.max(12, placement.maxWidth + 6));
+    const caption = { x: placement.x - width / 2, y: placement.y - 5.5, width, height: 11 };
+    assert.ok(!scene.ports.some((other) => overlaps(caption, other)), `${model} caption ${port.port.portIndex} covers a socket`);
   }
 }
