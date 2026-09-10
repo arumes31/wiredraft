@@ -127,6 +127,7 @@ type LoginChallenge struct {
 	Challenge  string      `json:"challenge"`
 	Next       string      `json:"next"`
 	Enrollment *Enrollment `json:"enrollment,omitempty"`
+	UserID     string      `json:"-"`
 }
 
 // UserView is the secret-free account representation used by administrators.

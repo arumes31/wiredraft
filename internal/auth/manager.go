@@ -27,6 +27,7 @@ const (
 type loginAttempt struct {
 	StartedAt time.Time
 	Failures  int
+	InFlight  int
 }
 
 type pendingChallenge struct {
@@ -285,13 +286,22 @@ func (m *Manager) GuestOrganizationID() string {
 // StartLogin validates the primary credential and issues a bounded second-factor challenge.
 func (m *Manager) StartLogin(username, password, remote string) (LoginChallenge, error) {
 	usernameKey := normalizeUsername(username)
-	attemptKey := usernameKey + "|" + remoteHost(remote)
+	host := remoteHost(remote)
+	attemptKey := "account|" + usernameKey + "|" + host
+	ipKey := "ip|" + host
+	attemptKeys := [...]string{attemptKey, ipKey}
 	now := m.now()
 	m.mu.Lock()
 	m.pruneLocked(now)
-	if attempt := m.loginAttempts[attemptKey]; attempt.Failures >= maxLoginAttempts && now.Sub(attempt.StartedAt) < loginAttemptWindow {
-		m.mu.Unlock()
-		return LoginChallenge{}, ErrRateLimited
+	for _, key := range attemptKeys {
+		attempt := m.loginAttempts[key]
+		if attempt.Failures+attempt.InFlight >= maxLoginAttempts {
+			m.mu.Unlock()
+			return LoginChallenge{}, ErrRateLimited
+		}
+	}
+	for _, key := range attemptKeys {
+		m.reserveLoginAttemptLocked(key, now)
 	}
 	user, found := m.userByUsernameKeyLocked(usernameKey)
 	passwordHash := m.dummyPasswordHash
@@ -303,26 +313,37 @@ func (m *Manager) StartLogin(username, password, remote string) (LoginChallenge,
 
 	matches, err := comparePassword(passwordHash, password)
 	if err != nil {
+		m.mu.Lock()
+		for _, key := range attemptKeys {
+			m.finishLoginAttemptLocked(key, false)
+		}
+		m.mu.Unlock()
 		return LoginChallenge{}, fmt.Errorf("comparing password: %w", err)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !found || user.AuthSource != AuthSourceLocal || !credentialShapeValid || !matches || user.Disabled {
-		m.recordLoginFailureLocked(attemptKey, now)
+		for _, key := range attemptKeys {
+			m.finishLoginAttemptLocked(key, true)
+		}
 		return LoginChallenge{}, ErrInvalidCredentials
 	}
 	current, stillExists := m.userByIDLocked(user.ID)
 	if !stillExists || current.Disabled || current.PasswordHash != user.PasswordHash {
-		m.recordLoginFailureLocked(attemptKey, now)
+		for _, key := range attemptKeys {
+			m.finishLoginAttemptLocked(key, true)
+		}
 		return LoginChallenge{}, ErrInvalidCredentials
 	}
+	m.finishLoginAttemptLocked(attemptKey, false)
+	m.finishLoginAttemptLocked(ipKey, false)
 	delete(m.loginAttempts, attemptKey)
 	token, err := randomToken(32)
 	if err != nil {
 		return LoginChallenge{}, err
 	}
 	challenge := pendingChallenge{Token: token, UserID: user.ID, ExpiresAt: now.Add(challengeLifetime)}
-	response := LoginChallenge{Challenge: token, Next: "totp"}
+	response := LoginChallenge{Challenge: token, Next: "totp", UserID: current.ID}
 	if current.EncryptedTOTPSecret == "" {
 		secret, enrollment, err := newEnrollment(current.Username)
 		if err != nil {
@@ -904,12 +925,30 @@ func (m *Manager) userByIDLocked(id string) (persistedUser, bool) {
 	return user, true
 }
 
-func (m *Manager) recordLoginFailureLocked(key string, now time.Time) {
+func (m *Manager) reserveLoginAttemptLocked(key string, now time.Time) {
 	attempt := m.loginAttempts[key]
 	if attempt.StartedAt.IsZero() || now.Sub(attempt.StartedAt) >= loginAttemptWindow {
 		attempt = loginAttempt{StartedAt: now}
 	}
-	attempt.Failures++
+	attempt.InFlight++
+	m.loginAttempts[key] = attempt
+}
+
+func (m *Manager) finishLoginAttemptLocked(key string, failed bool) {
+	attempt, exists := m.loginAttempts[key]
+	if !exists {
+		return
+	}
+	if attempt.InFlight > 0 {
+		attempt.InFlight--
+	}
+	if failed {
+		attempt.Failures++
+	}
+	if attempt.Failures == 0 && attempt.InFlight == 0 {
+		delete(m.loginAttempts, key)
+		return
+	}
 	m.loginAttempts[key] = attempt
 }
 
