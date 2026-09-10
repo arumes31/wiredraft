@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Upgrade the build toolchain to Go 1.27.1 and refresh Go and frontend dependencies, including the pgx migration-test interface.
+- Scan Go with the declared toolchain, add CodeQL coverage for GitHub Actions, publish Trivy findings to code scanning, and refresh Scorecard after changes to main.
+
 - Complete the remaining WireDraft rename across Go module paths, runtime configuration, cookies, browser storage, exports, tests, and build artifacts.
 - Embed versioned PostgreSQL migrations in the WireDraft binary and apply them automatically before startup, removing the host migration-directory requirement from Compose deployments.
 - Add a protected Default organization, stable organization IDs for every map, global user identities with multi-organization or all-organization grants, WireDraft administrator roles for local and Entra accounts, organization management, and a persisted working-scope switcher.

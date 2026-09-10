@@ -1,0 +1,2 @@
+# Keep gofmt input consistent on Windows and Linux.
+*.go text eol=lf

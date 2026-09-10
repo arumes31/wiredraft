@@ -74,8 +74,12 @@ test("minified HTML exports retain an executable embedded interaction controller
     const moduleURL = `${pathToFileURL(path.join(outputDirectory, "export.js")).href}?test=${Date.now()}`;
     const { buildHTMLDocument } = await import(moduleURL);
     const html = buildHTMLDocument({ name: "Minified export", racks: [], devices: [], links: [], vlans: [] }, engine);
-    const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([^]*?)<\/script>/g)].map((match) => match[1]);
-    const controller = scripts.at(-1);
+    // The generated document ends with a plain script containing the controller.
+    const controllerStart = html.lastIndexOf("<script>");
+    assert.notEqual(controllerStart, -1, "the export must include its controller script");
+    const controllerEnd = html.indexOf("</script>", controllerStart);
+    assert.notEqual(controllerEnd, -1, "the controller script must be closed");
+    const controller = html.slice(controllerStart + "<script>".length, controllerEnd);
 
     assert.match(controller, /^\(function\s+[^(]+\(\)\{[^]*\}\)\(\);?$/,
       "the mangled bootstrap must invoke itself without relying on its source identifier");
