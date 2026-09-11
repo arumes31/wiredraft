@@ -206,6 +206,16 @@ export function modelsForVendor(vendor, family = "all") {
   return installableProfiles(family).filter((profile) => profile.vendor === vendor);
 }
 
+/** Search every installable provider and family, matching all query words. */
+export function searchHardwareProfiles(query) {
+  const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  return installableProfiles().filter((profile) => {
+    const text = `${profile.vendor} ${profile.model} ${profile.sku || ""} ${profile.family || ""} ${profile.category}`.toLocaleLowerCase();
+    return words.every((word) => text.includes(word));
+  });
+}
+
 export function patchPanelProfiles() {
   return hardwareCatalog.filter(isDedicatedPatchPanelProfile);
 }

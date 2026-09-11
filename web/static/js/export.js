@@ -560,17 +560,16 @@ export function buildSVGDocument(topology, engine) {
       } : null,
     });
   }
-  for (const device of topology.devices) {
-    const box = deviceBoxes.get(device.id);
-    if (!box) continue;
+  for (const box of deviceBoxList) {
+    const device = box.device;
     const x = box.x + offsetX; const y = box.y + offsetY;
     const heightU = box.height;
-    const scene = scenes.get(device.id);
+    const scene = box.scene || scenes.get(device.id);
     const template = scene?.template || resolveFaceplateTemplate(device);
     const statusArea = template.statusArea || { x: .219, y: .5, width: 38, height: 40 };
     const statusX = x + statusArea.x * 690;
     const statusY = y + statusArea.y * heightU - statusArea.height / 2;
-    const rackFace = device.rackId ? (device.rackFace === "rear" ? "rear" : "front") : "free";
+    const rackFace = device.rackId ? (box.face || device.rackFace || "front") : "free";
     parts.push(`<g data-layer="faceplate" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${rackFace}" data-name="${escapeXML(device.name)}" data-template="${template.id}"${scene?.profile ? ` data-hardware-face="${scene.face}" data-faceplate-fidelity="${escapeXML(scene.profile.fidelity || "model")}" data-hardware-source="${escapeXML(scene.profile.source || "")}"` : ""}><title>${escapeXML(device.name)} · ${escapeXML(device.model || device.category || "Device")}</title>`);
     if (scene?.profile) {
       const chassis = scene.chassis;
@@ -667,7 +666,7 @@ export function buildSVGDocument(topology, engine) {
       }
     }
     for (const port of device.ports) {
-      const geometry = portGeometry.get(port.id);
+      const geometry = scene ? scene.ports.find((entry) => entry.port.id === port.id) : portGeometry.get(port.id);
       if (geometry) {
         const point = { x: geometry.centerX, y: geometry.centerY };
         const size = geometry;

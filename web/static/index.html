@@ -248,11 +248,15 @@
   <dialog id="device-dialog" class="panel-dialog" aria-labelledby="device-dialog-title">
     <form id="device-form" method="dialog">
       <header><div><p class="eyebrow">HARDWARE CATALOG</p><h2 id="device-dialog-title">INSTALL DEVICE</h2></div><button type="button" class="dialog-close" data-close="device-dialog" aria-label="Close install device dialog">×</button></header>
-      <p class="dialog-note">Choose a physical family first. Edge and wireless equipment can remain free-floating on the map or be placed in a rack when it is installed on a shelf.</p>
+      <p class="dialog-note">Search all devices and providers, or browse by family. Edge and wireless equipment can remain free-floating on the map or be placed in a rack when it is installed on a shelf.</p>
       <div class="form-grid">
+        <label class="catalog-search"><span>SEARCH ALL DEVICES / PROVIDERS</span><input name="filter" id="device-model-filter" type="search" autocomplete="off" aria-controls="device-search-results" aria-describedby="device-search-status" placeholder="e.g. Aruba AP-635, FortiAP, RUTX50, FG-200G"></label>
+        <div id="device-search-panel" class="catalog-search-panel" hidden>
+          <p id="device-search-status" role="status"></p>
+          <ul id="device-search-results" class="catalog-search-results" aria-label="Matching devices"></ul>
+        </div>
         <label class="catalog-family"><span>DEVICE FAMILY</span><select name="family" id="device-family"></select></label>
         <label><span>PROVIDER</span><select name="vendor" id="device-vendor"></select></label>
-        <label class="catalog-search"><span>FILTER MODELS / SKU</span><input name="filter" id="device-model-filter" type="search" autocomplete="off" placeholder="e.g. FortiAP, carrier handoff, RUTX50, FG-200G"></label>
         <label><span>HARDWARE MODEL</span><select name="model" id="device-model"></select></label>
         <label><span>DEVICE NAME</span><input name="name" required maxlength="120" value="ACCESS SWITCH"></label>
         <label><span>CHASSIS COLOR</span><input type="color" name="color" value="#243b3d"></label>

@@ -15,6 +15,11 @@ export function oppositeRackFace(face) {
   return normalizeRackFace(face) === RackFace.FRONT ? RackFace.REAR : RackFace.FRONT;
 }
 
+/** Servers show both physical panels unless their record explicitly limits the view. */
+export function showsBothRackFaces(device) {
+  return device.rackDisplay === "both" || (!device.rackDisplay && device.category === "Server");
+}
+
 export function visibleRackFaces(face, expanded) {
   return expanded
     ? [RackFace.FRONT, RackFace.REAR]

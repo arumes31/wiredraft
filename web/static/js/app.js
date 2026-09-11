@@ -23,7 +23,7 @@ import {
   availablePatchPanelPorts, isRearPanelLink, panelMapAvailability, patchPanelDevices,
   planPatchPanelMapping, planRearPanelLinkUpdate, RearChannelType,
 } from "./patch-panels.js";
-import { normalizeRackFace, RackFace, usedRackUnits } from "./rack.js";
+import { normalizeRackFace, RackFace, showsBothRackFaces, usedRackUnits } from "./rack.js";
 import { resolveModelFaceplate } from "./faceplate-models.js";
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./link-groups.js";
 import { describeLinkGroupMembers } from "./link-group-display.js";
@@ -39,6 +39,7 @@ import {
   switchSystemForDevice, switchSystemModeLabel,
 } from "./switch-systems.js";
 import { AutosaveController } from "./autosave.js";
+import { applyPlacements, placementChanges, TopologyWriteQueue } from "./placement-sync.js";
 import { ToastQueue } from "./toast-queue.js";
 import { topologySize, topologySizeMessage } from "./topology-size.js";
 import { TopologyMinimap } from "./minimap.js";
@@ -53,6 +54,8 @@ import {
 
 const editLock = new EditorLock();
 const state = new AppState({ editLock });
+const topologyWrites = new TopologyWriteQueue();
+const pendingPlacements = new Set();
 api.setRevisionProvider(() => state.topology?.revision);
 const cableMediaTypes = ["CAT5E", "CAT6", "CAT6A", "COAX", "FIBER", "SMF", "MMF", "DAC", "AOC", "TWINAX", "TELEPHONE", "SAS", "POWER"];
 const elements = Object.fromEntries([
@@ -86,8 +89,8 @@ const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state
     elements["zoom-readout"].textContent = `${Math.round(zoom * 100)}%`;
     elements["pointer-readout"].textContent = `X ${Math.round(point.x).toString().padStart(4, "0")} · Y ${Math.round(point.y).toString().padStart(4, "0")}`;
   },
-  onDeviceUpdate: (device) => updateFrom(() => api.updateDevice(state.topology.id, device), false),
-  onRackUpdate: (rack) => updateFrom(() => api.updateRack(state.topology.id, rack), false),
+  onDevicesUpdate: (devices, snapshot) => savePlacements(snapshot, "devices", devices),
+  onRackUpdate: (rack, snapshot) => savePlacements(snapshot, "racks", [rack]),
   onLinkCreate: createLink,
   onLinkDelete: deleteLink,
   onLinkGroupRequest: openLinkGroupDialog,
@@ -114,19 +117,9 @@ api.setMutationGuard((path, method, body) => {
 });
 const minimap = new TopologyMinimap(elements["topology-minimap"], canvas, state);
 const autosave = new AutosaveController(async () => {
-  if (!state.topology) return;
-  // A drag is a preview until pointer-up. Save the last completed map instead.
-  const snapshot = canvas.drag?.snapshot || canvas.rackDrag?.snapshot || state.topology;
-  try {
-    const topology = await api.replaceTopology(snapshot);
-    state.setTopology(topology);
-  } catch (error) {
-    if (isRevisionConflict(error)) {
-      state.setTopology(await api.getTopology(state.topology.id));
-      notifications.push("SAVE CONFLICT · Loaded the newer shared revision", "error");
-    }
-    throw error;
-  }
+  // Keep autosave pending while a gesture or another write owns the current revision.
+  if (topologyWrites.pending || canvas.drag || canvas.rackDrag) return false;
+  return topologyWrites.run(saveTopologySnapshot);
 }, { storage: globalThis.localStorage });
 let pendingAnnotationPoint = null;
 let catalogModulePromise = null;
@@ -146,7 +139,7 @@ let serverCardSequence = 0;
 const events = new TopologyCollaboration({
   onTopology: (topology) => {
     if (topology.id === state.topology?.id) {
-      state.setTopology(topology);
+      receiveTopology(topology);
       queueAnalysis();
     }
   },
@@ -165,7 +158,7 @@ async function resyncActiveTopology() {
   if (resyncPromise) return resyncPromise;
   resyncPromise = api.getTopology(topologyID).then((topology) => {
     if (state.topology?.id !== topologyID) return;
-    state.setTopology(topology);
+    receiveTopology(topology);
     queueAnalysis();
   }).finally(() => {
     resyncPromise = null;
@@ -969,12 +962,13 @@ function renderDeviceInspector(deviceID) {
   const rack = (state.topology.racks || []).find((item) => item.id === device.rackId);
   const rackFace = normalizeRackFace(device.rackFace);
   const physicalProfile = resolveModelFaceplate(device);
+  const followsRackFace = Boolean(rack && showsBothRackFaces(device));
   const physicalFace = state.deviceFaceplateFace(device.id, physicalProfile?.defaultFace);
   const hardwareNotes = [...new Set([...(physicalProfile?.limitations || []), ...(physicalProfile?.catalogDiscrepancies || [])])];
   const physicalPanelMarkup = physicalProfile ? `
     <fieldset class="device-metadata-block hardware-panel-controls"><legend>HARDWARE PANEL</legend>
-      <div class="radio-row">${["front", "rear"].map((face) => `<label><input type="radio" name="hardwarePanel" value="${face}" ${physicalFace === face ? "checked" : ""}><span>${face.toUpperCase()}</span></label>`).join("")}</div>
-      <p>View this device's front or rear hardware. Connections on the opposite panel stay visible at its connection marker. This view is local to your session.</p>
+      ${followsRackFace ? `<p>Hardware follows the rack face: front on FRONT, rear on REAR, and both in DUAL view.</p>` : `<div class="radio-row">${["front", "rear"].map((face) => `<label><input type="radio" name="hardwarePanel" value="${face}" ${physicalFace === face ? "checked" : ""}><span>${face.toUpperCase()}</span></label>`).join("")}</div>
+      <p>View this device's front or rear hardware. Connections on the opposite panel stay visible at its connection marker. This view is local to your session.</p>`}
       <p class="hardware-panel-evidence">${physicalProfile.fidelity === "schematic" ? "Schematic layout; hardware options are configurable." : physicalProfile.fidelity === "family" ? "Family layout; hardware options and connector positions may vary." : "Model-specific panel layout."}${/^https:\/\//.test(physicalProfile.source || "") ? ` <a href="${escapeHTML(physicalProfile.source)}" target="_blank" rel="noopener noreferrer">Hardware reference</a>` : ""}</p>
       ${physicalProfile.sku ? `<p>Drawn hardware: ${escapeHTML(physicalProfile.sku)}</p>` : ""}
       ${(device.faceplate?.inventoryRevision || 0) !== (physicalProfile.inventoryRevision || 0) ? `<p>Saved inventory uses a different catalog revision. Existing cable endpoints and custom port names are preserved.</p>` : ""}
@@ -1020,6 +1014,14 @@ function renderDeviceInspector(deviceID) {
           <label><span>U POSITION</span><input name="locationRackUnit" type="number" min="0" max="48" value="${escapeHTML(locationRackUnit)}"></label>
         </div>
       </fieldset>
+      <fieldset class="device-metadata-block"><legend>RACK DISPLAY</legend>
+        <label><span>VISIBLE FACES</span><select name="rackDisplay">
+          <option value="" ${!device.rackDisplay ? "selected" : ""}>Automatic (${device.category === "Server" ? "front and rear" : "mounting face only"})</option>
+          <option value="both" ${device.rackDisplay === "both" ? "selected" : ""}>Front and rear</option>
+          <option value="mounted" ${device.rackDisplay === "mounted" ? "selected" : ""}>Mounting face only</option>
+        </select></label>
+        <p>Show matching hardware panels at the same U position in each rack view. Saved with this device.</p>
+      </fieldset>
       ${rack ? `<fieldset class="device-metadata-block"><legend>PHYSICAL MOUNTING</legend>
         <div><span>RACK FACE</span><div class="radio-row">${[RackFace.FRONT, RackFace.REAR].map((face) => `<label><input type="radio" name="rackFace" value="${face}" ${rackFace === face ? "checked" : ""}><span>${face.toUpperCase()}</span></label>`).join("")}</div></div>
         <p>Front and rear have independent U-space. Changing face keeps this device at U${device.rackUnit}.</p>
@@ -1051,6 +1053,7 @@ function renderDeviceInspector(deviceID) {
     };
     if (device.category === "Switch") next.stpPriority = Number(form.get("stpPriority") || 0);
     if (rack) next.rackFace = String(form.get("rackFace") || RackFace.FRONT);
+    next.rackDisplay = String(form.get("rackDisplay") || "");
     await updateFrom(() => api.updateDevice(state.topology.id, next), true, "Device record updated");
   });
   document.getElementById("delete-device").addEventListener("click", () => deleteDevice(device));
@@ -1578,17 +1581,24 @@ function configureAutosave() {
 
 async function saveNow() {
   if (!state.topology) return;
+  const saved = await topologyWrites.run(saveTopologySnapshot);
+  if (!saved) return;
+  autosave.markSaved();
+  elements["autosave-menu"].open = false;
+  toast("Topology saved");
+}
+
+async function saveTopologySnapshot() {
+  if (!state.topology || canvas.drag || canvas.rackDrag || pendingPlacements.size) return false;
+  const topologyID = state.topology.id;
   try {
-    const topology = await api.replaceTopology(canvas.drag?.snapshot || canvas.rackDrag?.snapshot || state.topology);
-    state.setTopology(topology);
-    autosave.markSaved();
-    elements["autosave-menu"].open = false;
-    toast("Topology saved");
+    const topology = await api.replaceTopology(structuredClone(state.topology));
+    receiveTopology(topology);
+    return !pendingPlacements.size && !canvas.drag && !canvas.rackDrag;
   } catch (error) {
     if (isRevisionConflict(error)) {
-      state.setTopology(await api.getTopology(state.topology.id));
+      receiveTopology(await api.getTopology(topologyID));
       notifications.push("SAVE CONFLICT · Loaded the newer shared revision", "error");
-      return;
     }
     throw error;
   }
@@ -2081,6 +2091,8 @@ function renderServerBackPreview() {
 function setupHardwareCatalog(preferredVendor = "Cisco", preferredFamily = "all") {
 	if (!catalogModule) return;
 	const form = elements["device-form"];
+	form.elements.filter.value = "";
+	updateHardwareSearch();
 	const familySelect = form.elements.family;
 	const vendorSelect = form.elements.vendor;
 	const families = catalogModule.catalogFamilies();
@@ -2097,24 +2109,60 @@ function setupHardwareCatalog(preferredVendor = "Cisco", preferredFamily = "all"
 	};
 	familySelect.onchange = () => {
 		form.elements.filter.value = "";
+		updateHardwareSearch();
 		fillVendors();
 	};
 	vendorSelect.onchange = () => {
 		form.elements.filter.value = "";
+		updateHardwareSearch();
 		fillHardwareModels(vendorSelect.value);
 	};
-	form.elements.filter.oninput = () => fillHardwareModels(vendorSelect.value, form.elements.filter.value);
+	form.elements.filter.oninput = updateHardwareSearch;
+	form.elements.filter.onkeydown = (event) => {
+		if (event.key !== "Enter") return;
+		event.preventDefault();
+		document.querySelector("#device-search-results button")?.focus();
+	};
 	form.elements.model.onchange = updateHardwareSummary;
 	fillVendors(preferredVendor);
 }
 
-function fillHardwareModels(vendor, query = "") {
+function updateHardwareSearch() {
+	const form = elements["device-form"];
+	const query = form.elements.filter.value.trim();
+	const panel = document.getElementById("device-search-panel");
+	const results = document.getElementById("device-search-results");
+	const status = document.getElementById("device-search-status");
+	panel.hidden = !query;
+	const profiles = query ? catalogModule.searchHardwareProfiles(query) : [];
+	status.textContent = !query ? "" : profiles.length
+		? `${profiles.length} device${profiles.length === 1 ? "" : "s"} found across all providers. Select a device below.`
+		: "No devices found. Try another model, SKU, or provider.";
+	results.replaceChildren(...profiles.map((profile) => {
+		const item = document.createElement("li");
+		const button = document.createElement("button");
+		button.type = "button";
+		const title = document.createElement("strong");
+		title.textContent = profile.model;
+		const details = document.createElement("span");
+		details.textContent = [profile.vendor, profile.family || profile.category, profile.sku].filter(Boolean).join(" · ");
+		button.append(title, details);
+		button.addEventListener("click", () => {
+			setupHardwareCatalog(profile.vendor, profile.family || "all");
+			form.elements.model.value = profile.model;
+			updateHardwareSummary();
+			form.elements.model.focus();
+		});
+		item.append(button);
+		return item;
+	}));
+}
+
+function fillHardwareModels(vendor) {
 	const form = elements["device-form"];
 	const select = form.elements.model;
 	const previous = select.value;
-	const needle = query.trim().toLocaleLowerCase();
-	const profiles = catalogModule.modelsForVendor(vendor, form.elements.family.value).filter((profile) => !needle ||
-		`${profile.model} ${profile.sku || ""} ${profile.family || ""} ${profile.category}`.toLocaleLowerCase().includes(needle));
+	const profiles = catalogModule.modelsForVendor(vendor, form.elements.family.value);
 	select.replaceChildren(...profiles.map((profile) => new Option(
 		`${profile.model}${profile.sku ? ` · ${profile.sku}` : ""}`,
 		profile.model,
@@ -2500,25 +2548,92 @@ function queueAnalysis() {
   analysisTimer = setTimeout(() => refreshAnalysis().catch(showError), 180);
 }
 
-async function updateFrom(operation, remember = true, message = "") {
-  const wasDirty = autosave.isDirty;
+/** Apply server revisions without erasing queued drops or cancelling the current gesture. */
+function receiveTopology(topology, { remember = false } = {}) {
+  if (topology.id !== state.topology?.id || topology.revision < state.topology.revision) return;
+  const gesture = canvas.drag || canvas.rackDrag;
+  const preview = gesture?.snapshot?.id === topology.id
+    ? [
+      ...placementChanges(gesture.snapshot, "devices", state.topology.devices.filter((device) => canvas.drag?.originals.has(device.id))),
+      ...placementChanges(gesture.snapshot, "racks", (state.topology.racks || []).filter((rack) => canvas.rackDrag && rack.id === state.selection?.id)),
+    ] : [];
+  let next = topology;
+  for (const batch of pendingPlacements) {
+    if (batch.topologyID === topology.id) next = applyPlacements(next, batch.changes);
+  }
+  if (gesture?.snapshot?.id === topology.id) {
+    next = applyPlacements(next, preview);
+    // Refresh history with remote edits, keeping only this gesture's original placement as its undo baseline.
+    gesture.snapshot = applyPlacements(topology, preview.map((change) => ({ ...change, after: change.before })));
+  }
+  state.setTopology(next, { remember });
+}
+
+/** Commit one whole drop, retrying revision races without replaying stale device records. */
+async function savePlacements(snapshot, collection, items) {
+  const changes = placementChanges(snapshot, collection, items);
+  if (!changes.length) return;
+  const previous = [...pendingPlacements].find((batch) => batch.topologyID === snapshot.id);
+  const batch = { topologyID: snapshot.id, changes, keepDirty: previous?.keepDirty ?? autosave.isDirty };
+  pendingPlacements.add(batch);
   autosave.markDirty();
-  try {
-    const topology = await operation();
-    state.setTopology(topology, { remember });
-    autosave.markSaved();
-    queueAnalysis();
-    if (message) toast(message);
-    return topology;
-  } catch (error) {
-    showError(error);
-    if (error.name === "EditorLockedError") {
-      if (!wasDirty) autosave.markSaved();
+  return topologyWrites.run(async () => {
+    let latest;
+    try {
+      if (state.topology?.id !== batch.topologyID) return;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        latest = await api.getTopology(batch.topologyID);
+        if (state.topology?.id !== batch.topologyID) return;
+        const next = applyPlacements(latest, changes, { checkConflicts: true });
+        try {
+          latest = await api.replaceTopology(next);
+          pendingPlacements.delete(batch);
+          receiveTopology(latest);
+          if (!pendingPlacements.size && !batch.keepDirty && state.topology?.id === batch.topologyID) autosave.markSaved();
+          queueAnalysis();
+          return latest;
+        } catch (error) {
+          if (!isRevisionConflict(error) || attempt === 2) throw error;
+        }
+      }
+    } catch (error) {
+      pendingPlacements.delete(batch);
+      // A lost response can follow a committed write; refresh before rolling the preview back.
+      try { latest = await api.getTopology(batch.topologyID); } catch { /* Retain the last known server snapshot. */ }
+      if (latest) receiveTopology(latest);
+      else if (state.topology?.id === batch.topologyID) autosave.markDirty();
+      if (latest && !pendingPlacements.size && !batch.keepDirty && state.topology?.id === batch.topologyID) autosave.markSaved();
+      showError(error);
+      return null;
+    } finally {
+      pendingPlacements.delete(batch);
+    }
+  });
+}
+
+async function updateFrom(operation, remember = true, message = "") {
+  const topologyID = state.topology?.id;
+  return topologyWrites.run(async () => {
+    if (state.topology?.id !== topologyID) return null;
+    const wasDirty = autosave.isDirty;
+    autosave.markDirty();
+    try {
+      const topology = await operation();
+      receiveTopology(topology, { remember });
+      if (!pendingPlacements.size) autosave.markSaved();
+      queueAnalysis();
+      if (message) toast(message);
+      return topology;
+    } catch (error) {
+      showError(error);
+      if (error.name === "EditorLockedError") {
+        if (!wasDirty) autosave.markSaved();
+        return null;
+      }
+      if (state.topology?.id === topologyID) receiveTopology(await api.getTopology(topologyID));
       return null;
     }
-    if (state.topology) state.setTopology(await api.getTopology(state.topology.id));
-    return null;
-  }
+  });
 }
 
 async function undo() {
