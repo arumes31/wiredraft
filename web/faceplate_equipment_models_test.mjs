@@ -2,6 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { hardwareCatalog, instantiateProfile, instantiateStaticServer } from "./static/js/catalog.js";
 import { resolveEquipmentFaceplate } from "./static/js/faceplate-equipment-models.js";
+import { resolveModelFaceplate } from "./static/js/faceplate-models.js";
+import { hardwareContainsSocket } from "../scripts/faceplate-audit-geometry.mjs";
+import { lenovoServerProfiles } from "./static/js/catalog-lenovo-servers.js";
+import { lenovoStorageProfiles } from "./static/js/catalog-lenovo-storage.js";
+import { rackAccessoryProfiles } from "./static/js/catalog-rack-accessories.js";
+import { eatonAdditionProfiles } from "./static/js/catalog-eaton-additions.js";
+const additionKeys = new Set([...lenovoServerProfiles, ...lenovoStorageProfiles, ...rackAccessoryProfiles, ...eatonAdditionProfiles,
+  { vendor: "HPE", model: "OfficeConnect 1920S 24G 2SFP" }].map(p => `${p.vendor}\0${p.model}`));
 
 /** Instantiate a named catalog fixture with its canonical inventory. */
 function deviceFor(model) {
@@ -30,27 +38,28 @@ function verifyGeometry(device, profile) {
     }
     for (let index = 0; index < boxes.length; index++) {
       for (const other of [...boxes.slice(index + 1), ...face.components]) {
-        assert.ok(!overlaps(boxes[index], other), `${device.model}: ${name} socket ${boxes[index].portIndex} overlaps ${other.kind || other.portIndex}`);
+        assert.ok(hardwareContainsSocket(other, boxes[index]) || !overlaps(boxes[index], other), `${device.model}: ${name} socket ${boxes[index].portIndex} overlaps ${other.kind || other.portIndex}`);
       }
       if (face.connectionMarker) assert.ok(!overlaps(boxes[index], face.connectionMarker));
     }
   }
 }
 
-test("all 133 equipment models preserve the catalog inventory in distinct, bounded panels", () => {
+test("all equipment families preserve catalog inventory through the public model resolver", () => {
   let count = 0;
   for (const catalog of hardwareCatalog) {
     const device = instantiateProfile(catalog, catalog.model, { x: 0, y: 0 });
-    const profile = resolveEquipmentFaceplate(device);
+    const added = additionKeys.has(`${catalog.vendor}\0${catalog.model}`);
+    const profile = added ? resolveModelFaceplate(device) : resolveEquipmentFaceplate(device);
     if (!profile) continue;
     count++;
     verifyGeometry(device, profile);
     assert.ok(profile.source && profile.sourcePage && profile.note, device.model);
     assert.ok(["model", "family", "schematic"].includes(profile.fidelity));
     assert.notDeepEqual(profile.faces.front, profile.faces.rear, device.model);
-    assert.equal(resolveEquipmentFaceplate(device), profile, "canonical layouts should be cached");
+    assert.equal(added ? resolveModelFaceplate(device) : resolveEquipmentFaceplate(device), profile, "canonical layouts should be cached");
   }
-  assert.equal(count, 133);
+  assert.equal(count, 148);
 });
 
 test("documented connector panel roles distinguish networking, AV switches, servers and APs", () => {

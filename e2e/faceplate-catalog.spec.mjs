@@ -24,7 +24,7 @@ function catalogDevice(model, index) {
   return device;
 }
 
-test("all 541 catalog models render both panels with identical Canvas and SVG port identities", async ({ page }, testInfo) => {
+test("all catalog models render both panels with identical Canvas and SVG port identities", async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -133,15 +133,16 @@ test("all 541 catalog models render both panels with identical Canvas and SVG po
       stage.remove();
     }
   });
-  expect(result.catalogModels).toBe(541);
-  expect(result.renderedPanels).toBe(1082);
+  expect(result.catalogModels).toBe(hardwareCatalog.length);
+  expect(result.renderedPanels).toBe(hardwareCatalog.length * 2);
   expect(result.inventoryPorts).toBeGreaterThan(10_000);
   expect(pageErrors).toEqual([]);
   await testInfo.attach("catalog-browser-rendering.json", { body: JSON.stringify(result, null, 2), contentType: "application/json" });
 });
 
 test("public inspector switches representative family panels and exports the selected connectors", async ({ page, request }) => {
-  test.setTimeout(60_000);
+  // Nine models now exercise eighteen actual downloads, including storage and power panels.
+  test.setTimeout(120_000);
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await enterGuestWorkspace(page, request);
@@ -157,6 +158,9 @@ test("public inspector switches representative family panels and exports the sel
     { model: "Cat6 copper panel 24", defaultFace: "front", portFaces: "front" },
     { model: "UniFi Cable Internet", defaultFace: "front", portFaces: "split" },
     { model: "AP-635", defaultFace: "rear", portFaces: "rear" },
+    { model: "DE2000H", defaultFace: "rear", portFaces: "rear" },
+    { model: "myUTN-80", defaultFace: "front", portFaces: { front: [1], rear: [2] } },
+    { model: "Rack power strip 8 Schuko", defaultFace: "front", portFaces: { front: [1, 2, 3, 4, 5, 6, 7, 8], rear: [9] } },
   ];
   const devices = cases.map(({ model }, index) => catalogDevice(model, index));
   const fixture = { ...original, devices, links: [], racks: [], linkGroups: [], annotations: [], switchSystems: [], firewallClusters: [] };

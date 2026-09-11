@@ -159,6 +159,7 @@ func newHandler(
 	protected("POST /api/v1/topologies/{id}/links", server.createLink)
 	protected("POST /api/v1/topologies/{id}/links/bulk", server.createLinks)
 	protected("PUT /api/v1/topologies/{id}/links/{linkId}/configuration", server.configureLink)
+	protected("PUT /api/v1/topologies/{id}/links/{linkId}/media", server.updateLinkMedia)
 	protected("PUT /api/v1/topologies/{id}/links/{linkId}/direction", server.setLinkDirection)
 	protected("DELETE /api/v1/topologies/{id}/links/{linkId}", server.deleteLink)
 	protected("POST /api/v1/topologies/{id}/link-groups", server.createLinkGroup)
@@ -801,6 +802,40 @@ func applyLinkConfiguration(
 		link.VLANIDs = append([]int{input.NativeVLAN}, allowedVLANs...)
 	}
 	return nil
+}
+
+// linkMediaRequest accepts only the physical cable media, never endpoint switchport settings.
+type linkMediaRequest struct {
+	CableType string `json:"cableType"`
+}
+
+// updateLinkMedia atomically changes one cable's media while preserving its endpoints and grouped links.
+func (s *Server) updateLinkMedia(w http.ResponseWriter, request *http.Request) {
+	var input linkMediaRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid link media")
+		return
+	}
+	input.CableType = strings.TrimSpace(input.CableType)
+	if input.CableType == "" || len(input.CableType) > 80 {
+		writeError(w, http.StatusBadRequest, "cable type must contain 1 to 80 characters")
+		return
+	}
+	id, linkID := request.PathValue("id"), request.PathValue("linkId")
+	updated, err := s.mutate(request, id, func(topology *model.Topology) error {
+		index := slicesIndex(topology.Links, func(link model.Link) bool { return link.ID == linkID })
+		if index < 0 {
+			return store.ErrNotFound
+		}
+		topology.Links[index].CableType = input.CableType
+		return nil
+	})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.publish(id, "link_configured", updated)
+	writeJSON(w, http.StatusOK, updated)
 }
 
 type linkDirectionRequest struct {

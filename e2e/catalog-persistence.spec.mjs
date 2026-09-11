@@ -1,8 +1,14 @@
 import { expect, test } from "@playwright/test";
 import { hardwareCatalog, instantiateProfile } from "../web/static/js/catalog.js";
 import { defaultCableProperties } from "../web/static/js/cable-defaults.js";
+import { lenovoServerProfiles } from "../web/static/js/catalog-lenovo-servers.js";
+import { lenovoStorageProfiles } from "../web/static/js/catalog-lenovo-storage.js";
+import { accessAdditionProfiles } from "../web/static/js/catalog-access-additions.js";
+import { rackAccessoryProfiles } from "../web/static/js/catalog-rack-accessories.js";
+import { eatonAdditionProfiles } from "../web/static/js/catalog-eaton-additions.js";
+import { radAdditionProfiles } from "../web/static/js/catalog-rad-additions.js";
 
-/** Select actual catalog devices whose combined inventories cover every connector type. */
+/** Cover every connector type and every new rack model, including models sharing established types. */
 function connectorCoverageDevices() {
   const candidates = hardwareCatalog.map((profile) => instantiateProfile(profile, profile.model, { x: 0, y: 0 }));
   const uncovered = new Set(candidates.flatMap((device) => device.ports.map((port) => port.type)));
@@ -14,6 +20,11 @@ function connectorCoverageDevices() {
     const selected = ranked[0].device;
     devices.push(selected);
     for (const port of selected.ports) uncovered.delete(port.type);
+  }
+  for (const profile of [...lenovoServerProfiles, ...lenovoStorageProfiles, ...accessAdditionProfiles, ...rackAccessoryProfiles, ...eatonAdditionProfiles, ...radAdditionProfiles]) {
+    if (!devices.some(device => device.model === profile.model && device.faceplate.vendor === profile.vendor)) {
+      devices.push(candidates.find(device => device.model === profile.model && device.faceplate.vendor === profile.vendor));
+    }
   }
   return devices;
 }
@@ -47,6 +58,10 @@ test("catalog connector types preserve their inventory through device creation a
         expect({ mode: port.mode, speed: port.speedMbps, isPoe: port.isPoe, nativeVlan: port.nativeVlan, allowedVlans: port.allowedVlans })
           .toEqual({ mode: "Unconfigured", speed: 0, isPoe: false, nativeVlan: 0, allowedVlans: [] });
       }
+      for (const port of saved.ports.filter(entry => ["SAS_MINI_HD_12G", "SAS_MINI_6G", "FC_SFP_16G", "Power"].includes(entry.type))) {
+        expect({ mode: port.mode, isPoe: port.isPoe, nativeVlan: port.nativeVlan, allowedVlans: port.allowedVlans })
+          .toEqual({ mode: "Unconfigured", isPoe: false, nativeVlan: 0, allowedVlans: [] });
+      }
     }
     // Exercise telephone defaults through real create/save/reload endpoints, using
     // the same helper as the app's cable action and two actual catalog modems.
@@ -74,6 +89,28 @@ test("catalog connector types preserve their inventory through device creation a
     expect(savedCable).toMatchObject({ cableType: "TELEPHONE", primaryVlan: 0, vlanIds: [] });
     expect(topology.devices.find((device) => device.id === modemDevice.id).ports.find((port) => port.id === modemPort.id))
       .toEqual({ ...originalModemPort, status: "up" });
+    // Save actual storage and power cables as well as their endpoint inventories.
+    for (const [type, cableType] of [["SAS_MINI_HD_12G", "SAS"], ["SAS_MINI_6G", "SAS"], ["FC_SFP_16G", "FIBER"], ["Power", "POWER"]]) {
+      const source = topology.devices.find(device => device.ports.some(port => port.type === type));
+      expect(source, type).toBeTruthy();
+      const sourcePort = source.ports.find(port => port.type === type);
+      const peerInput = structuredClone(devices.find(device => device.ports.some(port => port.type === type)));
+      peerInput.name = `CATALOG ${type} PEER`;
+      const response = await request.post(`${path}/devices`, {
+        headers: { "If-Match": `"rev-${topology.revision}"` }, data: peerInput,
+      });
+      expect(response.status()).toBe(201); topology = await response.json();
+      const peer = topology.devices.find(device => device.name === peerInput.name);
+      const peerPort = peer.ports.find(port => port.type === type);
+      const responseLink = await request.post(`${path}/links`, {
+        headers: { "If-Match": `"rev-${topology.revision}"` },
+        data: { id: "", sourceDeviceId: source.id, sourcePortId: sourcePort.id, targetDeviceId: peer.id, targetPortId: peerPort.id,
+          ...defaultCableProperties(sourcePort, peerPort), notes: "" },
+      });
+      expect(responseLink.status(), await responseLink.text()).toBe(201); topology = await responseLink.json();
+      expect(topology.links.find(link => link.sourcePortId === sourcePort.id && link.targetPortId === peerPort.id))
+        .toMatchObject({ cableType, primaryVlan: 0, vlanIds: [] });
+    }
     const reloaded = await request.get(path);
     expect(reloaded.ok()).toBe(true);
     const persisted = await reloaded.json();

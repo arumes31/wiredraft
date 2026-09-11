@@ -1,6 +1,6 @@
 /** Draw only the selected7009 source-specific service hardware with shared Canvas/SVG primitives. */
 export function addCiscoNexusFinalHardware(art,component){
-  const variant=component.variant;if(!variant?.startsWith("nexus-final-"))return false;
+  const variant=component.variant;if(typeof variant!=="string"||!variant.startsWith("nexus-final-"))return false;
   if(variant==="nexus-final-strip"){art.rect(0,0,1,1,"#708994","#afbdc2",.001);if(component.label)art.label(component.label,.58,.5,5);return true;}
   if(variant==="nexus-final-ejector"){art.rect(.05,.03,.90,.94,"#a9bcc5","#475e6c",.03);art.polygon([[.15,.20],[.82,.05],[.85,.67],[.55,.95],[.20,.80]],"#687f89","#c3d0d1");return true;}
   if(variant==="nexus-final-blank"){

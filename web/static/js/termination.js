@@ -2,6 +2,9 @@ import { pointOnBezier, routeSegments } from "./cabling.js";
 
 /** Resolve physical socket artwork while keeping telephone and DSL media distinct. */
 export function connectorKind(type = "") {
+  if (type === "SAS_MINI_HD_12G") return "sas-mini-hd";
+  if (type === "SAS_MINI_6G") return "sas-mini";
+  if (type === "FC_SFP_16G") return "sfp";
   if (type === "OSFP_800G") return "osfp";
   if (type.startsWith("CFP")) return "cfp";
   if (type.startsWith("QSFP")) return "qsfp";
@@ -24,6 +27,8 @@ export function connectorKind(type = "") {
 /** Return each connector's default size before any dense-panel adjustment. */
 export function connectorSize(type = "") {
   const kind = connectorKind(type);
+  if (kind === "sas-mini-hd") return { width: 18, height: 11 };
+  if (kind === "sas-mini") return { width: 23, height: 11 };
   if (kind === "osfp") return { width: 25, height: 16 };
   if (kind === "cfp") return { width: type === "CFP_100G" ? 30 : type === "CFP2_100G" ? 25 : 21, height: 16 };
   if (kind === "qsfp") return { width: 21, height: 15 };

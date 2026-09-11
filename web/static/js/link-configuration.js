@@ -1,4 +1,17 @@
 const CONFIGURABLE_MODES = new Set(["Access", "Trunk", "Hybrid"]);
+const PHYSICAL_ONLY_TYPES = new Set(["SAS_MINI_HD_12G", "SAS_MINI_6G", "FC_SFP_16G", "Power"]);
+
+/** Identify storage and power endpoints whose settings are not Ethernet VLAN profiles. */
+export function isPhysicalOnlyPort(port) {
+  return PHYSICAL_ONLY_TYPES.has(port?.type);
+}
+
+/** Protect every member when a saved group includes a physical-only endpoint. */
+export function isPhysicalOnlyLinkScope(topology, selectedLinkID) {
+  const ports = new Map((topology?.devices || []).flatMap(device => (device.ports || []).map(port => [port.id, port])));
+  return linkConfigurationScope(topology, selectedLinkID).some(link =>
+    isPhysicalOnlyPort(ports.get(link.sourcePortId)) || isPhysicalOnlyPort(ports.get(link.targetPortId)));
+}
 
 export function normalizeLinkConfiguration(input) {
   const mode = CONFIGURABLE_MODES.has(input?.mode) ? input.mode : "Access";
@@ -9,7 +22,9 @@ export function normalizeLinkConfiguration(input) {
   return { mode, nativeVlan, allowedVlans };
 }
 
+/** Infer an Ethernet profile; physical storage and power endpoints have none. */
 export function defaultLinkConfiguration(topology, link, sourcePort, targetPort) {
+  if (isPhysicalOnlyPort(sourcePort) || isPhysicalOnlyPort(targetPort)) return null;
   const nativeVlan = Number(link?.primaryVlan || sourcePort?.nativeVlan || targetPort?.nativeVlan || topology?.vlans?.[0]?.id || 1);
   const channels = (link?.vlanIds || []).map(Number).filter(Boolean);
   const endpointsAgree = sourcePort?.mode === targetPort?.mode && CONFIGURABLE_MODES.has(sourcePort?.mode);
@@ -24,8 +39,9 @@ export function defaultLinkConfiguration(topology, link, sourcePort, targetPort)
   });
 }
 
+/** Compare a real Ethernet profile without normalizing physical-only endpoints. */
 export function isLinkConfigurationSynchronized(link, sourcePort, targetPort, configuration) {
-  if (!link || !sourcePort || !targetPort) return false;
+  if (!link || !sourcePort || !targetPort || !configuration || isPhysicalOnlyPort(sourcePort) || isPhysicalOnlyPort(targetPort)) return false;
   const expected = normalizeLinkConfiguration(configuration);
   const expectedChannels = [expected.nativeVlan, ...expected.allowedVlans];
   const endpointMatches = (port) => {

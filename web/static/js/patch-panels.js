@@ -358,7 +358,9 @@ function derivedChannelUUID(baseUUID, offset) {
   return parts.join("-");
 }
 
+/** Preserve the connector's physical media when planning passive rear terminations. */
 function panelCableType(panel, port) {
+  if (port.type === "Power") return "POWER";
   if (String(port.type).startsWith("FIBER_")) return "FIBER";
   const model = String(panel.model || "").toUpperCase();
   if (model.includes("CAT5E")) return "CAT5E";

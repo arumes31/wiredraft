@@ -1,6 +1,12 @@
 import { fortinetProfiles } from "./catalog-fortinet.js";
 import { edgeCatalogProfiles } from "./catalog-edge.js";
 import { expandedCatalogProfiles } from "./catalog-expanded.js";
+import { lenovoStorageProfiles } from "./catalog-lenovo-storage.js";
+import { lenovoServerProfiles } from "./catalog-lenovo-servers.js";
+import { accessAdditionProfiles } from "./catalog-access-additions.js";
+import { rackAccessoryProfiles } from "./catalog-rack-accessories.js";
+import { radAdditionProfiles } from "./catalog-rad-additions.js";
+import { eatonAdditionProfiles } from "./catalog-eaton-additions.js";
 import { portLayoutMetadata, resolvePhysicalPortGroups } from "./catalog-port-layouts.js";
 
 // The built-in catalog is an offline front-panel schematic library. Profiles are
@@ -9,6 +15,12 @@ const profiles = [
   ...fortinetProfiles,
   ...edgeCatalogProfiles,
   ...expandedCatalogProfiles,
+  ...lenovoStorageProfiles,
+  ...lenovoServerProfiles,
+  ...accessAdditionProfiles,
+  ...rackAccessoryProfiles,
+  ...radAdditionProfiles,
+  ...eatonAdditionProfiles,
 
   p("Cisco", "Catalyst C9200L-24T-4G", "Switch", 1, "#263b4b", [r(24, "RJ45_1G", 1000, false), u(4, "SFP_1G", 1000, "SFP"), m(1), { ...m(1), type: "USB_MINI_CONSOLE", labels: ["USB CONSOLE"] }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
   p("Cisco", "Catalyst C9200L-24P-4X", "Switch", 1, "#263b4b", [r(24, "RJ45_1G", 1000, true), u(4, "SFP_PLUS_10G", 10000, "SFP+"), m(1), { ...m(1), type: "USB_MINI_CONSOLE", labels: ["USB CONSOLE"] }, { ...m(1), type: "RJ45_1G", speed: 1000, prefix: "MGMT", labels: ["MGMT"] }], { inventoryRevision: 1 }),
@@ -309,7 +321,7 @@ export function registerProfiles(input) {
       (profile.preserveInstalledPorts === undefined || typeof profile.preserveInstalledPorts === "boolean") &&
       Array.isArray(profile.groups) && profile.groups.every((group) => Number.isInteger(group.count) && group.count > 0 &&
         ["access", "uplink", "management"].includes(group.zone) &&
-        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "POTS_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
+        ["RJ45_1G", "RJ45_MGIG", "RJ45_10G", "DSL_RJ11", "POTS_RJ11", "COAX_F", "SFP_1G", "SFP_PLUS_10G", "SFP28_25G", "SFP56_50G", "QSFP_PLUS_40G", "QSFP28_100G", "QSFP56_200G", "QSFP_DD_200G", "QSFP_DD_400G", "CFP_100G", "CFP2_100G", "CFP4_100G", "OSFP_800G", "FIBER_LC", "FIBER_SC", "FIBER_MPO", "SAS_MINI_HD_12G", "SAS_MINI_6G", "FC_SFP_16G", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "Console", "Power"].includes(group.type) &&
         Number.isFinite(group.speed) && group.speed >= 0 && group.speed <= 800000 &&
         (group.labels === undefined || (Array.isArray(group.labels) && group.labels.length === group.count && group.labels.every((label) => typeof label === "string" && label.trim()))) &&
         (group.positions === undefined || (Array.isArray(group.positions) && group.positions.length === group.count &&
@@ -339,7 +351,7 @@ export function instantiateProfile(profile, name, position) {
     ...layoutGroups(managementGroups, denseManagement ? .22 : .18, denseManagement ? .31 : .275, 2),
     ...layoutGroups(appendedGroups, .86, .94),
   ].map((port, index) => {
-    const passive = profile.category === "PatchPanel" || ["Console", "Power", "POTS_RJ11", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack"].includes(port.type);
+    const passive = profile.category === "PatchPanel" || ["Console", "Power", "POTS_RJ11", "USB_MINI_CONSOLE", "USB_MICRO_CONSOLE", "USB_C_CONSOLE", "Stack", "SAS_MINI_HD_12G", "SAS_MINI_6G", "FC_SFP_16G"].includes(port.type);
     return {
       id: "", deviceId: "", portIndex: index + 1, label: port.label, type: port.type,
       mode: passive ? "Unconfigured" : "Access", nativeVlan: passive ? 0 : 1,

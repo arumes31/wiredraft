@@ -28,7 +28,8 @@ test("component-drawn chassis is a strict boolean opt-in in Canvas and SVG",()=>
  for(const p of f.scene.ports){assert.ok(svg.includes(`data-port-id="${p.port.id}"`));assert.equal(f.engine.routingPortGeometry().find(q=>q.port.id===p.port.id).x,p.x);}assert.match(svg,/data-component="panel"/);assert.match(svg,/Saved &lt;rugged&gt; &amp; controller/);assert.deepEqual(f.topology,before);
 });
 
-test("only the two explicit rugged profiles replace their generic physical chassis",()=>{
+test("only explicitly reviewed enclosures replace their generic physical chassis",()=>{
  const enabled=[];for(const row of hardwareCatalog){const d=instantiateProfile(row,row.model,{x:0,y:0}),scene=buildFaceplateScene(d,{x:0,y:0,width:690,height:row.units*100},{face:"front"});if(scene.chassis.componentDrawn===true)enabled.push(row.model);}
- assert.deepEqual(enabled.sort(),["FortiSwitch Rugged 112F-POE","FortiSwitch Rugged 216F-POE"]);
+ assert.deepEqual(enabled.sort(),["FortiSwitch Rugged 112F-POE","FortiSwitch Rugged 216F-POE","System x3550 M5","ThinkSystem SR650","ThinkSystem SR650 V2","myUTN-80",
+  "ETX-203AX","9PX 5000 (9PX5KiRT)","9PX EBM (9PXEBM180RT)","5PX 3000 (5PX3000IRT2U)"].sort());
 });

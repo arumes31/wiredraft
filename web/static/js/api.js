@@ -110,6 +110,10 @@ export const api = {
   configureLink: (id, linkID, configuration, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/links/${encodeURIComponent(linkID)}/configuration`, {
     method: "PUT", headers: revisionHeaders(revision), body: JSON.stringify(configuration),
   }),
+  /** Change one cable's physical media without synchronizing endpoint or group configuration. */
+  updateLinkMedia: (id, linkID, cableType, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/links/${encodeURIComponent(linkID)}/media`, {
+    method: "PUT", headers: revisionHeaders(revision), body: JSON.stringify({ cableType }),
+  }),
   setLinkDirection: (id, linkID, sourcePortID, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/links/${encodeURIComponent(linkID)}/direction`, {
     method: "PUT", headers: revisionHeaders(revision), body: JSON.stringify({ sourcePortId: sourcePortID }),
   }),

@@ -1,4 +1,10 @@
 import {addFortinetPowerComponent} from "./hardware-fortinet-power-components.js";
+import { addLenovoServerComponent } from "./hardware-lenovo-servers-components.js";
+import { addLenovoStorageComponent } from "./hardware-lenovo-storage-components.js";
+import { addAccessAdditionComponent } from "./hardware-access-additions-components.js";
+import { addRackAccessoryComponent } from "./hardware-rack-accessories-components.js";
+import { addRadAdditionComponent } from "./hardware-rad-additions-components.js";
+import { addEatonAdditionComponent } from "./hardware-eaton-additions-components.js";
 import { addPA7050Hardware } from "./hardware-pa7050-components.js";
 import { addExtremeFinalComponent } from "./hardware-extreme-final-components.js";
 import { addFortinetFinalHardware } from "./hardware-fortinet-final-components.js";
@@ -58,6 +64,12 @@ export function hardwarePrimitives(component, palette = {}) {
   const colors = { ...DEFAULT_PALETTE, ...palette };
   if (component.ink) colors.ink = component.ink;
   const art = primitiveBuilder(component, colors);
+  if (addEatonAdditionComponent(art, component)) return art.parts;
+  if (addRadAdditionComponent(art, component)) return art.parts;
+  if (addRackAccessoryComponent(art, component)) return art.parts;
+  if (addAccessAdditionComponent(art, component)) return art.parts;
+  if (addLenovoStorageComponent(art, component)) return art.parts;
+  if (addLenovoServerComponent(art, component)) return art.parts;
   if (addFortinetBladeComponent(art, component, colors)) return art.parts;
   if (addFortinetChassisAliasComponent(art, component)) return art.parts;
   if (addFortinetFinalHardware(art, component)) return art.parts;
@@ -677,6 +689,10 @@ function addPluggableTerminal(art, component, colors) {
 
 /** Draw connector cages, keyed openings, contacts, and optical release latches. */
 function addSocket(art, kind, colors, variant, portrait, columns) {
+  if (kind === "sas-mini-hd-inverted") {
+    addSocket(orientedArt(orientedArt(art, true), true), "sas-mini-hd", colors, variant, false, columns);
+    return;
+  }
   const fill = colors.fill ?? "#07151a";
   const stroke = colors.stroke ?? "#708389";
   if (kind === "rj11") {
@@ -781,6 +797,12 @@ function addSocket(art, kind, colors, variant, portrait, columns) {
   } else if (kind === "power") {
     art.rect(.15, .19, .7, .64, "#18292c", colors.surfaceDark, .1);
     for (const [cx, cy] of [[.5, .38], [.33, .66], [.67, .66]]) art.rect(cx - .025, cy - .085, .05, .17, "#b9c3c4");
+  } else if (kind === "sas-mini-hd" || kind === "sas-mini") {
+    art.rect(.08, .13, .84, .74, "#a7b2b5", stroke, .03);
+    art.polygon([[.16,.28],[.84,.28],[.84,.66],[.72,.76],[.28,.76],[.16,.66]], "#07151a", "#65767d");
+    art.rect(.23, .43, .54, .15, "#425459", undefined, .005);
+    for (let index = 0; index < 13; index++) art.rect(.25 + index * .038, .46, .014, .065, "#d7b76c", undefined, 0);
+    art.rect(kind === "sas-mini-hd" ? .43 : .32, .07, kind === "sas-mini-hd" ? .14 : .36, .09, "#192b32");
   } else if (kind === "stack") {
     art.rect(.15, .2, .7, .6, colors.surfaceDark, "#a7b2b5", .08);
     for (let index = 0; index < 8; index += 1) {
