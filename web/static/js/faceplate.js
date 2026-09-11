@@ -54,6 +54,7 @@ const templates = Object.freeze({
   "fortinet-desktop": compactStatus(template("fortinet-desktop", "Fortinet", "#e7e8e6", "#c8cdca", "#202426", "#e64135", "slots", "left-io", "desktop"), .214),
   "fortinet-rack": compactStatus(template("fortinet-rack", "Fortinet", "#d8dcda", "#aeb6b4", "#1c2224", "#e64135", "slots", "status-stack", "rack"), .218),
   "fortinet-datacenter": compactStatus(template("fortinet-datacenter", "Fortinet", "#c8cdcb", "#929b99", "#171c1e", "#e64135", "perforated", "status-stack", "datacenter", true), .218),
+  "fortinet-blade-carrier": template("fortinet-blade-carrier", "Fortinet", "#252323", "#141414", "#eceeed", "#e64135", "minimal", "none", "modular"),
   "fortinet-modular": template("fortinet-modular", "Fortinet", "#aeb6b4", "#747e7d", "#111719", "#e64135", "mesh", "status-stack", "modular", true),
   "fortinet-switch": template("fortinet-switch", "Fortinet", "#dfe2df", "#b7bfbc", "#192022", "#e64135", "slots", "status-stack", "switch"),
   "fortinet-compact-switch": {
@@ -78,16 +79,25 @@ const templates = Object.freeze({
     statusArea: Object.freeze({ kind: "status-stack", x: .08, y: .08, known: true, compact: true, width: 24, height: 10 }),
   },
   "cisco-campus": template("cisco-campus", "Cisco", "#26343b", "#10191e", "#e7f2f5", "#53bde9", "perforated", "status-stack", "switch"),
+  "meraki-access-silver": Object.freeze({
+    ...template("meraki-access-silver", "Cisco", "#d5d7d8", "#929799", "#252b2d", "#6c7578", "minimal", "none", "switch"),
+    source: "https://documentation.meraki.com/Switching/MS_-_Switches/Product_Information/Overviews_and_Datasheets/MS225_Datasheet",
+  }),
   "cisco-datacenter": template("cisco-datacenter", "Cisco", "#1e2b32", "#0c1317", "#e8f3f5", "#53bde9", "mesh", "status-stack", "datacenter", true),
   "aruba-campus": template("aruba-campus", "HPE Aruba", "#313b3d", "#161d1f", "#eef4f1", "#f28c28", "slots", "status-stack", "switch"),
   "aruba-datacenter": template("aruba-datacenter", "HPE Aruba", "#283335", "#11191b", "#edf5f3", "#f28c28", "mesh", "status-stack", "datacenter", true),
   "juniper-ex": template("juniper-ex", "Juniper", "#39413f", "#1a2221", "#f0f4ef", "#7fba46", "perforated", "status-stack", "switch"),
   "ubiquiti-unifi": template("ubiquiti-unifi", "Ubiquiti", "#e8ebe8", "#c8ceca", "#273033", "#73d4ff", "minimal", "lcm", "switch"),
+  "ubiquiti-edge": template("ubiquiti-edge", "Ubiquiti", "#303236", "#202428", "#e3e9e9", "#73868b", "minimal", "none", "switch"),
+  "paloalto-3400": template("paloalto-3400", "Palo Alto", "#c4c8c7", "#7e888c", "#132229", "#72caff", "minimal", "none", "switch"),
+  "juniper-ex-entry": template("juniper-ex-entry", "Juniper", "#c7cbcb", "#969e9f", "#183039", "#76c7a1", "minimal", "none", "switch"),
   "mikrotik-crs": template("mikrotik-crs", "MikroTik", "#d8dcda", "#9fa6a3", "#1b2022", "#596dc8", "slots", "status-stack", "switch"),
   "dell-powerswitch": template("dell-powerswitch", "Dell", "#27363d", "#101a1f", "#e3eef1", "#4aa3d8", "mesh", "status-stack", "datacenter", true),
   "netgear-managed": template("netgear-managed", "NETGEAR", "#292c32", "#111318", "#f0f0f2", "#8e63c7", "perforated", "status-stack", "switch"),
   "tplink-omada": template("tplink-omada", "TP-Link Omada", "#303a38", "#141c1a", "#edf5f0", "#54bd68", "slots", "status-stack", "switch"),
   "arista-datacenter": template("arista-datacenter", "Arista", "#28363b", "#10191d", "#eef5f6", "#48b6d5", "mesh", "status-stack", "datacenter", true),
+  "extreme-g2": Object.freeze({...template("extreme-g2", "Extreme", "#756497", "#4f4269", "#f3eff8", "#d9d339", "minimal", "none", "switch"), source: "https://documentation.extremenetworks.com/extremeswitching/downloads/EXOS30_HWInstall.pdf"}),
+  "extreme-x695": Object.freeze({...template("extreme-x695", "Extreme", "#30216d", "#20164c", "#f3eff8", "#b8add6", "minimal", "none", "switch"), source: "https://documentation.extremenetworks.com/extremeswitching/downloads/EXOS30_HWInstall.pdf"}),
   "extreme-switch": template("extreme-switch", "Extreme", "#352f3c", "#18131d", "#f1edf4", "#b86fdb", "perforated", "status-stack", "module", true),
   "ruckus-icx": template("ruckus-icx", "Ruckus", "#34312b", "#181713", "#f4f0e8", "#efa044", "slots", "status-stack", "switch"),
   "paloalto-pa": template("paloalto-pa", "Palo Alto", "#303a3e", "#151d20", "#eff4f2", "#f09a32", "minimal", "status-stack", "firewall"),
@@ -131,6 +141,7 @@ function statusArea(id, control, known) {
   });
 }
 
+/** Resolve visual materials, limiting source-specific palettes to individually verified catalog models. */
 export function resolveFaceplateTemplate(device) {
   const vendor = device.faceplate?.vendor || "";
   const model = device.model || "";
@@ -145,6 +156,7 @@ export function resolveFaceplateTemplate(device) {
     return sourcedTemplate(templates["cellular-edge"], vendor);
   }
   if (vendor === "Fortinet") {
+    if (["FortiGate 5001E", "FortiGate 5001E1"].includes(model)) return templates["fortinet-blade-carrier"];
     if (/FortiSwitch Rugged/i.test(model)) return templates["fortinet-rugged-switch"];
     if (/Rugged/i.test(model)) return templates["fortinet-rugged"];
     if (/FortiSwitch 108F/i.test(model)) return templates["fortinet-compact-switch"];
@@ -157,8 +169,14 @@ export function resolveFaceplateTemplate(device) {
     if (/FortiGate\s(?:30G|31G|40F|50G|51G|60F|61F|70F|71F|70G|71G|80F|81F|90G|91G)/i.test(model)) return templates["fortinet-desktop"];
     return templates["fortinet-rack"];
   }
+  if (vendor === "Cisco" && ["Meraki MS120", "Meraki MS210", "Meraki MS225", "Meraki MS120-24P", "Meraki MS225-48FP", "Meraki MS250", "Meraki MS350", "Meraki MS390", "Meraki MS410", "Meraki MS425", "Meraki MS450"].includes(model)) return templates["meraki-access-silver"];
   if (vendor === "Cisco") return /Nexus|9300X/i.test(model) ? templates["cisco-datacenter"] : templates["cisco-campus"];
+  if (vendor === "Extreme" && model === "X695") return templates["extreme-x695"];
+  if (vendor === "Extreme" && ["X440-G2", "X450-G2", "X460-G2", "X465", "X590", "X690", "X870"].includes(model)) return templates["extreme-g2"];
   if (vendor === "HPE Aruba") return /8325/i.test(model) ? templates["aruba-datacenter"] : templates["aruba-campus"];
+  if (vendor === "Ubiquiti" && /^Edge(MAX|Router|Switch) legacy family$/.test(model)) return templates["ubiquiti-edge"];
+  if (vendor === "Palo Alto" && ["PA-3400 family", "PA-5200 family", "PA-5400 family", "PA-7000 family"].includes(model)) return templates["paloalto-3400"];
+  if (vendor === "Juniper" && ["EX2300 family", "EX3400 family", "EX4100 family", "EX4300 family", "QFX5120 family", "QFX5130 family", "QFX5200 family", "QFX5210 family", "QFX5220 family", "QFX10000 family"].includes(model)) return templates["juniper-ex-entry"];
   const vendorTemplate = {
     Juniper: "juniper-ex", Ubiquiti: "ubiquiti-unifi", MikroTik: "mikrotik-crs",
     Dell: "dell-powerswitch", NETGEAR: "netgear-managed", "TP-Link Omada": "tplink-omada",

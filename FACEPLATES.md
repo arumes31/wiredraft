@@ -20,11 +20,11 @@ and pictured configuration are identified explicitly and corroborated by the
 manufacturer's specifications. Record that photograph's actual provenance;
 do not describe it as manufacturer artwork or redistribute it in the application.
 
-The remaining `family` profiles are provisional. `schematic` identifies
+Any `family` profile is provisional. `schematic` identifies
 configurable equipment whose actual hardware population is unspecified. These
 states appear in the inspector and must not be counted as finished model layouts.
-The catalog-wide conversion remains in progress until every applicable entry
-passes the strict audit. Combined model names and chassis families require an
+The catalog-wide strict audit requires every named hardware entry to have a
+verified model layout. Combined model names and chassis families require an
 exact SKU or explicit configuration before their drawing can be verified.
 
 Run `npm run audit:faceplates` to check both panels of every catalog entry for
@@ -32,7 +32,7 @@ finite bounds, duplicate or missing inventory identities, overlapping sockets,
 and collisions with hardware components. Run
 `node scripts/audit-faceplates.mjs --require-model-specific --json` to list all
 remaining named hardware that lacks a verified model layout. The strict command
-intentionally fails while that backlog exists.
+fails whenever such a backlog exists.
 
 ## Correcting catalog inventories safely
 
@@ -41,6 +41,15 @@ Existing saved port IDs, user labels, configuration and cable references remain
 intact when the physical drawing changes. A historical endpoint with no real
 socket appears in the application connection marker as unmapped inventory;
 the renderer must not invent an extra physical connector.
+
+When the verified model contains a real socket that has no corresponding saved
+endpoint, the scene draws it as inactive hardware. These supplemental components
+preserve the model's connector geometry and orientation but have no port ID,
+editable caption, hit region or cable target. They never enlarge a saved inventory.
+Only verified model panels receive this artwork; family and schematic drawings
+do not infer missing hardware. Regression checks must include complete, sparse,
+reordered and historical inventories so restored sockets cannot overlap captions
+or be drawn twice.
 
 When a correction changes the meaning of an inventory index, increment the
 catalog profile's `inventoryRevision` and set the same revision on the physical
@@ -56,6 +65,15 @@ labels with edited speeds or groups. This flag is not saved in `FaceplateSpec`
 and does not replace revision mappings when index meanings change.
 
 Provide an explicit mapping for each supported old revision:
+
+Derive historical indices by running the earlier catalog constructor, then
+record its actual types and labels in the regression fixture. Declaration order
+alone is insufficient: `instantiateProfile` places access groups first, all
+uplink groups (including stack links) next, management groups after them, and
+appended access groups last. Use `inventoryAppend` only for access groups that
+must be placed last; applying it to uplink or management groups duplicates those
+groups in the current constructor. Assert the complete new inventory count as
+well as the historical mapping.
 
 ```js
 {
@@ -104,6 +122,27 @@ New hardware is placed below existing devices in its canvas column; saved device
 positions remain unchanged. Drag ghosts, picking, routing and exports use the
 same display bounds.
 
+Irregular mounted hardware may set `chassis.componentDrawn: true` when its
+authored components provide the complete body and mounting brackets. Canvas and
+SVG then omit the generic body rectangle; selection outlines, saved allocation,
+picking and cable geometry remain unchanged. Only a literal boolean enables
+this behavior. The two rugged FortiSwitch profiles use it so caption gutters
+do not look like an invented mounting plate. Keep source body proportions
+separate from the surrounding mounting and caption envelope, and test both the
+opt-in and ordinary rendering paths.
+
+The audit recognizes `hardwareLayer: "chassis-container"` only on authored
+`panel` or `mounting-bracket` components, and only when a socket lies wholly
+inside their bounds. This permits a body behind its own sockets without
+ignoring edge crossings or collisions with fans, supplies, screws or USB
+hardware. Caption-background metadata alone never exempts a collision.
+
+The audit recognizes `hardwareLayer: "chassis-container"` only on authored
+`panel` or `mounting-bracket` components, and only when a socket lies wholly
+inside their bounds. This permits a body behind its own sockets without
+ignoring edge crossings or collisions with fans, supplies, screws or USB
+hardware. Caption-background metadata alone never exempts a collision.
+
 Run `npm run test:coverage` for unit and compatibility checks and the existing
 80% coverage gates. `e2e/faceplate-catalog.spec.mjs` renders both panels of the
 entire catalog in the real application, compares Canvas/SVG port identities,
@@ -124,3 +163,16 @@ the shared `defaultCableProperties` helper to select `TELEPHONE` media and no
 VLANs when either endpoint is POTS; it does not rewrite either endpoint's saved
 settings. The persistence check also saves and reloads a telephone cable between
 two actual catalog modems.
+
+Large source chassis fitted into a smaller saved rack allocation can opt out of
+unreadable physical captions with `descriptionAnchor.hidden: true`. Only the
+literal boolean enables this option; normal caption readability limits remain
+unchanged. The selected Nexus 7009 uses it below half its native body scale,
+where the old 2U placeholder cannot fit its 14U source card labels. Canvas and
+SVG retain every mapped socket and cable anchor. Hover tooltips, the selected
+port inspector, and SVG port groups, titles and names retain the full saved
+label; only the small physical caption is omitted. Native-size labels normally
+remain visible. Source-oriented vector legends may replace horizontal caption
+plates on rotated modular cards, as on the SRX5800; verify every physical legend
+and retain the same full saved names and interactive identities.
+`web/faceplate_caption_visibility_test.mjs` verifies this separation.

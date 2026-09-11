@@ -43,12 +43,15 @@ assert.deepEqual(connectorSize("CFP_100G"), { width: 30, height: 16 });
 assert.deepEqual(connectorSize("OSFP_800G"), { width: 25, height: 16 });
 assert.deepEqual(connectorSize("USB_MINI_CONSOLE"), { width: 14, height: 9 });
 
-const stackProfile = hardwareCatalog.find((profile) => profile.model === "Catalyst 9500 family");
+const stackProfile = hardwareCatalog.find((profile) => profile.model === "Catalyst C9300X-24Y");
 const stackDevice = instantiateProfile(stackProfile, "CORE", { x: 0, y: 0 });
 assert.equal(stackDevice.ports.filter((port) => port.type === "Stack").length, 2);
-assert.deepEqual(stackDevice.ports.filter((port) => port.type === "Stack").map((port) => port.label), ["STACK1", "STACK2"]);
+assert.deepEqual(stackDevice.ports.filter((port) => port.type === "Stack").map((port) => port.label), ["STACK 1", "STACK 2"]);
 assert.ok(stackDevice.ports.filter((port) => port.type === "Stack").every((port) => port.mode === "Unconfigured"));
-assert.ok(stackDevice.ports.some((port) => port.group === "MGMT"), "dedicated management port metadata is required");
+const coreProfile = hardwareCatalog.find((profile) => profile.model === "Catalyst 9500 family");
+const coreDevice = instantiateProfile(coreProfile, "CORE", { x: 0, y: 0 });
+assert.equal(coreDevice.ports.filter((port) => port.type === "Stack").length, 0, "C9500-48Y4C has no dedicated stack sockets");
+assert.ok(coreDevice.ports.some((port) => port.group === "MGMT"), "dedicated management port metadata is required");
 
 function catalogDevice(model) {
   const profile = hardwareCatalog.find((candidate) => candidate.model === model);
@@ -182,9 +185,12 @@ assert.equal(catalogDevice("SRX4600").device.ports.filter((port) => port.type ==
 for (const [model, units] of [["SRX5400", 5], ["SRX5600", 8], ["SRX5800", 16]]) {
   const { profile, device } = catalogDevice(model);
   assert.equal(profile.units, units);
-  assert.equal(profile.portLayout.sourceScope, "modular");
-  assert.equal(profile.portLayout.labelFidelity, "modular");
-  assert.equal(device.ports.length, 3, `${model} must not invent connectors for unselected line cards`);
+  assert.equal(profile.portLayout.sourceScope, "model");
+  assert.equal(profile.portLayout.labelFidelity, "exact");
+  assert.equal(profile.preserveInstalledPorts, true);
+  assert.equal(device.ports.length, model === "SRX5800" ? 25 : 21, `${model} exposes only its documented selected cards and feeds`);
+  assert.equal(device.ports.filter(port => port.type === "QSFP_PLUS_40G").length, 12);
+  assert.equal(device.ports.filter(port => port.type === "Power").length, model === "SRX5800" ? 8 : 4);
 }
 
 const fiberPanelProfile = hardwareCatalog.find((profile) => profile.model === "LC fiber panel 24");

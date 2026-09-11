@@ -1,9 +1,37 @@
+import { resolvePA7050Faceplate } from "./faceplate-pa7050-models.js";
+import { resolveExtremeFinalFaceplate } from "./faceplate-extreme-final-models.js";
+import { resolveJuniperSRX5KFaceplate } from "./faceplate-juniper-srx5k-models.js";
+import { resolveExtremeNextFaceplate } from "./faceplate-extreme-next-models.js";
+import { resolveExtremeG2Faceplate } from "./faceplate-extreme-g2-models.js";
+import { resolveJuniperModularFaceplate } from "./faceplate-juniper-modular-models.js";
+import { resolveJuniperQFXSpineFaceplate } from "./faceplate-juniper-qfx-spine-models.js";
+import { resolveFirepower9300Faceplate } from "./faceplate-firepower9300-model.js";
+import { resolveMerakiAggregationFaceplate } from "./faceplate-meraki-aggregation-models.js";
+import { resolveMerakiAdvancedFaceplate } from "./faceplate-meraki-advanced-models.js";
+import { resolveJuniperQFXNextFaceplate } from "./faceplate-juniper-qfx-next-models.js";
+import { resolveRuckusFinalFaceplate } from "./faceplate-ruckus-final-models.js";
+import { resolveMerakiAccessFaceplate } from "./faceplate-meraki-access-models.js";
+import { resolveJuniperQFXAccessFaceplate } from "./faceplate-juniper-qfx-access-models.js";
+import { resolvePA5410Faceplate } from "./faceplate-pa5410-models.js";
+import { resolveJuniperEXCoreFaceplate } from "./faceplate-juniper-ex-core-models.js";
+import { resolveRuckusNextFaceplate } from "./faceplate-ruckus-next-models.js";
+import { resolveCiscoNexusFinalFaceplate } from "./faceplate-cisco-nexus-final-models.js";
+import { resolvePA5220Faceplate } from "./faceplate-pa5220-models.js";
+import { resolveJuniperEXNextFaceplate } from "./faceplate-juniper-ex-next-models.js";
 import { canonicalFaceplateDevice, layoutPanelPorts } from "./faceplate-profile.js";
 import { buildSophosModelFaceplate } from "./faceplate-sophos-models.js";
 import { buildPaloAltoModelFaceplate } from "./faceplate-paloalto-models.js";
 import { buildCiscoASAModelFaceplate } from "./faceplate-cisco-asa-models.js";
 import { buildCiscoFirepowerModelFaceplate } from "./faceplate-cisco-firepower-models.js";
 import { buildCiscoCatalystModelFaceplate } from "./faceplate-cisco-catalyst-models.js";
+import { resolveCatalystFamilyFaceplate } from "./faceplate-catalyst-family-models.js";
+import { resolveCatalystChassisFaceplate } from "./faceplate-catalyst-chassis-models.js";
+import { resolveCiscoEdgeFaceplate } from "./faceplate-cisco-edge-models.js";
+import { resolveCiscoISRFaceplate } from "./faceplate-cisco-isr-models.js";
+import { resolvePA3410Faceplate } from "./faceplate-pa3410-models.js";
+import { resolveJuniperEXFamilyFaceplate } from "./faceplate-juniper-ex-family-models.js";
+import { resolveRuckusFamilyFaceplate } from "./faceplate-ruckus-family-models.js";
+import { resolveCiscoNexusFamilyFaceplate } from "./faceplate-cisco-nexus-family-models.js";
 import { buildCiscoNexusModelFaceplate } from "./faceplate-cisco-nexus-models.js";
 import { buildCiscoMerakiModelFaceplate } from "./faceplate-cisco-meraki-models.js";
 import { buildCiscoIndustrialModelFaceplate } from "./faceplate-cisco-industrial-models.js";
@@ -229,6 +257,62 @@ function register(vendor, family, models, source, options = {}) {
 
 /** Resolve a cached model or family drawing independently of editable port labels. */
 export function resolveEnterpriseFaceplate(device) {
+  const extremeFinal = resolveExtremeFinalFaceplate(device);
+  if (extremeFinal) return extremeFinal;
+  const juniperSRX5K = resolveJuniperSRX5KFaceplate(device);
+  if (juniperSRX5K) return juniperSRX5K;
+  const extremeNext = resolveExtremeNextFaceplate(device);
+  if (extremeNext) return extremeNext;
+  const extremeG2 = resolveExtremeG2Faceplate(device);
+  if (extremeG2) return extremeG2;
+  const juniperModular = resolveJuniperModularFaceplate(device);
+  if (juniperModular) return juniperModular;
+  const juniperQFXSpine = resolveJuniperQFXSpineFaceplate(device);
+  if (juniperQFXSpine) return juniperQFXSpine;
+  const firepower9300 = resolveFirepower9300Faceplate(device);
+  if (firepower9300) return firepower9300;
+  const merakiAggregation = resolveMerakiAggregationFaceplate(device);
+  if (merakiAggregation) return merakiAggregation;
+  const merakiAdvanced = resolveMerakiAdvancedFaceplate(device);
+  if (merakiAdvanced) return merakiAdvanced;
+  const merakiAccess = resolveMerakiAccessFaceplate(device);
+  if (merakiAccess) return merakiAccess;
+  const juniperQFXAccess = resolveJuniperQFXAccessFaceplate(device);
+  if (juniperQFXAccess) return juniperQFXAccess;
+  const pa7050 = resolvePA7050Faceplate(device);
+  if (pa7050) return pa7050;
+  const pa5410 = resolvePA5410Faceplate(device);
+  if (pa5410) return pa5410;
+  const juniperEXCore = resolveJuniperEXCoreFaceplate(device);
+  if (juniperEXCore) return juniperEXCore;
+  const nexusFinal = resolveCiscoNexusFinalFaceplate(device);
+  if (nexusFinal) return nexusFinal;
+  const juniperQFXNext = resolveJuniperQFXNextFaceplate(device);
+  if (juniperQFXNext) return juniperQFXNext;
+  const ruckusFinal = resolveRuckusFinalFaceplate(device);
+  if (ruckusFinal) return ruckusFinal;
+  const ruckusNext = resolveRuckusNextFaceplate(device);
+  if (ruckusNext) return ruckusNext;
+  const pa5220 = resolvePA5220Faceplate(device);
+  if (pa5220) return pa5220;
+  const juniperEXNext = resolveJuniperEXNextFaceplate(device);
+  if (juniperEXNext) return juniperEXNext;
+  const nexusFamily = resolveCiscoNexusFamilyFaceplate(device);
+  if (nexusFamily) return nexusFamily;
+  const ruckusFamily = resolveRuckusFamilyFaceplate(device);
+  if (ruckusFamily) return ruckusFamily;
+  const juniperEX = resolveJuniperEXFamilyFaceplate(device);
+  if (juniperEX) return juniperEX;
+  const pa3410 = resolvePA3410Faceplate(device);
+  if (pa3410) return pa3410;
+  const ciscoISR = resolveCiscoISRFaceplate(device);
+  if (ciscoISR) return ciscoISR;
+  const ciscoEdge = resolveCiscoEdgeFaceplate(device);
+  if (ciscoEdge) return ciscoEdge;
+  const catalystChassis = resolveCatalystChassisFaceplate(device);
+  if (catalystChassis) return catalystChassis;
+  const arista = resolveAristaFaceplate(device);
+  if (arista) return arista;
   const key = `${device?.faceplate?.vendor}\0${device?.model}`;
   const definition = definitions.get(key);
   if (!definition) return null;
@@ -237,6 +321,7 @@ export function resolveEnterpriseFaceplate(device) {
   if (!layouts.has(key)) layouts.set(key, buildSophosModelFaceplate(canonical.device)
     || buildPaloAltoModelFaceplate(canonical.device) || buildCiscoASAModelFaceplate(canonical.device)
     || buildCiscoFirepowerModelFaceplate(canonical.device)
+    || resolveCatalystFamilyFaceplate(canonical.device)
     || buildCiscoCatalystModelFaceplate(canonical.device)
     || buildCiscoNexusModelFaceplate(canonical.device)
     || buildCiscoMerakiModelFaceplate(canonical.device)
@@ -244,7 +329,6 @@ export function resolveEnterpriseFaceplate(device) {
     || buildJuniperSRXModelFaceplate(canonical.device)
     || buildJuniperEXModelFaceplate(canonical.device)
     || buildCheckPointModelFaceplate(canonical.device)
-    || resolveAristaFaceplate(canonical.device)
     || buildDellModelFaceplate(canonical.device)
     || buildRuckusModelFaceplate(canonical.device)
     || resolveExtremeFaceplate(canonical.device)

@@ -1,6 +1,6 @@
 import { resolveFaceplateTemplate } from "./faceplate.js";
 import { resolveModelFaceplate } from "./faceplate-models.js";
-import { faceplateConnectorSize, portDescriptionPlacement } from "./termination.js";
+import { connectorKind, faceplateConnectorSize, portDescriptionPlacement } from "./termination.js";
 
 const modelSlotIndexes = new WeakMap();
 
@@ -45,23 +45,31 @@ function portBox(port, device, centerX, centerY, size) {
     width: size.width, height: size.height, centerX, centerY };
 }
 
-/** Resolve a physical slot while allowing users to rename the port label. */
-function modelSlot(profile, port, legacyLayout) {
+/** Index canonical sockets with shared identities across lookup paths. */
+function indexModelSlots(profile) {
   if (!modelSlotIndexes.has(profile)) {
     const byIndex = new Map();
     const byLabel = new Map();
+    const byFace = new Map();
     for (const [face, panel] of Object.entries(profile.faces)) {
+      byFace.set(face, []);
       for (const slot of panel.ports) {
         const located = { ...slot, face };
         if (!byLabel.has(slot.label)) byLabel.set(slot.label, []);
         if (!byIndex.has(slot.portIndex)) byIndex.set(slot.portIndex, []);
         byIndex.get(slot.portIndex).push(located);
         byLabel.get(slot.label).push(located);
+        byFace.get(face).push(located);
       }
     }
-    modelSlotIndexes.set(profile, { byIndex, byLabel });
+    modelSlotIndexes.set(profile, { byIndex, byLabel, byFace });
   }
-  const { byIndex, byLabel } = modelSlotIndexes.get(profile);
+  return modelSlotIndexes.get(profile);
+}
+
+/** Resolve a physical slot while allowing users to rename the port label. */
+function modelSlot(profile, port, legacyLayout) {
+  const { byIndex, byLabel } = indexModelSlots(profile);
   const sameType = (slot) => !slot.type || slot.type === port.type || slot.compatibleTypes?.includes(port.type);
   if (legacyLayout) return byIndex.get(legacyLayout.portIndexMap?.[port.portIndex])?.find(sameType);
   if (Number.isInteger(port.portIndex) && port.portIndex > 0) return byIndex.get(port.portIndex)?.find(sameType);
@@ -81,7 +89,11 @@ function fitPortDescriptions(ports, bounds, chassis) {
     label.boxHeight = Number.isFinite(label.boxHeight)
       ? Math.max(7, label.fontSize + 1.5, Math.min(11, label.boxHeight)) : 11;
     label.boxMaxWidth = Math.max(4, Math.min(label.x - chassis.x, chassis.x + chassis.width - label.x) * 2 - 2);
+    // Modular cards can reserve a smaller local caption area beside a socket.
+    if (Number.isFinite(label.boxWidth) && label.boxWidth > 0) label.boxMaxWidth = Math.min(label.boxMaxWidth, Math.max(4, label.boxWidth));
     port.labelPlacement = label;
+    // A model may omit unreadable physical captions after fitting a large saved chassis into a small allocation.
+    if (label.hidden === true) continue;
     const row = Math.floor(label.y / 11);
     if (!rows.has(row)) rows.set(row, []);
     rows.get(row).push(label);
@@ -97,6 +109,7 @@ function fitPortDescriptions(ports, bounds, chassis) {
     }
   }
   for (const port of ports) {
+    if (port.labelPlacement.hidden === true) continue;
     port.labelPlacement.maxWidth = Math.max(1, Math.min(port.labelPlacement.maxWidth, port.labelPlacement.boxMaxWidth - 6));
   }
 }
@@ -165,6 +178,9 @@ export function buildFaceplateScene(device, bounds, { face } = {}) {
       y: chassis.y + slot.descriptionAnchor.y * chassis.height,
       ...(slot.descriptionAnchor.fontSize !== undefined ? { fontSize: slot.descriptionAnchor.fontSize } : {}),
       ...(slot.descriptionAnchor.boxHeight !== undefined ? { boxHeight: slot.descriptionAnchor.boxHeight } : {}),
+      ...(slot.descriptionAnchor.hidden === true ? { hidden: true } : {}),
+      ...(Number.isFinite(slot.descriptionAnchor.boxWidth) && slot.descriptionAnchor.boxWidth > 0
+        ? { boxWidth: slot.descriptionAnchor.boxWidth * chassis.width } : {}),
     } } : {}),
     displayLabel: slot.physicalLabel && port.label === (legacyLayout?.portLabels?.[port.portIndex] ?? slot.label)
       ? slot.physicalLabel : port.label });
@@ -181,5 +197,20 @@ export function buildFaceplateScene(device, bounds, { face } = {}) {
       portal.y + portal.height / 2, { width: 4, height: 4 }),
     portal: true,
   }));
+  // Verified hardware remains visible when a saved inventory has fewer endpoints.
+  // These components never acquire port identities, cable targets or hit regions.
+  if (profile?.fidelity === "model" && (!profile.panelFidelity?.[selectedFace] || profile.panelFidelity[selectedFace] === "model")) {
+    for (const slot of indexModelSlots(profile).byFace.get(selectedFace) || []) {
+      if (claimedSlots.has(slot) || ![slot.x, slot.y, slot.width, slot.height].every(Number.isFinite)
+        || slot.width <= 0 || slot.height <= 0) continue;
+      const width = slot.width * chassis.width;
+      const height = slot.height * chassis.height;
+      components.push({ kind: slot.connectorKind || connectorKind(slot.type),
+        x: chassis.x + slot.x * chassis.width - width / 2,
+        y: chassis.y + slot.y * chassis.height - height / 2, width, height,
+        role: "unclaimed-physical-socket", physicalSlotIndex: slot.portIndex,
+        physicalFace: selectedFace, ancillarySocket: true });
+    }
+  }
   return { profile, template, face: selectedFace, chassis, components, ports, hiddenPorts, unmappedPorts, portal };
 }

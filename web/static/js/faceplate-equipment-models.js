@@ -10,6 +10,12 @@ import { resolveAdtranFaceplate } from "./faceplate-adtran-models.js";
 import { resolveLantronixFaceplate } from "./faceplate-lantronix-models.js";
 import { resolveOpengearFaceplate } from "./faceplate-opengear-models.js";
 import { resolveRaritanFaceplate } from "./faceplate-raritan-models.js";
+import { resolveNASFaceplate } from "./faceplate-nas-models.js";
+import { resolveAPCFaceplate } from "./faceplate-apc-models.js";
+import { resolveDellStorageFaceplate } from "./faceplate-dell-storage-models.js";
+import { resolveNetAppFaceplate } from "./faceplate-netapp-models.js";
+import { resolveEatonFaceplate } from "./faceplate-eaton-models.js";
+import { resolveRemainingUPSFaceplate } from "./faceplate-ups-remaining-models.js";
 
 // Panel roles follow the cited hardware guides. Family and configurable layouts
 // preserve the catalog's representative inventory rather than asserting SKU dimensions.
@@ -75,6 +81,18 @@ const networkDiscrepancies = {
 
 /** Resolve known equipment panels, or an explicitly configured Static server's current inventory. */
 export function resolveEquipmentFaceplate(device) {
+  const remainingUPS = resolveRemainingUPSFaceplate(device);
+  if (remainingUPS) return remainingUPS;
+  const eaton = resolveEatonFaceplate(device);
+  if (eaton) return eaton;
+  const netapp = resolveNetAppFaceplate(device);
+  if (netapp) return netapp;
+  const dellStorage = resolveDellStorageFaceplate(device);
+  if (dellStorage) return dellStorage;
+  const apc = resolveAPCFaceplate(device);
+  if (apc) return apc;
+  const nas = resolveNASFaceplate(device);
+  if (nas) return nas;
   const raritan = resolveRaritanFaceplate(device);
   if (raritan) return raritan;
   const opengear = resolveOpengearFaceplate(device);

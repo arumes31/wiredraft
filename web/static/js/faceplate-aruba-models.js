@@ -1,4 +1,6 @@
 import { canonicalFaceplateDevice } from "./faceplate-profile.js";
+import { resolveArubaRemainingFaceplate } from "./faceplate-aruba-remaining.js";
+import { resolveArubaChassisFaceplate } from "./faceplate-aruba-chassis.js";
 
 const guides = {
   "6100": "https://arubanetworking.hpe.com/techdocs/hardware/switches/6100/IGSG/igsg_6000-6100.pdf",
@@ -29,6 +31,10 @@ const cache = new Map();
 
 /** Resolve only an explicitly traced Aruba chassis and its documented hardware configuration. */
 export function resolveArubaFaceplate(device) {
+  const chassis = resolveArubaChassisFaceplate(device);
+  if (chassis) return chassis;
+  const remaining = resolveArubaRemainingFaceplate(device);
+  if (remaining) return remaining;
   if (device?.faceplate?.vendor !== "HPE Aruba" || !models.has(device.model)) return null;
   if (!cache.has(device.model)) {
     const definition = models.get(device.model);

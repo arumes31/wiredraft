@@ -35,7 +35,7 @@ test("Aruba exact profiles retain model-specific evidence and separate all front
     assert.equal(resolveArubaFaceplate(device), profile, "immutable model geometry is cached");
   }
   assert.equal(resolveArubaFaceplate({}), null);
-  assert.equal(resolveArubaFaceplate(deviceFor("CX 6400 family")), null, "untraced modular chassis remain pending");
+  assert.equal(resolveArubaFaceplate({ ...deviceFor("CX 6400 family"), model: "CX 6400 unlisted revision" }), null, "unlisted chassis must not inherit a verified model");
 });
 
 test("6100 and 6200F use opposite optical banks and their documented service connectors", () => {

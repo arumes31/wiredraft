@@ -1,6 +1,7 @@
 import { canonicalFaceplateDevice } from "./faceplate-profile.js";
 import { resolveHPEEntryServerFaceplate } from "./faceplate-hpe-entry-models.js";
 import { resolveHPEDL500Faceplate } from "./faceplate-hpe-dl500-models.js";
+import { resolveHPETowerFaceplate } from "./faceplate-hpe-tower-models.js";
 
 const support = "https://support.hpe.com/hpesc/public/docDisplay?docId=";
 const definitions = {
@@ -29,6 +30,8 @@ const cache = new Map();
 
 /** Resolve explicitly selected HPE rack-server configurations, independently of saved rack height. */
 export function resolveHPEServerFaceplate(device) {
+  const tower = resolveHPETowerFaceplate(device);
+  if (tower) return tower;
   const dl500 = resolveHPEDL500Faceplate(device);
   if (dl500) return dl500;
   const entry = resolveHPEEntryServerFaceplate(device);

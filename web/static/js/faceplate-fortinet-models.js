@@ -1,3 +1,4 @@
+import {applyFortinetPowerDetails,fitFortinetPowerAllocation} from "./faceplate-fortinet-power-models.js";
 import { canonicalFaceplateDevice, layoutPanelPorts } from "./faceplate-profile.js";
 
 const profiles = new Map();
@@ -110,7 +111,7 @@ export function resolveFortinetFaceplate(device) {
   const canonical = canonicalFaceplateDevice(device);
   if (!canonical) return null;
   if (!profiles.has(device.model)) profiles.set(device.model, buildFortinetProfile(canonical));
-  return profiles.get(device.model);
+  return fitFortinetPowerAllocation(profiles.get(device.model),device);
 }
 
 /** Create a normalized decorative component; coordinates follow illustrations, not measured dimensions. */
@@ -209,7 +210,7 @@ function buildFortinetProfile({ catalog, device }) {
   else if (/^FortiGate 110[01]E$/.test(model)) add1100E(profile, device);
   else if (/^FortiGate 180[01]F$/.test(model)) add1800F(profile, device);
   else if (/^FortiGate 260[01]F$/.test(model)) add2600F(profile, device);
-  else if (/^FortiGate 300[01]F$/.test(model)) add3000F(profile, device);
+  else if (/^FortiGate 300[01]F(?:-ACDC)?$/.test(model)) add3000F(profile, device);
   else if (/^FortiGate 320[01]F$/.test(model)) add3200F(profile, device);
   else if (/^FortiGate 350[01]F$/.test(model)) add3500F(profile, device);
   else if (/^FortiGate 370[01]F$/.test(model)) add3700F(profile, device);
@@ -224,7 +225,7 @@ function buildFortinetProfile({ catalog, device }) {
   else if (/^FortiGate 5[01]G-5G$/.test(model)) add50GCellular(profile, device);
   else if (model === "FortiGate 2201E-ACDC" || /^FortiGate (?:220[01]E|330[01]E)$/.test(model)) add22013300E(profile, device);
   else if (/^FortiGate (?:340[01]E(?:-DC)?|360[01]E|3600E-DC)$/.test(model)) add34003600E(profile, device);
-  else if (/^FortiGate 39[68]0E(?:-DC)?$/.test(model)) add39603980E(profile, device);
+  else if (/^FortiGate 39[68]0E(?:-(?:DC|ACDC))?$/.test(model)) add39603980E(profile, device);
   else if (/^FortiGate (?:2000E|2500E)$/.test(model)) add20002500E(profile, device);
   else if (model === "FortiGate 400E-Bypass") add400EBypass(profile, device);
   else if (/^FortiGate 800D(?:-DC)?$/.test(model)) add800D(profile, device);
@@ -253,6 +254,7 @@ function buildFortinetProfile({ catalog, device }) {
     for (const port of face.ports) port.height = Math.min(port.height, .24 / (units * profile.chassis.height));
   }
   if (catalog.fidelity === "modular" && !profile.panelsVerified) addModularRegion(profile, device, units);
+  applyFortinetPowerDetails(profile,device);
   if (profile.panelsVerified) recordMissingPorts(profile, device);
   return profile;
 }

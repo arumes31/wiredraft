@@ -1,4 +1,8 @@
 import { canonicalFaceplateDevice } from "./faceplate-profile.js";
+import { resolveAristaFamilyFaceplate, anchorAristaExactPanels } from "./faceplate-arista-family-models.js";
+import { resolveAristaNextFaceplate } from "./faceplate-arista-next-models.js";
+import { resolveAristaModularFaceplate } from "./faceplate-arista-modular-models.js";
+import { resolveArista7800Faceplate } from "./faceplate-arista-7800-models.js";
 
 const ROOT = "https://www.arista.com/assets/data/pdf/";
 const definitions = new Map([
@@ -16,8 +20,16 @@ const definitions = new Map([
 ]);
 const cache = new Map();
 
-/** Resolve the three individually inspected Arista SKUs without promoting neighboring family placeholders. */
+/** Resolve individually inspected Arista SKUs and explicitly selected family configurations. */
 export function resolveAristaFaceplate(device) {
+  const chassis7800 = resolveArista7800Faceplate(device);
+  if (chassis7800) return chassis7800;
+  const modular = resolveAristaModularFaceplate(device);
+  if (modular) return modular;
+  const next = resolveAristaNextFaceplate(device);
+  if (next) return next;
+  const family = resolveAristaFamilyFaceplate(device, resolveAristaFaceplate);
+  if (family) return family;
   const definition = definitions.get(device?.model);
   if (!definition || device.faceplate?.vendor !== "Arista") return null;
   if (!cache.has(device.model)) {
@@ -41,8 +53,8 @@ export function resolveAristaFaceplate(device) {
       catalogDiscrepancies: ["New inventory includes the previously omitted 1G Ethernet management endpoint. Revision-zero saved devices retain their original endpoint IDs and do not gain missing sockets automatically.",
         ...(campus ? ["New inventory corrects ports 1–40 to 2.5G and 41–48 to 5G copper, adds SFP28 ports 49–52, and numbers QSFP28 ports 53–54. Old QSFP indices 49–50 map to physical 53–54, and old console index 51 maps to 55; saved types, speeds and custom names remain unchanged."] : [])],
       chassis: { x: .025, y: .04, width: .95, height: .92 },
-      faces: campus ? campusPanels(canonical.device.ports) : device.model === "7050SX3-48YC8"
-        ? leafPanels(canonical.device.ports) : spinePanels(canonical.device.ports),
+      faces: anchorAristaExactPanels(campus ? campusPanels(canonical.device.ports) : device.model === "7050SX3-48YC8"
+        ? leafPanels(canonical.device.ports) : spinePanels(canonical.device.ports), device.model),
     });
   }
   return cache.get(device.model);
@@ -82,8 +94,8 @@ function leafPanels(ports) {
     ...Array.from({ length: 4 }, (_, index) => part("led", .948 + index * .011, .07, .006, .045))];
   const rear = [socket(ports, 57, .209, .75, .031, .255, "CONSOLE", "rj45"),
     socket(ports, 58, .209, .28, .031, .255, "MGMT", "rj45")];
-  const rearComponents = [part("psu", .005, .035, .176, .93, "PS1", "ac-fan-left"),
-    part("psu", .818, .035, .176, .93, "PS2", "ac-fan-left"),
+  const rearComponents = [part("psu", .005, .035, .176, .93, "PS1", "arista-pwr-511-ac"),
+    part("psu", .818, .035, .176, .93, "PS2", "arista-pwr-511-ac"),
     part("usb", .194, .47, .030, .085), ...fanTray(.242, .183, 1, 2), ...fanTray(.627, .183, 2, 2),
     part("text", .447, .29, .156, .12, "7050SX3-48YC8")];
   return { front: { ports: front, components: frontComponents }, rear: { ports: rear, components: rearComponents } };
@@ -102,8 +114,8 @@ function spinePanels(ports) {
     part("usb", .934, .48, .028, .07),
     ...Array.from({ length: 8 }, (_, index) => part("vent", .074 + index * .107, .51, .087, .07, undefined, "mesh")),
     ...Array.from({ length: 4 }, (_, index) => part("led", .981, .17 + index * .085, .005, .04))];
-  const rearComponents = [part("psu", .010, .035, .201, .93, "PS1", "ac-fan-right"),
-    part("psu", .800, .035, .189, .93, "PS2", "ac-fan-right"),
+  const rearComponents = [part("psu", .010, .035, .201, .93, "PS1", "arista-pwr-500ac"),
+    part("psu", .800, .035, .189, .93, "PS2", "arista-pwr-500ac"),
     ...[.242, .377, .512, .647].flatMap((x, index) => fanTray(x, .121, index + 1)),
     part("screw", .219, .28, .013, .105), part("screw", .219, .64, .013, .105)];
   return { front: { ports: front, components: frontComponents }, rear: { ports: [], components: rearComponents } };

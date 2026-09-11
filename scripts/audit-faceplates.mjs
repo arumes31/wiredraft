@@ -3,6 +3,7 @@ import { resolveFaceplateTemplate } from "../web/static/js/faceplate.js";
 import { resolvePhysicalPortGroups } from "../web/static/js/catalog-port-layouts.js";
 import { connectorSize } from "../web/static/js/termination.js";
 import { buildFaceplateScene } from "../web/static/js/faceplate-scene.js";
+import { hardwareContainsSocket } from "./faceplate-audit-geometry.mjs";
 
 const profiles = hardwareCatalog.map((profile) => {
   const groups = resolvePhysicalPortGroups(profile);
@@ -118,8 +119,7 @@ function auditPhysicalPanels(profile) {
           if (rectanglesOverlap(box, other)) panelProblems.push(`${scene.face}: sockets ${box.port.label}/${other.port.label} overlap`);
         }
         for (const item of scene.components.filter((component) => !["text", "led", "ring"].includes(component.kind))) {
-          if (item.kind === "module-bay" && item.variant === "populated" && box.x >= item.x && box.y >= item.y &&
-            box.x + box.width <= item.x + item.width && box.y + box.height <= item.y + item.height) continue;
+          if (hardwareContainsSocket(item, box)) continue;
           if (rectanglesOverlap(box, item)) panelProblems.push(`${scene.face} ${box.port.label}: overlaps ${item.kind}`);
         }
         if (scene.portal && rectanglesOverlap(box, scene.portal)) panelProblems.push(`${scene.face} ${box.port.label}: connection marker covers socket`);

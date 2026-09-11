@@ -1,3 +1,51 @@
+import {addFortinetPowerComponent} from "./hardware-fortinet-power-components.js";
+import { addPA7050Hardware } from "./hardware-pa7050-components.js";
+import { addExtremeFinalComponent } from "./hardware-extreme-final-components.js";
+import { addFortinetFinalHardware } from "./hardware-fortinet-final-components.js";
+import { addFortinetBladeComponent } from "./hardware-fortinet-blade-components.js";
+import { addFortinetChassisAliasComponent } from "./hardware-fortinet-chassis-alias-components.js";
+import { addJuniperSRX5KComponent } from "./hardware-juniper-srx5k-components.js";
+import { addExtremeNextComponent } from "./hardware-extreme-next-components.js";
+import { addExtremeG2Component } from "./hardware-extreme-g2-components.js";
+import { addJuniperModularComponent } from "./hardware-juniper-modular-components.js";
+import { addJuniperQFXSpineComponent } from "./hardware-juniper-qfx-spine-components.js";
+import { addFirepower9300Hardware } from "./hardware-firepower9300-components.js";
+import { addMerakiAggregationHardware } from "./hardware-meraki-aggregation-components.js";
+import { addMerakiAdvancedHardware } from "./hardware-meraki-advanced-components.js";
+import { addJuniperQFXNextComponent } from "./hardware-juniper-qfx-next-components.js";
+import { addRuckusFinalComponent } from "./hardware-ruckus-final-components.js";
+import { addMerakiAccessHardware } from "./hardware-meraki-access-components.js";
+import { addJuniperQFXAccessComponent } from "./hardware-juniper-qfx-access-components.js";
+import { addPA5410Hardware } from "./hardware-pa5410-components.js";
+import { addJuniperEXCoreComponent } from "./hardware-juniper-ex-core-components.js";
+import { addRuckusNextComponent } from "./hardware-ruckus-next-components.js";
+import { addCiscoNexusFinalHardware } from "./hardware-cisco-nexus-final-components.js";
+import { addPA5220Hardware } from "./hardware-pa5220-components.js";
+import { addJuniperEXNextComponent } from "./hardware-juniper-ex-next-components.js";
+import { addArubaRemainingHardware } from "./hardware-aruba-remaining.js";
+import { addNetgearComponent } from "./hardware-netgear-components.js";
+import { addHPEGen11PlatinumSupply } from "./hardware-hpe-tower.js";
+import { addNASComponent } from "./hardware-nas-components.js";
+import { addAPCComponent } from "./hardware-apc-components.js";
+import { addDellStorageComponent } from "./hardware-dell-storage.js";
+import { addCatalystFamilyHardware } from "./hardware-catalyst-family.js";
+import { addAristaNextComponent } from "./hardware-arista-next-components.js";
+import { addNetAppComponent } from "./hardware-netapp-components.js";
+import { addCatalystChassisHardware } from "./hardware-catalyst-chassis.js";
+import { addAristaModularComponent } from "./hardware-arista-modular-components.js";
+import { addEatonComponent } from "./hardware-eaton-components.js";
+import { addCiscoEdgeHardware } from "./hardware-cisco-edge-components.js";
+import { addCiscoISRHardware } from "./hardware-cisco-isr-components.js";
+import { addPA3410Hardware } from "./hardware-pa3410-components.js";
+import { addJuniperEXFamilyComponent } from "./hardware-juniper-ex-family-components.js";
+import { addRuckusFamilyComponent } from "./hardware-ruckus-family-components.js";
+import { addCiscoNexusFamilyHardware } from "./hardware-cisco-nexus-family-components.js";
+import { addArista7800Component } from "./hardware-arista-7800-components.js";
+import { addUbiquitiLegacyComponent } from "./hardware-ubiquiti-legacy-components.js";
+import { addRemainingUPSComponent } from "./hardware-ups-remaining-components.js";
+import { addArubaChassisHardware } from "./hardware-aruba-chassis.js";
+import { addAristaFamilyComponent } from "./hardware-arista-family-components.js";
+
 const DEFAULT_PALETTE = Object.freeze({
   surface: "#d9dfe1", surfaceDark: "#515e62", ink: "#102227", accent: "#22a0ab",
 });
@@ -10,7 +58,53 @@ export function hardwarePrimitives(component, palette = {}) {
   const colors = { ...DEFAULT_PALETTE, ...palette };
   if (component.ink) colors.ink = component.ink;
   const art = primitiveBuilder(component, colors);
+  if (addFortinetBladeComponent(art, component, colors)) return art.parts;
+  if (addFortinetChassisAliasComponent(art, component)) return art.parts;
+  if (addFortinetFinalHardware(art, component)) return art.parts;
+  if (addExtremeFinalComponent(art, component, colors)) return art.parts;
+  if (addJuniperSRX5KComponent(art, component)) return art.parts;
+  if (addFortinetPowerComponent(art,component)) return art.parts;
+  if (addExtremeNextComponent(art, component, colors)) return art.parts;
+  if (addExtremeG2Component(art, component, colors)) return art.parts;
+  if (addJuniperModularComponent(art, component)) return art.parts;
+  if (addJuniperQFXSpineComponent(art, component)) return art.parts;
+  if (addFirepower9300Hardware(art, component)) return art.parts;
+  if (addMerakiAggregationHardware(art, component)) return art.parts;
+  if (addMerakiAdvancedHardware(art, component)) return art.parts;
+  if (addMerakiAccessHardware(art, component)) return art.parts;
+  if (addJuniperQFXAccessComponent(art, component)) return art.parts;
+  if (addPA7050Hardware(art, component)) return art.parts;
+  if (addPA5410Hardware(art, component)) return art.parts;
+  if (addJuniperEXCoreComponent(art, component)) return art.parts;
+  if (addJuniperQFXNextComponent(art, component)) return art.parts;
+  if (addRuckusFinalComponent(art, component, colors)) return art.parts;
+  if (addRuckusNextComponent(art, component, colors)) return art.parts;
+  if (addCiscoNexusFinalHardware(art, component, colors)) return art.parts;
+  if (addCiscoNexusFamilyHardware(art, component)) return art.parts;
+  if (addRuckusFamilyComponent(art, component, colors)) return art.parts;
+  if (addJuniperEXNextComponent(art, component)) return art.parts;
+  if (addJuniperEXFamilyComponent(art, component)) return art.parts;
+  if (addPA5220Hardware(art, component)) return art.parts;
+  if (addPA3410Hardware(art, component, colors)) return art.parts;
+  if (addCiscoISRHardware(art, component, colors)) return art.parts;
+  if (addArista7800Component(art, component, colors)) return art.parts;
+  if (addUbiquitiLegacyComponent(art, component, colors)) return art.parts;
+  if (addCiscoEdgeHardware(art, component, colors)) return art.parts;
+  if (addAristaFamilyComponent(art, component, colors)) return art.parts;
+  if (addArubaChassisHardware(art, component)) return art.parts;
+  if (addAPCComponent(art, component)) return art.parts;
+  if (addDellStorageComponent(art, component, colors)) return art.parts;
+  if (addCatalystFamilyHardware(art, component)) return art.parts;
+  if (addAristaNextComponent(art, component, colors)) return art.parts;
+  if (addNetAppComponent(art, component, colors)) return art.parts;
+  if (addCatalystChassisHardware(art, component, colors)) return art.parts;
+  if (addAristaModularComponent(art, component, colors)) return art.parts;
+  if (addEatonComponent(art, component)) return art.parts;
+  if (addRemainingUPSComponent(art, component, colors)) return art.parts;
+  if (addNASComponent(art, component, colors)) return art.parts;
+  if (addArubaRemainingHardware(art, component)) return art.parts;
   const { kind } = component;
+  if (addNetgearComponent(art, component, colors)) return art.parts;
   if (kind === "text") {
     art.label(component.text ?? component.label ?? "", .5, .5, component.fontSize ?? 9);
     return art.parts;
@@ -1015,6 +1109,10 @@ function addHandle(art, colors) {
 
 /** Compose an AC or DC power supply from an inlet, grille, latch, handle, and status light. */
 function addPowerSupply(art, component, colors) {
+  if (component.variant === "hpe-flexslot-p38995") {
+    addHPEGen11PlatinumSupply(art, component, colors);
+    return;
+  }
   art.rect(.015, .035, .97, .93, colors.surfaceDark, colors.ink, .04);
   art.rect(.04, .1, .92, .8, colors.surface, colors.ink, .02);
   if (["aruba-8320-ac", "aruba-8325-ac", "aruba-8360-ac"].includes(component.variant)) {

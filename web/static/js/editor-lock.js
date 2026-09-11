@@ -44,7 +44,8 @@ export function connectionChangesOnly(before, after) {
 }
 
 export class EditorLock extends EventTarget {
-  constructor({ now = () => Date.now(), schedule = setTimeout, unschedule = clearTimeout } = {}) {
+  /** Keep native browser timers bound to their global receiver while allowing injected test clocks. */
+  constructor({ now = () => Date.now(), schedule = globalThis.setTimeout.bind(globalThis), unschedule = globalThis.clearTimeout.bind(globalThis) } = {}) {
     super();
     this.now = now;
     this.schedule = schedule;

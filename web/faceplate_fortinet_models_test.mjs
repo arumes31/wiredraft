@@ -395,7 +395,11 @@ for (const [model, count, supplyCount] of [["2201E-ACDC", 39, 2], ["3300E", 39, 
   const supplies = profile.faces.rear.components.filter((item) => item.kind === "psu");
   assert.equal(supplies.length, supplyCount);
   assert.ok(supplies.every((item) => item.orientation === "vertical"));
-  assert.ok(supplies.every((item) => item.variant === (model.endsWith("-DC") ? "dc-terminal2" : "ac")));
+  const detailedPower = /^(3960|3980)E/.test(model);
+  const expectedSupply = detailedPower
+    ? (model.endsWith("-DC") ? "fortinet-power-dc-portrait" : "fortinet-power-ac-portrait")
+    : (model.endsWith("-DC") ? "dc-terminal2" : "ac");
+  assert.ok(supplies.every((item) => item.variant === expectedSupply));
 }
 
 /** Check legacy endpoint identities, edited configuration and explicit physical index migrations together. */
@@ -433,7 +437,8 @@ verifyLegacyE("3600E", [["RJ45_1G", 2], ["SFP28_25G", 24], ["QSFP28_100G", 4], [
   Object.fromEntries(Array.from({ length: 31 }, (_, index) => [index + 1, index < 26 ? index + 1 : index < 30 ? index + 9 : 41])));
 for (const model of ["3960E", "3980E-DC"]) {
   const moreQSFP = model.startsWith("3980");
-  const expectedMap = Object.fromEntries(Array.from({ length: 18 }, (_, index) => [index + 1, index + 1]));
+  // Historical 25G placeholders cannot map to this chassis's documented 10G SFP+ cages.
+  const expectedMap = { 1: 1, 2: 2 };
   for (let index = 35; index <= (moreQSFP ? 42 : 40); index++) expectedMap[index] = index - 16;
   expectedMap[43] = moreQSFP ? 29 : 25;
   verifyLegacyE(model, [["RJ45_1G", 2], ["SFP28_25G", 32], ["QSFP28_100G", 8], ["Console", 1]], expectedMap);

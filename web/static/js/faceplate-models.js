@@ -1,8 +1,12 @@
 import { resolvePhysicalPortGroups } from "./catalog-port-layouts.js";
 import { resolveFortinetFaceplate } from "./faceplate-fortinet-models.js";
+import { resolveFortinetFinalFaceplate } from "./faceplate-fortinet-final-models.js";
+import { resolveFortinetBladeFaceplate } from "./faceplate-fortinet-blade-models.js";
+import { resolveFortinetChassisAliasFaceplate } from "./faceplate-fortinet-chassis-alias-models.js";
 import { resolveEnterpriseFaceplate } from "./faceplate-enterprise-models.js";
 import { resolveEquipmentFaceplate } from "./faceplate-equipment-models.js";
 import { resolveUbiquitiFaceplate } from "./faceplate-ubiquiti-models.js";
+import { resolveUbiquitiLegacyFaceplate } from "./faceplate-ubiquiti-legacy-models.js";
 import { resolveArubaFaceplate } from "./faceplate-aruba-models.js";
 import { resolveAccessPointFaceplate } from "./faceplate-access-point-models.js";
 
@@ -34,9 +38,15 @@ for (const suffix of ["", "-POE", "-FPOE"]) addFortiSwitch124(suffix);
 
 /** Resolve exact model artwork first, then sourced family or configurable catalog panels. */
 export function resolveModelFaceplate(device) {
+  const fortinetBlade = resolveFortinetBladeFaceplate(device);
+  if (fortinetBlade) return fortinetBlade;
+  const fortinetChassisAlias = resolveFortinetChassisAliasFaceplate(device);
+  if (fortinetChassisAlias) return fortinetChassisAlias;
+  const fortinetFinal = resolveFortinetFinalFaceplate(device);
+  if (fortinetFinal) return fortinetFinal;
   if (device?.faceplate?.vendor === "Fortinet" && models.has(device.model)) return models.get(device.model);
   return resolveAccessPointFaceplate(device) || resolveFortinetFaceplate(device) || resolveArubaFaceplate(device) || resolveEnterpriseFaceplate(device) ||
-    resolveUbiquitiFaceplate(device) || resolveEquipmentFaceplate(device);
+    resolveUbiquitiLegacyFaceplate(device) || resolveUbiquitiFaceplate(device) || resolveEquipmentFaceplate(device);
 }
 
 /** Build a normalized physical element from a reusable component kind. */

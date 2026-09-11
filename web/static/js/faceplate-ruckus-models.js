@@ -58,7 +58,8 @@ function front7550(device) {
   ports.push(socket(device, 49, .942, .675, .042, .21, "3/1", "SFP28_25G"),
     socket(device, 50, .855, .355, .042, .21, "2/1", "SFP28_25G"),
     socket(device, 51, .855, .755, .042, .21, "2/2", "SFP28_25G"),
-    { ...socket(device, 53, .223, .105, .020, .085, "USB-C"), descriptionAnchor: { x: .223, y: -.06 } });
+    { ...socket(device, 53, .223, .105, .020, .085, "USB-C"),
+      descriptionAnchor: { x: .223, y: -.06, fontSize: 5.5, boxHeight: 7, boxWidth: .068 } });
   return { ports, components: [
     part("text", .006, .035, .048, .07, "RUCKUS"),
     ...Array.from({ length: 8 }, (_, index) => part("led", .065 + index * .016, .090, .005, .04)),

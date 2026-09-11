@@ -41,6 +41,8 @@ function part(kind, x, y, width, height, label, variant) {
 function socket(device, index, x, y, width, height, physicalLabel, connectorKind) {
   const port = device.ports.find((candidate) => candidate.portIndex === index);
   if (!port) throw new Error(`${device.model}: documented socket index ${index} is missing from the catalog`);
+  // Both inspected exact panels key upper-row and rear-management RJ45 openings at the top, with contacts below.
+  if (port.type === "RJ45_1G") connectorKind = physicalLabel === "MGMT" || index % 2 ? "rj45-inverted" : "rj45";
   return { label: port.label, type: port.type, portIndex: index, x, y, width, height, physicalLabel,
     ...(connectorKind ? { connectorKind } : {}) };
 }

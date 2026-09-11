@@ -14,6 +14,33 @@ function topology() {
   return { id: "map", revision: 1, devices: [{ id: "device", positionX: 10, ports: [{ id: "p", mode: "Access", nativeVlan: 1 }] }], links: [], racks: [], vlans: [] };
 }
 
+test("default browser timers keep their global receiver when the editor unlocks", () => {
+  const originalSchedule = globalThis.setTimeout;
+  const originalUnschedule = globalThis.clearTimeout;
+  let scheduled = 0;
+  let cancelled = 0;
+  globalThis.setTimeout = function () {
+    assert.equal(this, globalThis);
+    scheduled++;
+    return 42;
+  };
+  globalThis.clearTimeout = function () {
+    assert.equal(this, globalThis);
+    cancelled++;
+  };
+  try {
+    const lock = new EditorLock();
+    lock.setMode(EditMode.ALL);
+    assert.equal(lock.mode, EditMode.ALL);
+    assert.equal(scheduled, 1);
+    lock.destroy();
+    assert.equal(cancelled, 2);
+  } finally {
+    globalThis.setTimeout = originalSchedule;
+    globalThis.clearTimeout = originalUnschedule;
+  }
+});
+
 test("editor starts locked and separates cabling from equipment", () => {
   const { lock } = fixture();
   assert.equal(lock.mode, EditMode.READ_ONLY);

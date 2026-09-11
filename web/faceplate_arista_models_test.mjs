@@ -102,7 +102,7 @@ test("7060CX2 places its two SFP+ cages at the far left and management above con
   assert.equal(sfp.length, 2);
   assert.ok(sfp.every((slot) => slot.x < .06));
   const console = slots.find((slot) => slot.type === "Console");
-  const management = slots.find((slot) => slot.physicalLabel === "MGMT");
+  const management = slots.find((slot) => slot.portIndex === 36);
   assert.equal(console.x, management.x);
   assert.ok(console.y > management.y && console.x > .9);
 });
@@ -123,7 +123,7 @@ test("720XP corrects copper speeds and four missing SFP28 uplinks without changi
 });
 
 test("Arista exact layouts do not absorb family placeholders, unknown SKUs or another vendor", () => {
-  for (const device of [null, {}, { model: "7050 family", faceplate: { vendor: "Arista" } },
+  for (const device of [null, {}, { model: "Unlisted Arista chassis", faceplate: { vendor: "Arista" } },
     { model: "7050SX3-48YC8C", faceplate: { vendor: "Arista" } },
     { model: "7050SX3-48YC8", faceplate: { vendor: "Other" } }]) assert.equal(resolveAristaFaceplate(device), null);
 });

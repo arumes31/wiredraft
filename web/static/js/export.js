@@ -574,7 +574,8 @@ export function buildSVGDocument(topology, engine) {
     parts.push(`<g data-layer="faceplate" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${rackFace}" data-name="${escapeXML(device.name)}" data-template="${template.id}"${scene?.profile ? ` data-hardware-face="${scene.face}" data-faceplate-fidelity="${escapeXML(scene.profile.fidelity || "model")}" data-hardware-source="${escapeXML(scene.profile.source || "")}"` : ""}><title>${escapeXML(device.name)} · ${escapeXML(device.model || device.category || "Device")}</title>`);
     if (scene?.profile) {
       const chassis = scene.chassis;
-      parts.push(`<rect data-layer="physical-chassis" x="${chassis.x + offsetX}" y="${chassis.y + offsetY}" width="${chassis.width}" height="${chassis.height}" rx="${chassis.shape === "circle" ? chassis.width / 2 : 4}" fill="${template.surface}" stroke="#687b7f"/>`);
+      // A strict model opt-in replaces the generic body with its authored component silhouette.
+      if (chassis.componentDrawn !== true) parts.push(`<rect data-layer="physical-chassis" x="${chassis.x + offsetX}" y="${chassis.y + offsetY}" width="${chassis.width}" height="${chassis.height}" rx="${chassis.shape === "circle" ? chassis.width / 2 : 4}" fill="${template.surface}" stroke="#687b7f"/>`);
       parts.push(`<g transform="translate(${offsetX} ${offsetY})">`);
       for (const component of scene.components) {
         parts.push(`<g data-component="${escapeXML(component.kind)}">${hardwareComponentSVG(component, template)}</g>`);
@@ -680,7 +681,8 @@ export function buildSVGDocument(topology, engine) {
           labelPlacement: geometry.labelPlacement,
           x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height,
         };
-        renderedPortLabels.push({ ...portDescriptionPlacement(portBox, box), label: geometry.displayLabel ?? portLabel, template, offsetX, offsetY });
+        // Keep the complete port group/title/name above even when the physical caption is intentionally omitted.
+        if (geometry.labelPlacement?.hidden !== true) renderedPortLabels.push({ ...portDescriptionPlacement(portBox, box), label: geometry.displayLabel ?? portLabel, template, offsetX, offsetY });
       }
     }
     parts.push(`</g>`);

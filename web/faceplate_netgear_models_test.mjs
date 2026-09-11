@@ -26,7 +26,7 @@ test("six explicit NETGEAR traces retain stable inventory and separately cited f
     assert.equal(JSON.stringify(profile), snapshot);
   }
   assert.equal(resolveNetgearFaceplate({}), null);
-  assert.equal(resolveNetgearFaceplate({ model: "M4300 family", faceplate: { vendor: "NETGEAR" } }), null);
+  assert.equal(resolveNetgearFaceplate({ model: "M4300 unknown revision", faceplate: { vendor: "NETGEAR" } }), null);
   assert.equal(resolveNetgearFaceplate({ model: "M4300-28G", faceplate: { vendor: "Other" } }), null);
 });
 

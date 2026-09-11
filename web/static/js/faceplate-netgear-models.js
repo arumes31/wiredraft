@@ -1,5 +1,6 @@
 import { canonicalFaceplateDevice } from "./faceplate-profile.js";
 import { resolveNetgearTSFaceplate } from "./faceplate-netgear-ts-models.js";
+import { resolveNetgearFamilyFaceplate } from "./faceplate-netgear-family-models.js";
 
 const guides = {
   m4300: "https://www.downloads.netgear.com/files/GDC/M4300/M4300_HIG_EN.pdf",
@@ -21,6 +22,8 @@ const cache = new Map();
 
 /** Resolve individually traced NETGEAR SKUs while keeping older inventory identities intact. */
 export function resolveNetgearFaceplate(device) {
+  const family = resolveNetgearFamilyFaceplate(device);
+  if (family) return family;
   const ts = resolveNetgearTSFaceplate(device);
   if (ts) return ts;
   if (device?.faceplate?.vendor !== "NETGEAR" || !Object.hasOwn(definitions, device.model)) return null;

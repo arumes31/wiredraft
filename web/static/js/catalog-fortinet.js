@@ -69,6 +69,7 @@ function add(models, category, units, groups, options = {}) {
       source: options.source || (category === "Switch" ? FORTISWITCH_SPECS : PRODUCT_MATRIX),
       note: options.note || "",
       ...(options.inventoryRevision ? { inventoryRevision: options.inventoryRevision } : {}),
+      ...(options.preserveInstalledPorts === true ? { preserveInstalledPorts: true } : {}),
     });
   }
 }
@@ -210,12 +211,12 @@ add(["FortiGate 3700D"], "Firewall", 3, [ge(2), sfpp(28), qsfp40(4), consolePort
   source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/a8cceba0-1a0a-11e9-9685-f8bc1258b856/FG-3700D-Supplement.pdf",
   note: "PDF page 3 distinguishes one RJ45 console from one USB mini-B management socket. Revision 1 retains the original endpoint indices.",
 });
-add(["FortiGate 3960E"], "Firewall", 3, [ge(2), sfpp(16), qsfp100(6), consolePort()], {
+add(["FortiGate 3960E"], "Firewall", 5, [ge(2), sfpp(16), qsfp100(6), consolePort()], {
   lifecycle: "legacy", inventoryRevision: 1,
   source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/e7c49731-1a12-11e9-9685-f8bc1258b856/FortiGate-3960E-3980E-ACDC-QSG-Supplement.pdf",
   note: "PDF page 3: two GE management, sixteen 10GE SFP+ and six 100GE QSFP28 sockets, plus one console. Former extra saved endpoints remain unmapped.",
 });
-add(["FortiGate 3980E"], "Firewall", 3, [ge(2), sfpp(16), qsfp100(10), consolePort()], {
+add(["FortiGate 3980E"], "Firewall", 5, [ge(2), sfpp(16), qsfp100(10), consolePort()], {
   lifecycle: "legacy", inventoryRevision: 1,
   source: "https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/e7c49731-1a12-11e9-9685-f8bc1258b856/FortiGate-3960E-3980E-ACDC-QSG-Supplement.pdf",
   note: "PDF page 3: two GE management, sixteen 10GE SFP+ and ten 100GE QSFP28 sockets, plus one console. Explicit revision mappings preserve original saved IDs and configuration.",
@@ -224,7 +225,9 @@ add(["FortiGate 3980E"], "Firewall", 3, [ge(2), sfpp(16), qsfp100(10), consolePo
 // Chassis platforms have no single fixed data-port faceplate. The profile shows
 // their fixed management plane and explicitly tells the operator to add the
 // installed interface/process modules as separate devices.
-add(["FortiGate 5001E", "FortiGate 5001E1"], "Firewall", 2, [ge(2, "MGMT"), consolePort()], { lifecycle: "supported", fidelity: "modular", source: FORTIGATE_MATRIX, note: "Blade; data interfaces depend on the installed chassis/module configuration." });
+add(["FortiGate 5001E", "FortiGate 5001E1"], "Firewall", 5,
+  [ge(2,"MGMT"), {...qsfp40(2),labels:["1","2"]}, {...sfpp(2),labels:["3","4"]}, consolePort()],
+  {inventoryRevision:1,preserveInstalledPorts:true,fidelity:"verified",source:"https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/7b72a53e-1a0a-11e9-9685-f8bc1258b856/fortigate-5001E-security-system-guide.pdf",note:"One exact blade in slot 3 of a FortiGate-5060 DC carrier; five front and six rear air-baffle blanks, primary shelf manager, alarm panel, two fan trays, two PEMs. Standalone operation, slot 3 power capability 500, normal SW6. Blade network/console endpoints only; carrier services are physical ancillary art."});
 add(["FortiGate 6000F"], "Firewall", 3, [sfp28(24), qsfp100(4), managementRJ45(5), consolePort(2)], { lifecycle: "supported", fidelity: "family", source: FORTIGATE_MATRIX, note: "Family label; select a documented 6001F, 6300F, 6301F, 6500F or 6501F SKU for its physical panel." });
 add(["FortiGate 6001F", "FortiGate 6300F", "FortiGate 6301F", "FortiGate 6500F", "FortiGate 6501F"], "Firewall", 3,
   [sfp28(24), qsfp100(4), managementRJ45(2), group("management", 3, "SFP_PLUS_10G", 10000, "MGMT-SFP"), consolePort()], {
@@ -282,6 +285,13 @@ const dcAliases = {
 for (const [model, baseModel] of Object.entries(dcAliases)) {
   const base = profiles.find((profile) => profile.model === baseModel);
   if (base) profiles.push({ ...base, model, sku: skuFor(model), note: `Power/chassis variant of ${baseModel}; identical network connector faceplate.` });
+}
+
+// Preserve saved inventories and rack allocations for the documented five-unit 3900E chassis.
+for (const profile of profiles) {
+  if (/^FortiGate (?:39[68]0E(?:-(?:ACDC|DC))?|300[01]F-ACDC)$/.test(profile.model)) {
+    profile.preserveInstalledPorts = true;
+  }
 }
 
 // FortiGate Rugged physical appliances.
@@ -343,13 +353,26 @@ add(["FortiSwitch 2048F"], "Switch", 1, [sfp28(48, "PORT"), qsfp100(8), sfpp(2),
 add(["FortiSwitch 3032E"], "Switch", 1, [qsfp100(32, "PORT"), ge(1, "MGMT"), consolePort()], { lifecycle: "supported" });
 add(["FortiSwitch 3032G"], "Switch", 1, [qsfp100(32, "PORT"), sfpp(2), ge(1, "MGMT"), consolePort()], { lifecycle: "current" });
 add(["FortiSwitch Rugged 108F"], "Switch", 2, [ge(6, "PORT"), sfp(2), consolePort(), managementRJ45(1)], { lifecycle: "current" });
-add(["FortiSwitch Rugged 112F-POE"], "Switch", 2, [ge(8, "PORT", true), sfp(4), consolePort(), managementRJ45(1)], { lifecycle: "current" });
-add(["FortiSwitch Rugged 216F-POE"], "Switch", 2, [ge(16, "PORT", true), sfpp(4), consolePort(), managementRJ45(1)], { lifecycle: "current" });
+add(["FortiSwitch Rugged 112F-POE"], "Switch", 2, [ge(8, "PORT", true), sfp(4), consolePort(), managementRJ45(1)], { lifecycle: "current", inventoryRevision: 1, preserveInstalledPorts: true });
+add(["FortiSwitch Rugged 216F-POE"], "Switch", 2, [ge(16, "PORT", true), sfpp(4), consolePort(), {...managementRJ45(1), speed: 100}], { lifecycle: "current", inventoryRevision: 1, preserveInstalledPorts: true });
 add(["FortiSwitch Rugged 424F-POE"], "Switch", 2, [
   mg(12, 2500, "PORT", true),
   group("uplink", 12, "SFP_PLUS_10G", 2500, "2.5G SFP+"),
   sfpp(4), qsfp40(2), managementRJ45(1),
 ], { lifecycle: "current" });
+
+// Each family alias selects one documented population without changing the exact SKU row.
+for (const [alias, exactModel, units, selection] of [
+  ["FortiGate 6000F", "FortiGate 6301F", 3, "FG-6301F generation2 AC, six internal FPCs, two1TB RAID1 log disks, three SP-FG4000F-PS2000W high-line supplies, three FG-6000F-FAN trays and shipped four-post sliding rails."],
+  ["FortiGate 7000E", "FortiGate 7060E", 8, "FG-7060E-8 AC bundle with FIM-7920E-C selected at order: two FIM-7920E, two FPM-7620E, two SMMs, four1500W AC supplies in PWR1-4 and three dual-fan trays; other card and supply slots covered."],
+  ["FortiGate 7000F", "FortiGate 7081F", 12, "FG-7081F AC shipped base: one FIM-7921F in slot1, one FPM-7620F in slot3, two SMMs, six2500W AC supplies, six covered card slots and three triple-fan trays; Saf-D-Grid appliance inlets."],
+]) {
+  const aliasProfile = profiles.find(profile => profile.model === alias);
+  const exactProfile = profiles.find(profile => profile.model === exactModel);
+  Object.assign(aliasProfile, {units, groups: structuredClone(exactProfile.groups), inventoryRevision: 1,
+    preserveInstalledPorts: true, fidelity: "verified", source: exactProfile.source,
+    note: `Selected ${selection} Original family inventories and rack allocations remain unchanged; no optics or extra modules installed.`});
+}
 
 // Detect accidental duplicate model rows during development; duplicate options
 // are otherwise hard to notice in a long select list.

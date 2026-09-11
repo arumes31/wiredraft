@@ -158,7 +158,15 @@ test("the selected 1U HPE bodies keep their dimensions inside larger saved rack 
         const before = structuredClone(saved);
         const scene = buildFaceplateScene(saved, { x: 10, y: 40, width, height: units * 100 }, { face });
         assert.deepEqual(scene.chassis, reference.chassis, `${model} keeps its 1U physical body within ${units}U occupancy`);
-        assert.deepEqual(scene.components.filter((part) => !part.applicationOverlay), reference.components.filter((part) => !part.applicationOverlay));
+        assert.deepEqual(scene.components.filter((part) => !part.applicationOverlay && !part.ancillarySocket),
+          reference.components.filter((part) => !part.applicationOverlay && !part.ancillarySocket), "all common physical hardware keeps its exact geometry");
+        const supplements = scene.components.filter((part) => part.ancillarySocket);
+        const serial = model === "ProLiant DL20" && face === "rear"
+          ? reference.ports.find((port) => port.port.portIndex === 6) : null;
+        if (model === "ProLiant DL20" && face === "rear") assert.ok(serial, "the new inventory must expose the documented DB9 slot");
+        assert.deepEqual(supplements, serial ? [{kind:"db9",x:serial.x,y:serial.y,width:serial.width,height:serial.height,
+          role:"unclaimed-physical-socket",physicalSlotIndex:6,physicalFace:"rear",ancillarySocket:true}] : [],
+          "the legacy drawing supplements only the missing serial socket at exactly the current socket bounds");
         for (const box of scene.ports) {
           const index = model === "ProLiant DL160" && box.port.portIndex === 5 ? 3 : box.port.portIndex;
           const original = reference.ports.find((port) => port.port.portIndex === index);

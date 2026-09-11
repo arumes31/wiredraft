@@ -1418,7 +1418,7 @@ export class CanvasEngine {
     ctx.restore();
   }
 
-  /** Draw physical model components beneath the application overlays. */
+  /** Draw physical components, preserving selection outlines when a model supplies its own chassis silhouette. */
   drawDevice(ctx, device, time) {
     const box = this.deviceBoxByID?.get(device.id) || this.deviceBoxes.find((candidate) => candidate.device.id === device.id);
     if (!box) return;
@@ -1449,8 +1449,13 @@ export class CanvasEngine {
     ctx.strokeStyle = selected || multiSelected ? "#66eddd" : logicalPeer ? logicalPeerAccent : "#52666b";
     ctx.lineWidth = selected || multiSelected ? 2.5 : logicalPeer ? 2 : 1;
     if (logicalPeer) ctx.setLineDash([7, 4]);
-    ctx.beginPath(); ctx.roundRect(chassis.x, chassis.y, chassis.width, chassis.height,
-      chassis.shape === "circle" ? chassis.width / 2 : 8); ctx.fill(); ctx.stroke();
+    const componentDrawn = scene?.profile && chassis.componentDrawn === true;
+    if (!componentDrawn || selected || multiSelected || logicalPeer) {
+      ctx.beginPath(); ctx.roundRect(chassis.x, chassis.y, chassis.width, chassis.height,
+        chassis.shape === "circle" ? chassis.width / 2 : 8);
+      if (!componentDrawn) ctx.fill();
+      ctx.stroke();
+    }
     ctx.setLineDash([]);
     ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
     if (scene?.profile) {
@@ -1813,12 +1818,15 @@ export class CanvasEngine {
   }
 
   /** Draw the shared caption geometry, including compact plates on source-constrained panels. */
+  /** Draw readable scene captions while leaving compact sockets available to picking, routing and tooltips. */
   drawPortDescriptions(ctx) {
     for (const box of this.portBoxes) {
       const deviceBox = this.deviceBoxByID?.get(box.device.id) || this.deviceBoxes.find((candidate) => candidate.device.id === box.device.id);
       if (!deviceBox) continue;
       const template = resolveFaceplateTemplate(box.device);
       const placement = portDescriptionPlacement(box, deviceBox);
+      // Compact source models retain socket picking and tooltips while omitting only unreadable captions.
+      if (placement.hidden === true) continue;
       const hovered = this.hoveredPort?.port.id === box.port.id;
       const selected = this.state.selection?.type === "port" && this.state.selection.id === box.port.id;
       ctx.save();
