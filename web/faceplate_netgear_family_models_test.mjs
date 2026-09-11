@@ -43,7 +43,9 @@ for (const definition of models) {
     assert.equal(profile.fidelity, "model"); assert.equal(profile.inventoryRevision, 1);
     assert.equal(profile.inventoryComplete, true); assert.equal(profile.rearHardwareVerified, true);
     assert.equal(profile.evidence.catalogAlias, definition.model);
-    assert.match(profile.evidence.front, /downloads\.netgear\.com.*#page=\d+$/);
+    const source = new URL(profile.evidence.front);
+    assert.equal(source.origin, "https://www.downloads.netgear.com");
+    assert.match(source.hash, /^#page=\d+$/);
     assert.equal(device.ports.length, definition.count);
     const [front, rear] = scenes(device);
     assert.equal(front.ports.length, definition.front); assert.equal(rear.ports.length, definition.rear);

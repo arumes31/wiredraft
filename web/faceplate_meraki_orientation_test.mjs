@@ -23,7 +23,7 @@ test("inspected exact Meraki upper RJ45 rows and rear management retain source b
 
 test("official silver Meraki palette applies only to the source-verified access, advanced and aggregation models",()=>{
   for(const model of ["Meraki MS120","Meraki MS210","Meraki MS225","Meraki MS120-24P","Meraki MS225-48FP","Meraki MS250","Meraki MS350","Meraki MS390","Meraki MS410","Meraki MS425","Meraki MS450"]){
-    const palette=resolveFaceplateTemplate(exact(model));assert.equal(palette.id,"meraki-access-silver");assert.equal(palette.surface,"#d5d7d8");assert.equal(palette.ink,"#252b2d");assert.match(palette.source,/documentation\.meraki\.com/);
+    const palette=resolveFaceplateTemplate(exact(model));assert.equal(palette.id,"meraki-access-silver");assert.equal(palette.surface,"#d5d7d8");assert.equal(palette.ink,"#252b2d");assert.equal(new URL(palette.source).origin,"https://documentation.meraki.com");
   }
   for(const model of ["Catalyst 9200 family","Nexus 9000 family"]){const palette=resolveFaceplateTemplate(exact(model));assert.notEqual(palette.id,"meraki-access-silver");}
   assert.notEqual(resolveFaceplateTemplate({model:"Meraki MS120",faceplate:{vendor:"Other"},category:"Switch"}).id,"meraki-access-silver");

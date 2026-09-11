@@ -57,7 +57,8 @@ for (const definition of models) {
     assert.equal(profile.inventoryRevision, 1); assert.equal(profile.inventoryComplete, true);
     assert.equal(profile.rearHardwareVerified, true); assert.equal(profile.evidence.catalogAlias, definition.model);
     assert.deepEqual(profile.evidence.models, [definition.sku]); assert.equal(profile.evidence.selectedModel, definition.sku);
-    assert.match(profile.evidence.front, /arista\.com/); assert.match(profile.evidence.rear, /arista\.com/);
+    assert.equal(new URL(profile.evidence.front).origin, "https://www.arista.com");
+    assert.equal(new URL(profile.evidence.rear).origin, "https://www.arista.com");
     assert.equal(device.faceplate.unitsU, definition.units); assert.equal(device.ports.length, definition.count);
     const [front, rear] = scenes(device);
     assert.equal(front.ports.length, definition.front); assert.equal(rear.ports.length, definition.rear);
