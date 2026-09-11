@@ -541,6 +541,7 @@ func TestTelephoneEndpointRoundTrip(t *testing.T) {
 	}
 }
 
+// TestExpandedPhysicalPortTypesValidate accepts the catalog's explicitly supported physical media.
 func TestExpandedPhysicalPortTypesValidate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -560,6 +561,9 @@ func TestExpandedPhysicalPortTypesValidate(t *testing.T) {
 		{PortTypeFiberLC, 0},
 		{PortTypeFiberSC, 0},
 		{PortTypeFiberMPO, 0},
+		{PortTypeSASMiniHD12G, 12000},
+		{PortTypeSASMini6G, 6000},
+		{PortTypeFCSFP16G, 16000},
 		{PortTypeUSBMicro, 0},
 		{PortType("USB_MINI_CONSOLE"), 0},
 		{PortTypeUSBC, 0},
@@ -572,6 +576,41 @@ func TestExpandedPhysicalPortTypesValidate(t *testing.T) {
 		if err := topology.Validate(); err != nil {
 			t.Errorf("Validate() port type %q error = %v", test.portType, err)
 		}
+	}
+}
+
+// TestStorageConnectorRoundTrip preserves non-Ethernet media and settings in saved topology JSON.
+func TestStorageConnectorRoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		kind  PortType
+		speed int
+	}{{PortTypeSASMiniHD12G, 12000}, {PortTypeSASMini6G, 6000}, {PortTypeFCSFP16G, 16000}} {
+		t.Run(string(tc.kind), func(t *testing.T) {
+			topology := mustDemo(t)
+			port := &topology.Devices[0].Ports[0]
+			port.Type, port.SpeedMbps = tc.kind, tc.speed
+			port.Mode, port.NativeVLAN, port.IsPoE = PortModeUnconfigured, 0, false
+			port.AllowedVLANs = nil
+			if err := topology.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(topology)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored := topology
+			if err := json.Unmarshal(data, &restored); err != nil {
+				t.Fatal(err)
+			}
+			got := restored.Devices[0].Ports[0]
+			if got.Type != tc.kind || got.SpeedMbps != tc.speed || got.Mode != PortModeUnconfigured || got.NativeVLAN != 0 || got.ID != port.ID {
+				t.Fatalf("storage connector changed after JSON round trip: %#v", got)
+			}
+			if err := restored.Validate(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

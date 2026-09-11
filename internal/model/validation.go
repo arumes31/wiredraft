@@ -165,6 +165,7 @@ func (t Topology) Validate() error {
 	}
 
 	linkIDs := make(map[string]struct{}, len(t.Links))
+	links := make(map[string]Link, len(t.Links))
 	occupiedTerminations := make(map[string]string, terminationMapCapacity(len(t.Links)))
 	type rearChannelRecord struct {
 		panelPair string
@@ -186,6 +187,7 @@ func (t Topology) Validate() error {
 			return fmt.Errorf("duplicate link id %q", link.ID)
 		}
 		linkIDs[link.ID] = struct{}{}
+		links[link.ID] = link
 		if link.RearChannelID != "" {
 			sourceDeviceID, targetDeviceID := link.SourceDeviceID, link.TargetDeviceID
 			if sourceDeviceID > targetDeviceID {
@@ -219,7 +221,7 @@ func (t Topology) Validate() error {
 	groupIDs := make(map[string]struct{}, len(t.LinkGroups))
 	groupedLinks := make(map[string]string, len(t.Links))
 	for _, group := range t.LinkGroups {
-		if err := group.Validate(linkIDs); err != nil {
+		if err := group.Validate(links, ports); err != nil {
 			return fmt.Errorf("validating link group %q: %w", group.Name, err)
 		}
 		if _, exists := groupIDs[group.ID]; exists {
@@ -719,9 +721,9 @@ func (l Link) Validate(deviceIDs map[string]struct{}, ports map[string]Port, vla
 	return nil
 }
 
-// Validate checks a link group's structural invariants. Protocol-shape
-// mismatches are advisory findings produced by Analyze.
-func (g LinkGroup) Validate(linkIDs map[string]struct{}) error {
+// Validate checks group structure and prevents mixing physical-only and Ethernet
+// endpoints. Other protocol-shape mismatches remain advisory findings from Analyze.
+func (g LinkGroup) Validate(links map[string]Link, ports map[string]Port) error {
 	if !idPattern.MatchString(g.ID) {
 		return errors.New("link group id must be a version 4 uuid")
 	}
@@ -736,7 +738,7 @@ func (g LinkGroup) Validate(linkIDs map[string]struct{}) error {
 	}
 	seen := make(map[string]struct{}, len(g.LinkIDs))
 	for _, linkID := range g.LinkIDs {
-		if _, exists := linkIDs[linkID]; !exists {
+		if _, exists := links[linkID]; !exists {
 			return fmt.Errorf("link %q does not exist", linkID)
 		}
 		if _, exists := seen[linkID]; exists {
@@ -756,6 +758,25 @@ func (g LinkGroup) Validate(linkIDs map[string]struct{}) error {
 	}
 	if len(g.Notes) > 1000 {
 		return errors.New("link group notes must not exceed 1000 characters")
+	}
+	hasPhysical, hasEthernet := false, false
+	for _, linkID := range g.LinkIDs {
+		link := links[linkID]
+		for _, portID := range []string{link.SourcePortID, link.TargetPortID} {
+			port, exists := ports[portID]
+			if !exists {
+				return fmt.Errorf("member link %q port %q does not exist", linkID, portID)
+			}
+			switch port.Type {
+			case PortTypePower, PortTypeSASMiniHD12G, PortTypeSASMini6G, PortTypeFCSFP16G:
+				hasPhysical = true
+			default:
+				hasEthernet = true
+			}
+		}
+	}
+	if hasPhysical && hasEthernet {
+		return errors.New("link group cannot mix physical-only and Ethernet connections")
 	}
 	return nil
 }
@@ -897,6 +918,9 @@ var validPortTypes = []PortType{
 	PortTypeFiberLC,
 	PortTypeFiberSC,
 	PortTypeFiberMPO,
+	PortTypeSASMiniHD12G,
+	PortTypeSASMini6G,
+	PortTypeFCSFP16G,
 	PortTypeUSBMini,
 	PortTypeUSBMicro,
 	PortTypeUSBC,

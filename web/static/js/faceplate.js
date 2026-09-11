@@ -15,6 +15,10 @@ const SOURCES = Object.freeze({
   Sophos: "https://docs.sophos.com/nsg/hardware/operatinginstructions/xgs/sophos-operating-instructions-xgs-2100-2300-3100-3300.pdf",
   "Check Point": "https://sc1.checkpoint.com/documents/6000_7000/GSG/EN/Content/Topics/GSG_6000_7000/6000-Appliances-Hardware.htm",
   HPE: "https://www.hpe.com/us/en/compute/proliant-rack-servers.html",
+  Lenovo: "https://lenovopress.lenovo.com/",
+  IBM: "https://www.ibm.com/docs/en/ts2900tapeautoloader",
+  SEH: "https://www.seh-technology.com/fileadmin/user/downloads/deviceserver/documentation/myUTN-80_QIG51.pdf",
+  RAD: "https://www.rad.com/product/ethernet-access-devices-routers/etx-203ax-carrier-ethernet/",
   APC: "https://www.apc.com/us/en/product-range/61915-smartups/",
   CyberPower: "https://www.cyberpowersystems.com/products/ups/smart-app-sinewave/",
   Eaton: "https://www.eaton.com/us/en-us/catalog/backup-power-ups-surge-it-power-distribution.html",
@@ -79,6 +83,7 @@ const templates = Object.freeze({
     statusArea: Object.freeze({ kind: "status-stack", x: .08, y: .08, known: true, compact: true, width: 24, height: 10 }),
   },
   "cisco-campus": template("cisco-campus", "Cisco", "#26343b", "#10191e", "#e7f2f5", "#53bde9", "perforated", "status-stack", "switch"),
+  "access-additions-silver": template("access-additions-silver", "", "#c6cccd", "#929799", "#252b2d", "#6c7578", "minimal", "none", "switch"),
   "meraki-access-silver": Object.freeze({
     ...template("meraki-access-silver", "Cisco", "#d5d7d8", "#929799", "#252b2d", "#6c7578", "minimal", "none", "switch"),
     source: "https://documentation.meraki.com/Switching/MS_-_Switches/Product_Information/Overviews_and_Datasheets/MS225_Datasheet",
@@ -147,6 +152,10 @@ export function resolveFaceplateTemplate(device) {
   const model = device.model || "";
   const category = device.category || "";
   const units = Number(device.faceplate?.unitsU) || 1;
+
+  if ((vendor === "Cisco" && model === "C8200-1N-4T") ||
+    (vendor === "HPE Aruba" && ["2530-48G", "2530-24G"].includes(model)) ||
+    (vendor === "HPE" && model === "OfficeConnect 1920S 24G 2SFP")) return sourcedTemplate(templates["access-additions-silver"], vendor);
 
   if (vendor === "Static" || category === "Server") return sourcedTemplate(templates["static-server"], vendor);
   if (category === "PatchPanel") return sourcedTemplate(templates["generic-patch-panel"], vendor);

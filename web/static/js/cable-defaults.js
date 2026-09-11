@@ -1,5 +1,11 @@
 /** Choose initial cable media and VLANs without changing either endpoint's saved configuration. */
 export function defaultCableProperties(sourcePort, targetPort) {
+  const types = [sourcePort.type, targetPort.type];
+  if (types.includes("Power")) return { cableType: "POWER", vlanIds: [], primaryVlan: 0 };
+  if (types.some(type => type === "SAS_MINI_HD_12G" || type === "SAS_MINI_6G")) {
+    return { cableType: "SAS", vlanIds: [], primaryVlan: 0 };
+  }
+  if (types.includes("FC_SFP_16G")) return { cableType: "FIBER", vlanIds: [], primaryVlan: 0 };
   if (sourcePort.type === "POTS_RJ11" || targetPort.type === "POTS_RJ11") {
     return { cableType: "TELEPHONE", vlanIds: [], primaryVlan: 0 };
   }

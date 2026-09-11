@@ -4,6 +4,8 @@ import {
   defaultLinkConfiguration,
   isLinkConfigurationScopeSynchronized,
   isLinkConfigurationSynchronized,
+  isPhysicalOnlyLinkScope,
+  isPhysicalOnlyPort,
   linkConfigurationScope,
   normalizeLinkConfiguration,
 } from "./static/js/link-configuration.js";
@@ -59,4 +61,27 @@ assert.equal(isLinkConfigurationScopeSynchronized(groupTopology, "member-b", gro
 groupTopology.devices[1].ports[1].nativeVlan = 1;
 assert.equal(isLinkConfigurationScopeSynchronized(groupTopology, "member-b", groupConfiguration), false);
 
+// Physical storage and power paths must never acquire an Ethernet profile,
+// including a mixed endpoint pair and an accidentally grouped physical member.
+for (const type of ["SAS_MINI_HD_12G", "SAS_MINI_6G", "FC_SFP_16G", "Power"]) {
+  const passive = { id: "physical", type, mode: "Unconfigured", nativeVlan: 0, allowedVlans: [] };
+  assert.equal(isPhysicalOnlyPort(passive), true, type);
+  const cable = { primaryVlan: 0, vlanIds: [] };
+  assert.equal(defaultLinkConfiguration(topology, cable, passive, passive), null, type);
+  assert.equal(defaultLinkConfiguration(topology, cable, passive, source), null, `${type} source`);
+  assert.equal(defaultLinkConfiguration(topology, cable, source, passive), null, `${type} target`);
+  assert.equal(isLinkConfigurationSynchronized(cable, passive, passive, { mode: "Access", nativeVlan: 1, allowedVlans: [] }), false, type);
+  const grouped = structuredClone(groupTopology);
+  grouped.devices[1].ports[1] = { ...passive, id: "p4" };
+  const before = structuredClone(grouped);
+  assert.equal(isPhysicalOnlyLinkScope(grouped, "member-a"), true, `${type} grouped member`);
+  assert.equal(isLinkConfigurationScopeSynchronized(grouped, "member-a", groupConfiguration), false, `${type} grouped member`);
+  assert.deepEqual(grouped, before, `${type} classification must not rewrite saved topology`);
+}
+assert.equal(isPhysicalOnlyLinkScope(groupTopology, "member-a"), false);
+assert.equal(isPhysicalOnlyLinkScope(null, "missing"), false);
+assert.equal(isPhysicalOnlyPort({ type: "SFP_PLUS_10G" }), false);
+assert.equal(isPhysicalOnlyPort({ type: "FIBER_LC" }), false);
+assert.equal(isPhysicalOnlyPort({ type: "__proto__" }), false);
+assert.equal(isPhysicalOnlyPort(null), false);
 console.log("link configuration checks passed");

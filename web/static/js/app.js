@@ -28,7 +28,7 @@ import { resolveModelFaceplate } from "./faceplate-models.js";
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./link-groups.js";
 import { describeLinkGroupMembers } from "./link-group-display.js";
 import {
-  defaultLinkConfiguration, isLinkConfigurationScopeSynchronized, linkConfigurationScope, normalizeLinkConfiguration,
+  defaultLinkConfiguration, isLinkConfigurationScopeSynchronized, isPhysicalOnlyLinkScope, isPhysicalOnlyPort, linkConfigurationScope, normalizeLinkConfiguration,
 } from "./link-configuration.js";
 import {
   FirewallClusterModes, buildFirewallCluster, firewallClusterCandidates, firewallClusterForDevice,
@@ -54,7 +54,7 @@ import {
 const editLock = new EditorLock();
 const state = new AppState({ editLock });
 api.setRevisionProvider(() => state.topology?.revision);
-const cableMediaTypes = ["CAT5E", "CAT6", "CAT6A", "COAX", "FIBER", "SMF", "MMF", "DAC", "AOC", "TWINAX", "TELEPHONE"];
+const cableMediaTypes = ["CAT5E", "CAT6", "CAT6A", "COAX", "FIBER", "SMF", "MMF", "DAC", "AOC", "TWINAX", "TELEPHONE", "SAS", "POWER"];
 const elements = Object.fromEntries([
   "topology-select", "topology-count", "topology-dialog", "topology-form", "topology-dialog-title", "topology-dialog-note",
   "topology-submit-button", "delete-topology-button", "map-template-field", "location-options", "edit-topology-button",
@@ -923,11 +923,12 @@ function applyVLANChecklistColors(container) {
   });
 }
 
-/** Render physical port settings and color its VLAN choices under strict CSP. */
+/** Edit port metadata while preserving stored non-Ethernet rates and VLAN settings. */
 function renderPortInspector(portID) {
   const found = findPort(state.topology, portID);
   if (!found) return;
   const { device, port } = found;
+  const physicalOnly = isPhysicalOnlyPort(port);
   const vlanOptions = state.topology.vlans.map((vlan) => `<option value="${vlan.id}" ${vlan.id === port.nativeVlan ? "selected" : ""}>${vlan.id} · ${escapeHTML(vlan.name)}</option>`).join("");
   const checks = state.topology.vlans.map((vlan) => `<label class="check-row"><input type="checkbox" name="allowed" value="${vlan.id}" ${port.allowedVlans.includes(vlan.id) ? "checked" : ""}><i data-vlan-swatch="${vlan.id}"></i><b>${vlan.id}</b><span>${escapeHTML(vlan.name)}</span></label>`).join("");
   elements["inspector-content"].innerHTML = `
@@ -935,10 +936,10 @@ function renderPortInspector(portID) {
     <form id="port-inspector-form" class="inspector-form">
       <label><span>PORT LABEL</span><input name="label" maxlength="80" value="${escapeHTML(port.label)}" required></label>
       <label><span>INSTALLED MEDIA / TRANSCEIVER</span><select name="mediaType">${mediaTypeOptions(port.mediaType)}</select></label>
-      <div><span>SWITCHPORT MODE</span><div class="radio-row">${["Access", "Trunk", "Unconfigured"].map((mode) => `<label><input type="radio" name="mode" value="${mode}" ${port.mode === mode ? "checked" : ""}><span>${mode.toUpperCase()}</span></label>`).join("")}</div></div>
+      ${physicalOnly ? "" : `<div><span>SWITCHPORT MODE</span><div class="radio-row">${["Access", "Trunk", "Unconfigured"].map((mode) => `<label><input type="radio" name="mode" value="${mode}" ${port.mode === mode ? "checked" : ""}><span>${mode.toUpperCase()}</span></label>`).join("")}</div></div>
       <label><span>NATIVE / UNTAGGED VLAN</span><select name="nativeVlan">${vlanOptions}</select></label>
       <div><span>TAGGED ALLOWED VLANS</span><div class="checklist">${checks}</div></div>
-      <label><span>NEGOTIATED SPEED</span><select name="speedMbps">${[100, 1000, 10000, 25000, 100000].map((speed) => `<option value="${speed}" ${speed === port.speedMbps ? "selected" : ""}>${speed >= 1000 ? `${speed / 1000} Gbps` : `${speed} Mbps`}</option>`).join("")}</select></label>
+      <label><span>NEGOTIATED SPEED</span><select name="speedMbps">${[...new Set([port.speedMbps, 100, 1000, 10000, 25000, 100000])].sort((a, b) => a - b).map((speed) => `<option value="${speed}" ${speed === port.speedMbps ? "selected" : ""}>${speed >= 1000 ? `${speed / 1000} Gbps` : `${speed} Mbps`}</option>`).join("")}</select></label>`}
       <label><span>LINK STATUS</span><select name="status"><option value="up" ${port.status === "up" ? "selected" : ""}>UP / ACTIVE</option><option value="down" ${port.status !== "up" ? "selected" : ""}>DOWN</option></select></label>
       <button class="primary">APPLY PORT CONFIG</button>
     </form>`;
@@ -949,10 +950,12 @@ function renderPortInspector(portID) {
     const next = structuredClone(port);
     next.label = String(form.get("label"));
     next.mediaType = String(form.get("mediaType"));
-    next.mode = String(form.get("mode"));
-    next.nativeVlan = Number(form.get("nativeVlan"));
-    next.allowedVlans = form.getAll("allowed").map(Number).filter((id) => id !== next.nativeVlan);
-    next.speedMbps = Number(form.get("speedMbps"));
+    if (!physicalOnly) {
+      next.mode = String(form.get("mode"));
+      next.nativeVlan = Number(form.get("nativeVlan"));
+      next.allowedVlans = form.getAll("allowed").map(Number).filter((id) => id !== next.nativeVlan);
+      next.speedMbps = Number(form.get("speedMbps"));
+    }
     next.status = String(form.get("status"));
     await updateFrom(() => api.updatePort(state.topology.id, next), true, "Port configuration applied");
   });
@@ -1217,7 +1220,7 @@ function renderFirewallClusterInspector(device, cluster) {
     <div class="inspector-actions"><button id="dissolve-firewall-cluster" type="button" class="danger">DISSOLVE FIREWALL CLUSTER</button></div>`;
 }
 
-/** Render cable settings and its endpoint VLAN profile with CSP-safe swatches. */
+/** Render physical-only media editing or the existing Ethernet synchronization form. */
 function renderLinkInspector(linkID) {
   const link = state.topology.links.find((item) => item.id === linkID);
   if (!link) return;
@@ -1225,6 +1228,10 @@ function renderLinkInspector(linkID) {
   const target = findPort(state.topology, link.targetPortId);
   if (isRearPanelLink(link)) {
     renderRearPanelLinkInspector(link, source, target);
+    return;
+  }
+  if (isPhysicalOnlyLinkScope(state.topology, link.id)) {
+    renderPhysicalLinkInspector(link, source, target);
     return;
   }
   const group = groupForLink(state.topology, link.id);
@@ -1320,6 +1327,29 @@ function renderLinkInspector(linkID) {
     });
     document.getElementById("leave-link-group").addEventListener("click", () => removeLinkFromGroup(link, group));
   }
+}
+
+/** Change only this cable's media without applying Ethernet settings to either endpoint. */
+function renderPhysicalLinkInspector(link, source, target) {
+  elements["inspector-content"].innerHTML = `
+    <div class="inspector-title"><p class="eyebrow">PHYSICAL PATCH</p><h3>${escapeHTML(link.cableType)}</h3><p>${escapeHTML(source?.device.name || "Unknown")} → ${escapeHTML(target?.device.name || "Unknown")}</p></div>
+    <div class="metric-grid"><span>SOURCE<b>${escapeHTML(source?.port.label || "—")}</b></span><span>TARGET<b>${escapeHTML(target?.port.label || "—")}</b></span></div>
+    <form id="link-media-form" class="inspector-form">
+      <label><span>PHYSICAL CABLE MEDIA</span><select name="cableType">${mediaTypeOptions(link.cableType)}</select></label>
+      <button class="primary">APPLY CABLE MEDIA</button>
+    </form>
+    <div class="inspector-actions"><button id="reverse-link-direction" type="button" class="secondary" aria-label="Reverse link direction by swapping source and target">REVERSE LINK DIRECTION</button></div>
+    <div class="inspector-actions"><button id="focus-link" class="secondary">FOCUS PATH</button><button id="delete-link" class="danger">UNPATCH</button></div>`;
+  document.getElementById("link-media-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const media = String(new FormData(event.currentTarget).get("cableType"));
+    await updateFrom(() => api.updateLinkMedia(state.topology.id, link.id, media), true, "Cable media updated");
+  });
+  document.getElementById("reverse-link-direction").addEventListener("click", () => {
+    updateFrom(() => api.setLinkDirection(state.topology.id, link.id, link.targetPortId), true, "Link source and target swapped");
+  });
+  document.getElementById("focus-link").addEventListener("click", () => state.setTrace([link.id]));
+  document.getElementById("delete-link").addEventListener("click", () => deleteLink(link));
 }
 
 function renderRearPanelLinkInspector(link, source, target) {

@@ -1,7 +1,7 @@
 import { EditMode } from "./editor-lock.js";
 
 const cablingControls = [
-  "#patch-panel-map-button", "#patch-panel-map-form", "#link-group-form", "#link-configuration-form",
+  "#patch-panel-map-button", "#patch-panel-map-form", "#link-group-form", "#link-configuration-form", "#link-media-form",
   ".panel-rear-link-edit", "[data-edit-rear-link]", "#delete-link", "#reverse-link-direction", "#edit-link-group", "#leave-link-group",
 ].join(",");
 const equipmentControls = [

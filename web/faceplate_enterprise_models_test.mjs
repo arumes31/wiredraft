@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { hardwareCatalog, instantiateProfile } from "./static/js/catalog.js";
 import { resolveEnterpriseFaceplate } from "./static/js/faceplate-enterprise-models.js";
+import { resolveAccessAdditionFaceplate } from "./static/js/faceplate-access-additions-models.js";
 import { buildFaceplateScene } from "./static/js/faceplate-scene.js";
 
 const vendors = ["Cisco", "HPE Aruba", "Juniper", "Dell", "Arista", "Extreme", "Ruckus", "Palo Alto", "Sophos", "Check Point"];
@@ -97,10 +98,10 @@ function overlaps(a, b) {
     && a.y < b.y + b.height - 1e-8 && a.y + a.height > b.y + 1e-8;
 }
 
-assert.equal(profiles.length, 184, "the entire assigned enterprise inventory must be exercised");
+assert.equal(profiles.length, 187, "the entire assigned enterprise inventory must be exercised");
 for (const catalog of profiles) {
   const device = instantiateProfile(catalog, catalog.model, { x: 0, y: 0 });
-  const profile = resolveEnterpriseFaceplate(device);
+  const profile = resolveAccessAdditionFaceplate(device) || resolveEnterpriseFaceplate(device);
   assert.ok(profile, `${catalog.vendor} ${catalog.model} requires a registered family`);
   if (profile.fidelity === "model") {
     const aliasModels = verifiedAliasModels.get(device.model);
@@ -176,7 +177,7 @@ for (const catalog of profiles) {
   const edited = structuredClone(device);
   edited.ports.reverse();
   for (const port of edited.ports) port.label = "renamed";
-  assert.deepEqual(resolveEnterpriseFaceplate(edited), profile, "renaming/reordering inventory cannot move physical sockets");
+  assert.deepEqual(resolveAccessAdditionFaceplate(edited) || resolveEnterpriseFaceplate(edited), profile, "renaming/reordering inventory cannot move physical sockets");
 }
 
 for (const model of ["ASA 5506-X", "ASA 5516-X", "ASA 5555-X", "Secure Firewall 1010", "Secure Firewall 1120", "Secure Firewall 1140"]) {

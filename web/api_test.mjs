@@ -53,6 +53,7 @@ test("API client maps every public operation to its HTTP contract", async () => 
     ["create link", () => api.createLink(topologyID, child, 3), `/api/v1/topologies/${encodedTopology}/links`, "POST", 3],
     ["create links", () => api.createLinks(topologyID, [child], 3), `/api/v1/topologies/${encodedTopology}/links/bulk`, "POST", 3],
     ["configure link", () => api.configureLink(topologyID, childID, child, 3), `/api/v1/topologies/${encodedTopology}/links/${encodedChild}/configuration`, "PUT", 3],
+    ["update link media", () => api.updateLinkMedia(topologyID, childID, "SAS", 3), `/api/v1/topologies/${encodedTopology}/links/${encodedChild}/media`, "PUT", 3],
     ["set link direction", () => api.setLinkDirection(topologyID, childID, "source / port", 3), `/api/v1/topologies/${encodedTopology}/links/${encodedChild}/direction`, "PUT", 3],
     ["delete link", () => api.deleteLink(topologyID, childID, 3), `/api/v1/topologies/${encodedTopology}/links/${encodedChild}`, "DELETE", 3],
     ["create link group", () => api.createLinkGroup(topologyID, child, 3), `/api/v1/topologies/${encodedTopology}/link-groups`, "POST", 3],
@@ -94,6 +95,7 @@ test("API client maps every public operation to its HTTP contract", async () => 
         assert.equal(call.options.headers["X-CSRF-Token"], "csrf-token", `${name} csrf token`);
       }
       if (revision) assert.equal(call.options.headers["If-Match"], `"rev-${revision}"`, `${name} revision`);
+      if (name === "update link media") assert.deepEqual(JSON.parse(call.options.body), { cableType: "SAS" }, "media request contains no endpoint configuration");
     }
   } finally {
     api.setRevisionProvider(null);

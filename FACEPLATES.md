@@ -176,3 +176,49 @@ remain visible. Source-oriented vector legends may replace horizontal caption
 plates on rotated modular cards, as on the SRX5800; verify every physical legend
 and retain the same full saved names and interactive identities.
 `web/faceplate_caption_visibility_test.mjs` verifies this separation.
+
+## Rack catalog additions
+
+These entries select specific configurations. They do not infer the installed
+hardware of an existing user device. New instances start at inventory revision 1;
+renamed, reordered or sparse saved endpoints retain their IDs and cable anchors.
+Unversioned records under these newly introduced model names have no historical
+socket mapping and remain explicitly unmapped.
+
+| Catalog model | Selected configuration |
+| --- | --- |
+| ThinkSystem SR650 | 7X06CTO1WW, eight LFF SATA bays, four-port X722 1Gb LOM, dual 750W supplies |
+| ThinkSystem SR650 V2 | 7Z73CTO1WW, twelve LFF SATA bays, four-port I350 1Gb OCP, dual 1100W supplies |
+| IBM System x3550 M5 | Type 5463 CTO, eight SFF bays, four embedded 1Gb ports, dual 550W supplies; Lenovo-maintained documentation |
+| Lenovo DE2000H | 7Y71A001WW SFF, Gen1 dual controllers, four 16G FC cages, four SAS expansion sockets, covered HICs |
+| Lenovo DE240S | 7Y68A000WW, 24 SFF bays, dual four-port IOM12 modules |
+| Lenovo D1212 / D1224 | 4587EKU / 4587A31, 12 LFF / 24 SFF drives, dual three-port SAS ESMs |
+| IBM TS2900 | 3572-S7H LTO7 with rack kit, nine-position internal magazine, one external mini-SAS socket |
+| Cisco C8200-1N-4T | Base AC configuration, two copper and two SFP GE ports, covered NIM/PIM positions |
+| Aruba 2530-48G / 2530-24G | J9775A / J9776A, non-PoE, four 1G SFP uplinks |
+| HPE OfficeConnect 1920S 24G 2SFP | JL381A, non-PoE, fanless, in-band management |
+| SEH myUTN-80 | RMK1 rack kit, closed locking lid, front 100Mb LAN, rear DC input; eight USB dongle sockets remain inside |
+| RAD ETX-203AX | Original plastic GE/2SFP/2SFP2UTP, four SFP and two copper GE ports, management and control; schematic rack shelf |
+| Eaton 9PX 5000 | Original 9PX5KiRT, 230V, 3U, eight C13 and two C19 outputs, no optional network card |
+| Eaton 9PX EBM | Matching original 9PXEBM180RT, 180V, 3U |
+| Eaton 5PX 3000 | Original 5PX3000IRT2U, 230V, 2U, eight C13 and one C19 output, no optional network card |
+| Generic rack power strips | Separate 1U eight-Schuko and eight-C13/two-C19 schematics, each with a rear C20 input |
+
+Each model module records the manufacturer document, exact panel figures and
+installed population. A manufacturer-authored document obtained from a public
+mirror retains its actual provenance. The RAD shelf and generic power strips
+are explicitly schematic accessories; their geometry is not attributed to an
+unverified manufacturer SKU. Wisenet, OmniPCX and Cisco 800 require an exact
+model/chassis selection before a model-specific faceplate can be added.
+
+Storage media use `SAS_MINI_HD_12G` (SFF-8644), `SAS_MINI_6G` (SFF-8088) and
+`FC_SFP_16G`. FC uses an SFP cage without claiming an installed optical module.
+These ports start unconfigured without Ethernet VLANs. New storage cables use
+SAS or fiber media, and Power endpoints use power cables, also without VLANs.
+Their port inspectors preserve saved speeds, modes and VLAN fields when changing
+labels or media. Physical cable edits use the revision-aware
+`PUT /api/v1/topologies/{id}/links/{linkId}/media` endpoint with only `cableType`;
+this changes the selected cable without synchronizing endpoints or grouped links.
+Power is a generic cable anchor: no electrical load, voltage compatibility,
+battery protocol or UPS operation is simulated. Internal USB, monitoring and
+service interfaces drawn as ancillary parts never acquire cable endpoints.

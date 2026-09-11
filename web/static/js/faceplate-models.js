@@ -1,4 +1,10 @@
 import { resolvePhysicalPortGroups } from "./catalog-port-layouts.js";
+import { resolveLenovoServerFaceplate } from "./faceplate-lenovo-servers-models.js";
+import { resolveLenovoStorageFaceplate } from "./faceplate-lenovo-storage-models.js";
+import { resolveAccessAdditionFaceplate } from "./faceplate-access-additions-models.js";
+import { resolveRackAccessoryFaceplate } from "./faceplate-rack-accessories-models.js";
+import { resolveRadAdditionFaceplate } from "./faceplate-rad-additions-models.js";
+import { resolveEatonAdditionFaceplate } from "./faceplate-eaton-additions-models.js";
 import { resolveFortinetFaceplate } from "./faceplate-fortinet-models.js";
 import { resolveFortinetFinalFaceplate } from "./faceplate-fortinet-final-models.js";
 import { resolveFortinetBladeFaceplate } from "./faceplate-fortinet-blade-models.js";
@@ -38,6 +44,18 @@ for (const suffix of ["", "-POE", "-FPOE"]) addFortiSwitch124(suffix);
 
 /** Resolve exact model artwork first, then sourced family or configurable catalog panels. */
 export function resolveModelFaceplate(device) {
+  const eatonAddition = resolveEatonAdditionFaceplate(device);
+  if (eatonAddition) return eatonAddition;
+  const radAddition = resolveRadAdditionFaceplate(device);
+  if (radAddition) return radAddition;
+  const rackAccessory = resolveRackAccessoryFaceplate(device);
+  if (rackAccessory) return rackAccessory;
+  const accessAddition = resolveAccessAdditionFaceplate(device);
+  if (accessAddition) return accessAddition;
+  const lenovoStorage = resolveLenovoStorageFaceplate(device);
+  if (lenovoStorage) return lenovoStorage;
+  const lenovoServer = resolveLenovoServerFaceplate(device);
+  if (lenovoServer) return lenovoServer;
   const fortinetBlade = resolveFortinetBladeFaceplate(device);
   if (fortinetBlade) return fortinetBlade;
   const fortinetChassisAlias = resolveFortinetChassisAliasFaceplate(device);
