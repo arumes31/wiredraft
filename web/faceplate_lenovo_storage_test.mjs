@@ -49,7 +49,7 @@ for(const [model,sku,total,drives]of cases) {
   const d=fixture(model);d.ports.reverse();d.ports=d.ports.filter(p=>p.portIndex%2===0);d.faceplate.unitsU=3;d.rackId="saved";d.rackPosition=19;
   d.ports.forEach(p=>{p.label=`A deliberately long saved custom caption ${p.portIndex}`;p.speedMbps=99;p.nativeVlan=47;p.allowedVlans=[47,88];});
   const topology={devices:[d],links:[{id:"saved-link",sourceDeviceId:d.id,sourcePortId:d.ports[0].id,targetDeviceId:"peer",targetPortId:"peer-port"}]},before=structuredClone(topology);
-  const s=scene(d);assert.equal(s.ports.length,d.ports.length);assert.equal(s.components.filter(p=>p.ancillarySocket).length,total-d.ports.length);assert.equal(upgradeInstalledPhysicalPorts(d),false);assert.deepEqual(topology,before);
+  const s=scene(d);assert.equal(s.ports.length,d.ports.length);assert.equal(s.components.filter(p=>p.ancillarySocket).length,total-d.ports.length);assert.equal(upgradeInstalledPhysicalPorts(topology),false);assert.deepEqual(topology,before);
   assert.ok(s.ports.every(p=>p.displayLabel===p.port.label));
  });
  test(`${model} unknown revisions, types, duplicates and empty inventories never invent logical endpoints`,()=>{

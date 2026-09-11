@@ -10,6 +10,16 @@ import { addAccessAdditionComponent } from "./static/js/hardware-access-addition
 
 const counts = [5, 54, 30, 26];
 
+test("access-panel labels honor requested ink while ordinary labels retain palette ink", () => {
+  const box = { kind: "panel", x: 0, y: 0, width: 30, height: 60 };
+  const hp = hardwarePrimitives({ ...box, variant: "access-addition-hp-strip" }, { ink: "#112233" });
+  assert.equal(hp.find(part => part.text === "hp").fill, "#dce5e7");
+  const svg = hardwareComponentSVG({ ...box, variant: "access-addition-hp-strip" }, { ink: "#112233" });
+  assert.ok(svg.includes('fill="#dce5e7"'));
+  const ordinary = hardwarePrimitives({ ...box, kind: "text", label: "NORMAL" }, { ink: "#112233" });
+  assert.equal(ordinary.find(part => part.text === "NORMAL").fill, "#112233");
+});
+
 /** Construct a real registered device with distinct saved endpoint identities. */
 function fixture(row) {
   const registered = hardwareCatalog.find(p => p.vendor === row.vendor && p.model === row.model);

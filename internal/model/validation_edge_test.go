@@ -116,10 +116,10 @@ func TestAggregateValidatorsRejectDuplicateMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	linkIDs := map[string]struct{}{demo.Links[0].ID: {}, demo.Links[1].ID: {}}
+	links := map[string]Link{demo.Links[0].ID: demo.Links[0], demo.Links[1].ID: demo.Links[1]}
 	for name, validate := range map[string]func() error{
 		"link group": func() error {
-			return (LinkGroup{ID: fixtureUUID(20), Name: "G", Mode: LinkGroupModeLACP, LinkIDs: []string{demo.Links[0].ID, demo.Links[0].ID}}).Validate(linkIDs)
+			return (LinkGroup{ID: fixtureUUID(20), Name: "G", Mode: LinkGroupModeLACP, LinkIDs: []string{demo.Links[0].ID, demo.Links[0].ID}}).Validate(links, nil)
 		},
 		"switch system": func() error {
 			switches := validationMembers(DeviceCategorySwitch)

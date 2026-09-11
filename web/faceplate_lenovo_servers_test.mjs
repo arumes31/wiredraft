@@ -1,11 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {lenovoServerProfiles} from "./static/js/catalog-lenovo-servers.js";
 import {instantiateProfile,hardwareCatalog,upgradeInstalledPhysicalPorts} from "./static/js/catalog.js";
 import {resolveLenovoServerFaceplate} from "./static/js/faceplate-lenovo-servers-models.js";
 import {resolveModelFaceplate} from "./static/js/faceplate-models.js";
 import {buildFaceplateScene} from "./static/js/faceplate-scene.js";
 import {hardwarePrimitives} from "./static/js/hardware-components.js";
+
+test("server source notes retain UTF-8 page ranges and the ambient temperature", () => {
+  const bytes = readFileSync(new URL("./static/js/catalog-lenovo-servers.js", import.meta.url));
+  assert.doesNotThrow(() => new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  const profiles = lenovoServerProfiles.map(c => resolveLenovoServerFaceplate(deviceFor(c)));
+  assert.ok(profiles[0].sourcePage.includes("83\u201385"));
+  assert.ok(profiles[1].sourcePage.includes("91\u201393"));
+  assert.ok(profiles[1].note.includes("30\u00b0C"));
+  assert.ok(profiles[2].sourcePage.includes("20\u201321"));
+  assert.ok(profiles[2].sourcePage.includes("26\u201327"));
+});
 
 /** Create a complete saved record with user-defined identities independently of port geometry. */
 function deviceFor(c){const d=instantiateProfile(c,"User server",{x:47,y:81});d.id="saved-server";d.rackId="rack-id";d.rackPosition=11;for(const p of d.ports){p.id=`port-${p.portIndex}`;p.deviceId=d.id;}return d;}

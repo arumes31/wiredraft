@@ -8,7 +8,8 @@ import { lenovoServerProfiles } from "./static/js/catalog-lenovo-servers.js";
 import { lenovoStorageProfiles } from "./static/js/catalog-lenovo-storage.js";
 import { rackAccessoryProfiles } from "./static/js/catalog-rack-accessories.js";
 import { eatonAdditionProfiles } from "./static/js/catalog-eaton-additions.js";
-const additionKeys = new Set([...lenovoServerProfiles, ...lenovoStorageProfiles, ...rackAccessoryProfiles, ...eatonAdditionProfiles,
+import { radAdditionProfiles } from "./static/js/catalog-rad-additions.js";
+const additionKeys = new Set([...lenovoServerProfiles, ...lenovoStorageProfiles, ...rackAccessoryProfiles, ...eatonAdditionProfiles, ...radAdditionProfiles,
   { vendor: "HPE", model: "OfficeConnect 1920S 24G 2SFP" }].map(p => `${p.vendor}\0${p.model}`));
 
 /** Instantiate a named catalog fixture with its canonical inventory. */
@@ -59,7 +60,7 @@ test("all equipment families preserve catalog inventory through the public model
     assert.notDeepEqual(profile.faces.front, profile.faces.rear, device.model);
     assert.equal(added ? resolveModelFaceplate(device) : resolveEquipmentFaceplate(device), profile, "canonical layouts should be cached");
   }
-  assert.equal(count, 148);
+  assert.equal(count, 149);
 });
 
 test("documented connector panel roles distinguish networking, AV switches, servers and APs", () => {

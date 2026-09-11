@@ -654,13 +654,13 @@ function primitiveBuilder(component, colors) {
       parts.push({ kind: "polygon", points: points.map(([left, top]) => [x + left * width, y + top * height]),
         fill, stroke, strokeWidth, opacity: 1 });
     },
-    /** Fit a centered label inside the component rather than spilling onto adjacent hardware. */
-    label(value, left, top, requestedSize) {
+    /** Fit a centered label inside the component, with optional ink overriding the palette. */
+    label(value, left, top, requestedSize, fill = colors.ink) {
       const text = String(value);
       const fontSize = Math.min(Number.isFinite(requestedSize) && requestedSize > 0 ? requestedSize : height * .24,
         height * .7, width * .88 / Math.max(1, text.length * .62));
       parts.push({ kind: "text", x: x + left * width, y: y + top * height, text, fontSize,
-        anchor: "middle", fill: colors.ink, opacity: 1 });
+        anchor: "middle", fill, opacity: 1 });
     },
   };
 }
