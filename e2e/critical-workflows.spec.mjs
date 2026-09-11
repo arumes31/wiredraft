@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { enterGuestWorkspace } from "./auth-helper.mjs";
+import { enterGuestWorkspace, unlockEditor } from "./auth-helper.mjs";
 
 test.beforeEach(async ({ page, request }) => {
 	await enterGuestWorkspace(page, request);
   await expect(page.locator("#connection-status")).toHaveAttribute("data-state", "online", { timeout: 15_000 });
   await expect(page.locator("#diagram-canvas")).toBeVisible();
+  await unlockEditor(page);
 });
 
 test("loads a topology and opens primary editing tools", async ({ page }) => {
@@ -83,6 +84,7 @@ test("creates, switches, and remembers another network map", async ({ page, requ
   expect(created.location).toBe(location);
   await expect(page.locator("#topology-count")).toHaveText(`${before.length + 1} MAPS`);
 
+  await unlockEditor(page);
   await page.locator("#edit-topology-button").click();
   await expect(dialog.locator("#map-template-field")).toBeHidden();
   await expect(dialog.locator('[name="organization"]')).toHaveValue("Guest");
@@ -122,6 +124,7 @@ test("Panel Map explains why zero or one installed panel is insufficient", async
   await expect(page.locator("#connection-status")).toHaveAttribute("data-state", "online");
   await page.locator("#topology-select").selectOption(topology.id);
   await expect(page.locator("#topology-name")).toHaveText(topology.name);
+  await unlockEditor(page);
 
   const panelMap = page.locator("#patch-panel-map-button");
   await expect(panelMap).toHaveText("PANEL MAP");
@@ -188,7 +191,7 @@ test("installs access points and browses the edge device families", async ({ pag
   const topology = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
   const installed = topology.devices.filter((device) => device.name === deviceName).at(-1);
   expect(installed).toMatchObject({ category: "AccessPoint", model: "AP-635" });
-  expect(installed.ports.map((port) => port.label)).toEqual(["E0", "E1"]);
+  expect(installed.ports.map((port) => port.label)).toEqual(["E0", "E1", "CONSOLE"]);
 });
 
 test("edits device inventory, management identity, location, and STP priority", async ({ page, request }) => {
@@ -405,13 +408,13 @@ test("stores plan comments in the inspector and manages map resources", async ({
 
   await dialog.locator('#documentation-form [name="label"]').fill("E2E Runbook");
   await dialog.locator('#documentation-form [name="url"]').fill("https://example.com/runbook");
-  await dialog.locator("#documentation-form button").click();
+  await dialog.getByRole("button", { name: "ATTACH DOCUMENT", exact: true }).click();
   await expect(dialog.locator("#documentation-list")).toContainText("E2E Runbook");
   await dialog.locator("[data-document-embed]").last().click();
   await expect(dialog.locator("#documentation-preview")).toBeVisible();
 
   await dialog.locator('#share-form [name="name"]').fill("E2E NOC review");
-  await dialog.locator("#share-form button").click();
+  await dialog.getByRole("button", { name: "CREATE READ-ONLY LINK", exact: true }).click();
   await expect(dialog.locator("#share-list")).toContainText("SECRET SHOWN ONCE");
   await expect(dialog.locator("#share-list input")).toHaveValue(/\/api\/v1\/shared\//);
 });

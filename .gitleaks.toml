@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+# These public hardware-profile identifiers are not authentication credentials.
+# Match both the exact values and their source file; keep all default rules.
+[[allowlists]]
+description = "Documented Synology and QNAP faceplate identifiers"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^web/static/js/faceplate-nas-models\.js$''']
+regexTarget = "secret"
+regexes = ['''^(synology-rs3621rpxs-a|qnap-ts873aeu-rp)$''']

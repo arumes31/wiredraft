@@ -1,6 +1,7 @@
 const JSON_HEADERS = { "Content-Type": "application/json" };
 let revisionProvider = () => null;
 let csrfToken = "";
+let mutationGuard = null;
 
 export class APIError extends Error {
   constructor(message, status, details = null) {
@@ -19,6 +20,7 @@ export function revisionHeaders(revision, headers = JSON_HEADERS) {
 
 async function request(path, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
+  const afterMutation = !["GET", "HEAD", "OPTIONS"].includes(method) ? mutationGuard?.(path, method, options.body) : null;
   const headers = { ...(options.headers || {}) };
   if (!["GET", "HEAD", "OPTIONS"].includes(method) && csrfToken) headers["X-CSRF-Token"] = csrfToken;
   const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
@@ -29,10 +31,12 @@ async function request(path, options = {}) {
     }
     throw new APIError(body?.error || `Request failed (${response.status})`, response.status, body);
   }
+  afterMutation?.(body);
   return body;
 }
 
 export const api = {
+  setMutationGuard: (guard) => { mutationGuard = typeof guard === "function" ? guard : null; },
   setRevisionProvider: (provider) => { revisionProvider = typeof provider === "function" ? provider : () => null; },
   setCSRFToken: (token) => { csrfToken = typeof token === "string" ? token : ""; },
   authStatus: () => request("/api/v1/auth/status"),

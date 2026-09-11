@@ -813,6 +813,63 @@ func TestCreateLinksRejectsEntirePatchPanelRange(t *testing.T) {
 	}
 }
 
+// TestCreateDevicePreservesCatalogPortIndices covers normalization through creation and persisted responses.
+func TestCreateDevicePreservesCatalogPortIndices(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		indices []int
+		want    []int
+	}{
+		{name: "reordered gapped inventory", indices: []int{17, 3, 9}, want: []int{17, 3, 9}},
+		{name: "missing and duplicate indices", indices: []int{0, 17, 17}, want: []int{1, 17, 2}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			handler := newTestHandler(t)
+			topology := requestTopology(
+				t,
+				handler,
+				http.MethodPost,
+				"/api/v1/topologies",
+				map[string]string{"name": "Stable indices", "template": "demo"},
+				http.StatusCreated,
+			)
+			device := testPatchPanel("Saved physical inventory", len(tc.indices))
+			device.Ports[0].ID = "54199c32-505d-45eb-9ba6-f2a9cce08901"
+			device.Ports[0].Label = "Operator port name"
+			for index, value := range tc.indices {
+				device.Ports[index].PortIndex = value
+			}
+			topology = requestTopology(
+				t,
+				handler,
+				http.MethodPost,
+				"/api/v1/topologies/"+topology.ID+"/devices",
+				device,
+				http.StatusCreated,
+			)
+			created := topology.Devices[len(topology.Devices)-1]
+			seenIDs := map[string]bool{}
+			for index, port := range created.Ports {
+				if port.PortIndex != tc.want[index] {
+					t.Fatalf("created port %d index = %d, want %d", index, port.PortIndex, tc.want[index])
+				}
+				if port.ID == "" || seenIDs[port.ID] || port.DeviceID != created.ID {
+					t.Fatal("device creation did not assign unique endpoint IDs and their parent")
+				}
+				seenIDs[port.ID] = true
+				if port.Label != device.Ports[index].Label || port.Type != device.Ports[index].Type {
+					t.Fatal("device creation changed existing port configuration")
+				}
+			}
+			if created.Ports[0].ID != device.Ports[0].ID {
+				t.Fatal("device creation replaced an existing endpoint ID")
+			}
+		})
+	}
+}
+
 func testPatchPanel(name string, portCount int) model.Device {
 	ports := make([]model.Port, portCount)
 	for index := range ports {

@@ -1,10 +1,51 @@
 package model
 
 import (
+	"encoding/json"
+	"math"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 )
+
+// TestFaceplateInventoryRevisionJSON protects index revisions across saved topology round trips.
+func TestFaceplateInventoryRevisionJSON(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  uint32
+	}{
+		{name: "legacy inventory", input: `{}`},
+		{name: "corrected inventory", input: `{"inventoryRevision":1}`, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var faceplate FaceplateSpec
+			if err := json.Unmarshal([]byte(tc.input), &faceplate); err != nil {
+				t.Fatal(err)
+			}
+			topology, err := NewDemo()
+			if err != nil {
+				t.Fatal(err)
+			}
+			topology.Devices[0].Faceplate.InventoryRevision = faceplate.InventoryRevision
+			cloned, err := topology.Clone()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cloned.Devices[0].Faceplate.InventoryRevision; got != tc.want {
+				t.Fatalf("inventory revision after save/load = %d, want %d", got, tc.want)
+			}
+		})
+	}
+	for _, invalid := range []string{`{"inventoryRevision":-1}`, `{"inventoryRevision":1.5}`, `{"inventoryRevision":4294967296}`} {
+		var faceplate FaceplateSpec
+		if err := json.Unmarshal([]byte(invalid), &faceplate); err == nil {
+			t.Errorf("invalid inventory revision accepted: %s", invalid)
+		}
+	}
+}
 
 func TestNewDemo(t *testing.T) {
 	t.Parallel()
@@ -37,6 +78,81 @@ func TestTopologyCloneIsIndependent(t *testing.T) {
 	cloned.Devices[0].Ports[0].Label = "Changed"
 	if topology.Devices[0].Name == "Changed" || topology.Devices[0].Ports[0].Label == "Changed" {
 		t.Fatal("Clone() shares mutable device data with its source")
+	}
+}
+
+// TestTopologyPreservesPortIndicesAcrossJSON protects reordered, gapped cable endpoint identities.
+func TestTopologyPreservesPortIndicesAcrossJSON(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		revision uint32
+	}{
+		{name: "legacy inventory"},
+		{name: "corrected inventory", revision: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			topology := mustDemo(t)
+			device := &topology.Devices[0]
+			device.Faceplate.InventoryRevision = tc.revision
+			for index := range device.Ports {
+				device.Ports[index].PortIndex = 9 + index*3
+			}
+			device.Ports[0].Label = "Renamed production uplink"
+			slices.Reverse(device.Ports)
+			wantPorts := slices.Clone(device.Ports)
+			wantLinks := slices.Clone(topology.Links)
+			cloned, err := topology.Clone()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(cloned.Devices[0].Ports, wantPorts) {
+				t.Fatalf("save/load changed port identities or configuration: got %+v, want %+v",
+					cloned.Devices[0].Ports, wantPorts)
+			}
+			if !reflect.DeepEqual(cloned.Links, wantLinks) {
+				t.Fatal("save/load changed existing cable endpoints or configuration")
+			}
+			if cloned.Devices[0].Faceplate.InventoryRevision != tc.revision {
+				t.Fatal("save/load changed the catalog inventory revision")
+			}
+		})
+	}
+}
+
+// TestNormalizeRepairsPortIndices reserves existing values before assigning deterministic unused indices.
+func TestNormalizeRepairsPortIndices(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		input []int
+		want  []int
+	}{
+		{name: "empty inventory", input: []int{}, want: []int{}},
+		{name: "old unindexed inventory", input: []int{0, 0, 0}, want: []int{1, 2, 3}},
+		{name: "reserve later index", input: []int{0, 1, 0}, want: []int{2, 1, 3}},
+		{name: "duplicates and gaps", input: []int{17, 0, 17, -2, 1, 9, 0}, want: []int{17, 2, 3, 4, 1, 9, 5}},
+		{name: "large valid index", input: []int{math.MaxInt, 0, 1}, want: []int{math.MaxInt, 2, 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			topology := Topology{Devices: []Device{{ID: "device", Ports: make([]Port, len(tc.input))}}}
+			for index, value := range tc.input {
+				topology.Devices[0].Ports[index] = Port{ID: "retained", Label: "Operator label", PortIndex: value}
+			}
+			for range 2 {
+				topology.Normalize()
+				for index, port := range topology.Devices[0].Ports {
+					if port.PortIndex != tc.want[index] {
+						t.Fatalf("port %d index = %d, want %d", index, port.PortIndex, tc.want[index])
+					}
+					if port.ID != "retained" || port.Label != "Operator label" {
+						t.Fatal("index repair changed port identity or label")
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -377,6 +493,54 @@ func TestTopologyValidateRejectsInvalidFirewallClusterRole(t *testing.T) {
 	}
 }
 
+// TestTelephoneEndpointRoundTrip preserves analogue service semantics in saved ports and cables.
+func TestTelephoneEndpointRoundTrip(t *testing.T) {
+	t.Parallel()
+	source := Port{
+		ID: fixtureUUID(901), DeviceID: fixtureUUID(902), PortIndex: 53, Label: "MODEM",
+		Type: PortType("POTS_RJ11"), Mode: PortModeUnconfigured, SpeedMbps: 0,
+		AllowedVLANs: []int{}, Status: PortStatusDown,
+	}
+	target := source
+	target.ID = fixtureUUID(903)
+	target.DeviceID = fixtureUUID(904)
+	link := Link{
+		ID: fixtureUUID(905), SourceDeviceID: source.DeviceID, SourcePortID: source.ID,
+		TargetDeviceID: target.DeviceID, TargetPortID: target.ID, CableType: "TELEPHONE", VLANIDs: []int{},
+	}
+	for _, port := range []Port{source, target} {
+		if err := port.Validate(port.DeviceID, map[int]struct{}{}); err != nil {
+			t.Fatalf("telephone port without Ethernet VLANs: %v", err)
+		}
+	}
+	if err := link.Validate(map[string]struct{}{source.DeviceID: {}, target.DeviceID: {}},
+		map[string]Port{source.ID: source, target.ID: target}, map[int]struct{}{}); err != nil {
+		t.Fatalf("telephone link without Ethernet VLANs: %v", err)
+	}
+	data := struct {
+		Port Port `json:"port"`
+		Link Link `json:"link"`
+	}{source, link}
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored struct {
+		Port Port `json:"port"`
+		Link Link `json:"link"`
+	}
+	if err := json.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored, data) {
+		t.Fatalf("telephone endpoint/cable changed in JSON round trip: %#v", restored)
+	}
+	source.Type = PortType("POTS_RJ12")
+	if err := source.Validate(source.DeviceID, map[int]struct{}{}); err == nil {
+		t.Fatal("unknown telephone connector type was accepted")
+	}
+}
+
 func TestExpandedPhysicalPortTypesValidate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -387,6 +551,7 @@ func TestExpandedPhysicalPortTypesValidate(t *testing.T) {
 		{PortTypeDSLRJ11, 1000},
 		{PortTypeQSFPPlus40G, 40000},
 		{PortTypeQSFP56200G, 200000},
+		{PortType("QSFP_DD_200G"), 200000},
 		{PortTypeQSFPDD400G, 400000},
 		{PortTypeCFP100G, 100000},
 		{PortTypeCFP2100G, 100000},
@@ -396,6 +561,7 @@ func TestExpandedPhysicalPortTypesValidate(t *testing.T) {
 		{PortTypeFiberSC, 0},
 		{PortTypeFiberMPO, 0},
 		{PortTypeUSBMicro, 0},
+		{PortType("USB_MINI_CONSOLE"), 0},
 		{PortTypeUSBC, 0},
 		{PortTypeStack, 40000},
 	}

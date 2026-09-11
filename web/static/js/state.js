@@ -1,21 +1,28 @@
+import { sameDocument } from "./editor-lock.js";
+
 function clone(value) {
   return value == null ? value : structuredClone(value);
 }
 
 export class AppState extends EventTarget {
-  constructor() {
+  /** Initialize topology history and independent local view preferences. */
+  constructor({ editLock = null } = {}) {
     super();
+    this.editLock = editLock;
     this.topology = null;
     this.selection = null;
     this.analysis = { issues: [], loops: [], stp: [] };
     this.traceLinkIDs = new Set();
     this.rackFaces = new Map();
+    this.deviceFaceplateFaces = new Map();
     this.dualFaceRackIDs = new Set();
     this.history = [];
     this.future = [];
   }
 
+  /** Replace the map snapshot and retain local views only for live entities. */
   setTopology(topology, { remember = false } = {}) {
+    if (this.editLock && this.topology?.id !== topology?.id) this.editLock.setMode("read-only", "map");
     if (remember && this.topology) {
       this.history.push(clone(this.topology));
       this.history = this.history.slice(-50);
@@ -24,6 +31,8 @@ export class AppState extends EventTarget {
     this.topology = clone(topology);
     const liveRackIDs = new Set((this.topology?.racks || []).map((rack) => rack.id));
     const liveLinkIDs = new Set((this.topology?.links || []).map((link) => link.id));
+    const liveDeviceIDs = new Set((this.topology?.devices || []).map((device) => device.id));
+    this.deviceFaceplateFaces = new Map([...this.deviceFaceplateFaces].filter(([deviceID]) => liveDeviceIDs.has(deviceID)));
     this.rackFaces = new Map([...this.rackFaces].filter(([rackID]) => liveRackIDs.has(rackID)));
     this.dualFaceRackIDs = new Set([...this.dualFaceRackIDs].filter((rackID) => liveRackIDs.has(rackID)));
     this.traceLinkIDs = new Set([...this.traceLinkIDs].filter((linkID) => liveLinkIDs.has(linkID)));
@@ -32,12 +41,17 @@ export class AppState extends EventTarget {
   }
 
   commit(mutator) {
-    if (!this.topology) return;
+    if (!this.topology) return false;
+    const next = clone(this.topology);
+    mutator(next);
+    if (this.editLock && (!this.editLock.allowsChange(this.topology, next) || sameDocument(this.topology, next))) return false;
     this.history.push(clone(this.topology));
     this.history = this.history.slice(-50);
     this.future = [];
-    mutator(this.topology);
+    this.editLock?.recordChange(this.topology, next);
+    this.topology = next;
     this.emit("topology");
+    return true;
   }
 
   select(type, id) {
@@ -65,6 +79,20 @@ export class AppState extends EventTarget {
     this.emit("rack-view");
   }
 
+  /** Resolve the local hardware panel selection, honoring the model's default. */
+  deviceFaceplateFace(deviceID, defaultFace = "front") {
+    return (this.deviceFaceplateFaces.get(deviceID) ?? defaultFace) === "rear" ? "rear" : "front";
+  }
+
+  /** Change a hardware panel view without modifying inventory or rack mounting. */
+  setDeviceFaceplateFace(deviceID, face) {
+    if (!deviceID) return;
+    const next = face === "rear" ? "rear" : "front";
+    if (this.deviceFaceplateFaces.get(deviceID) === next) return;
+    this.deviceFaceplateFaces.set(deviceID, next);
+    this.emit("device-view");
+  }
+
   isRackDualFace(rackID) {
     return this.dualFaceRackIDs.has(rackID);
   }
@@ -90,8 +118,12 @@ export class AppState extends EventTarget {
 
   undo() {
     if (!this.history.length || !this.topology) return false;
+    if (this.editLock && !this.editLock.allowsChange(this.topology, this.history.at(-1))) return false;
+    this.editLock?.recordChange(this.topology, this.history.at(-1));
+    const revision = this.topology.revision;
     this.future.push(clone(this.topology));
     this.topology = this.history.pop();
+    if (revision !== undefined) this.topology.revision = revision;
     this.ensureSelection();
     this.emit("topology");
     return true;
@@ -99,8 +131,12 @@ export class AppState extends EventTarget {
 
   redo() {
     if (!this.future.length || !this.topology) return false;
+    if (this.editLock && !this.editLock.allowsChange(this.topology, this.future.at(-1))) return false;
+    this.editLock?.recordChange(this.topology, this.future.at(-1));
+    const revision = this.topology.revision;
     this.history.push(clone(this.topology));
     this.topology = this.future.pop();
+    if (revision !== undefined) this.topology.revision = revision;
     this.ensureSelection();
     this.emit("topology");
     return true;

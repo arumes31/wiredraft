@@ -43,12 +43,15 @@ assert.deepEqual(connectorSize("CFP_100G"), { width: 30, height: 16 });
 assert.deepEqual(connectorSize("OSFP_800G"), { width: 25, height: 16 });
 assert.deepEqual(connectorSize("USB_MINI_CONSOLE"), { width: 14, height: 9 });
 
-const stackProfile = hardwareCatalog.find((profile) => profile.model === "Catalyst 9500 family");
+const stackProfile = hardwareCatalog.find((profile) => profile.model === "Catalyst C9300X-24Y");
 const stackDevice = instantiateProfile(stackProfile, "CORE", { x: 0, y: 0 });
 assert.equal(stackDevice.ports.filter((port) => port.type === "Stack").length, 2);
-assert.deepEqual(stackDevice.ports.filter((port) => port.type === "Stack").map((port) => port.label), ["STACK1", "STACK2"]);
+assert.deepEqual(stackDevice.ports.filter((port) => port.type === "Stack").map((port) => port.label), ["STACK 1", "STACK 2"]);
 assert.ok(stackDevice.ports.filter((port) => port.type === "Stack").every((port) => port.mode === "Unconfigured"));
-assert.ok(stackDevice.ports.some((port) => port.group === "MGMT"), "dedicated management port metadata is required");
+const coreProfile = hardwareCatalog.find((profile) => profile.model === "Catalyst 9500 family");
+const coreDevice = instantiateProfile(coreProfile, "CORE", { x: 0, y: 0 });
+assert.equal(coreDevice.ports.filter((port) => port.type === "Stack").length, 0, "C9500-48Y4C has no dedicated stack sockets");
+assert.ok(coreDevice.ports.some((port) => port.group === "MGMT"), "dedicated management port metadata is required");
 
 function catalogDevice(model) {
   const profile = hardwareCatalog.find((candidate) => candidate.model === model);
@@ -74,28 +77,27 @@ assert.deepEqual(catalogDevice("SG3428").device.ports.slice(-2).map((port) => po
 assert.deepEqual(catalogDevice("SG3452").device.ports.slice(-2).map((port) => port.type), ["Console", "USB_MICRO_CONSOLE"]);
 assert.deepEqual(catalogDevice("GS748T").device.ports.slice(-4).map((port) => port.label), ["47F", "48F", "49", "50"]);
 
-for (const [model, portCount] of [
-  ["CCR1009", 11], ["CCR1016", 13], ["CCR1036", 17], ["CCR1072", 10],
-  ["CCR2004", 16], ["CCR2116", 18], ["CCR2216", 16],
-  ["CRS305", 5], ["CRS309", 9], ["CRS310", 10], ["CRS312", 17],
-  ["CRS317", 18], ["CRS326", 27], ["CRS328", 29], ["CRS354", 56],
-  ["CRS504", 6], ["CRS518", 20],
-]) {
+for (const [model, sku, count] of [["CCR2004", "CCR2004-1G-12S+2XS", 16], ["CCR2116", "CCR2116-12G-4S+", 18], ["CCR2216", "CCR2216-1G-12XS-2XQ", 16],
+  ["CCR1009", "CCR1009-7G-1C-1S+", 11], ["CCR1016", "CCR1016-12G r2", 13], ["CCR1036", "CCR1036-12G-4S r2", 17], ["CRS312", "CRS312-4C+8XG-RM", 18],
+  ["CCR1072", "CCR1072-1G-8S+", 10], ["CRS305", "CRS305-1G-4S+IN", 5], ["CRS309", "CRS309-1G-8S+IN", 10],
+  ["CRS317", "CRS317-1G-16S+RM", 18], ["CRS354", "CRS354-48G-4S+2Q+RM", 56], ["CRS518", "CRS518-16XS-2XQ-RM", 20],
+  ["CRS310", "CRS310-1G-5S-4S+IN", 11], ["CRS326", "CRS326-24G-2S+IN", 27], ["CRS328", "CRS328-24P-4S+RM", 29], ["CRS504", "CRS504-4XQ-IN", 6]]) {
   const { profile, device } = catalogDevice(model);
-  assert.equal(device.ports.length, portCount, `${model} representative connector count must match its cited chassis`);
-  assert.equal(profile.portLayout.sourceScope, "family", `${model} shorthand must not claim exact-SKU evidence`);
+  assert.equal(device.ports.length, count);
+  assert.equal(profile.portLayout.sourceScope, "model");
+  assert.ok(profile.note.startsWith(`Selected ${sku}`));
 }
 for (const model of ["CRS354", "CRS518", "CRS354-48G-4S+2Q+RM", "CRS518-16XS-2XQ-RM"]) {
   const types = catalogDevice(model).device.ports.slice(-2).map((port) => port.type);
   assert.deepEqual(types, ["RJ45_1G", "Console"], `${model} must expose separate management and serial connectors`);
 }
 assert.equal(catalogDevice("CRS354-48G-4S+2Q+RM").device.ports.filter((port) => port.type === "QSFP_PLUS_40G").length, 2);
-assert.equal(catalogDevice("CRS354-48G-4S+2Q+RM").device.ports.at(-2).speedMbps, 1000,
-  "CRS354 management Ethernet must use its 1G catalog speed");
+assert.equal(catalogDevice("CRS354-48G-4S+2Q+RM").device.ports.at(-2).speedMbps, 100,
+  "CRS354 management Ethernet must match its documented 10/100 hardware");
 
 for (const [model, portCount] of [
   ["PA-220", 11], ["PA-440", 10], ["PA-450", 10], ["PA-460", 10],
-  ["PA-850", 17], ["PA-440 / PA-450", 10],
+  ["PA-850", 17], ["PA-440 / PA-450", 11],
 ]) {
   const { profile, device } = catalogDevice(model);
   assert.equal(device.ports.length, portCount, `${model} connector count must match its hardware reference`);
@@ -141,11 +143,11 @@ assert.deepEqual(catalogDevice("XGS 4300").device.ports.slice(-3).map((port) => 
 for (const [model, portCount, units] of [
   ["Quantum 1600", 22, 1], ["Quantum 1800", 27, 1],
   ["Quantum 3600", 8, 1], ["Quantum 3800", 8, 1],
-  ["Quantum 6200", 12, 1], ["Quantum 6400", 12, 1],
-  ["Quantum 6600", 12, 1], ["Quantum 6700", 12, 1],
-  ["Quantum 6900", 12, 1], ["Quantum 7000", 12, 1],
-  ["Quantum 16000", 12, 2], ["Quantum 26000", 12, 2],
-  ["Quantum 28000", 8, 2],
+  ["Quantum 6200", 13, 1], ["Quantum 6400", 13, 1],
+  ["Quantum 6600", 13, 1], ["Quantum 6700", 13, 1],
+  ["Quantum 6900", 13, 1], ["Quantum 7000", 13, 1],
+  ["Quantum 16000", 13, 2], ["Quantum 26000", 13, 3],
+  ["Quantum 28000", 9, 3],
 ]) {
   const { profile, device } = catalogDevice(model);
   assert.equal(device.ports.length, portCount, `${model} base connector count must match its datasheet`);
@@ -154,14 +156,14 @@ for (const [model, portCount, units] of [
   assert.equal(profile.portLayout.sourceScope, "model");
   assert.equal(profile.portLayout.positionFidelity, "schematic");
 }
-assert.equal(catalogDevice("Quantum 1500").profile.portLayout.sourceScope, "family");
+assert.equal(catalogDevice("Quantum 1500").profile.portLayout.sourceScope, "model");
 assert.equal(catalogDevice("Quantum 1500").device.ports.length, 12);
 assert.deepEqual(catalogDevice("Quantum 3600").device.ports.slice(-3).map((port) => [port.label, port.type]), [
   ["MGMT", "RJ45_1G"], ["CONSOLE", "Console"], ["USB-C", "USB_C_CONSOLE"],
 ]);
-assert.deepEqual(catalogDevice("Quantum 6200").device.ports.slice(-4).map((port) => port.label),
-  ["MGMT", "SYNC", "CONSOLE", "USB-C"]);
-assert.ok(catalogDevice("Quantum 6200").device.ports.slice(-4).every((port) => port.faceplateX >= .22 && port.faceplateX <= .31),
+assert.deepEqual(catalogDevice("Quantum 6200").device.ports.slice(-5).map((port) => port.label),
+  ["MGMT", "SYNC", "CONSOLE", "USB-C", "LOM"]);
+assert.ok(catalogDevice("Quantum 6200").device.ports.slice(-5).every((port) => port.faceplateX >= .22 && port.faceplateX <= .31),
   "dense management clusters must stay clear of the product identity and data-port regions");
 assert.equal(catalogDevice("Quantum 28000").device.ports.filter((port) => port.type === "SFP_PLUS_10G").length, 4);
 
@@ -183,9 +185,12 @@ assert.equal(catalogDevice("SRX4600").device.ports.filter((port) => port.type ==
 for (const [model, units] of [["SRX5400", 5], ["SRX5600", 8], ["SRX5800", 16]]) {
   const { profile, device } = catalogDevice(model);
   assert.equal(profile.units, units);
-  assert.equal(profile.portLayout.sourceScope, "modular");
-  assert.equal(profile.portLayout.labelFidelity, "modular");
-  assert.equal(device.ports.length, 3, `${model} must not invent connectors for unselected line cards`);
+  assert.equal(profile.portLayout.sourceScope, "model");
+  assert.equal(profile.portLayout.labelFidelity, "exact");
+  assert.equal(profile.preserveInstalledPorts, true);
+  assert.equal(device.ports.length, model === "SRX5800" ? 25 : 21, `${model} exposes only its documented selected cards and feeds`);
+  assert.equal(device.ports.filter(port => port.type === "QSFP_PLUS_40G").length, 12);
+  assert.equal(device.ports.filter(port => port.type === "Power").length, model === "SRX5800" ? 8 : 4);
 }
 
 const fiberPanelProfile = hardwareCatalog.find((profile) => profile.model === "LC fiber panel 24");
@@ -204,7 +209,7 @@ assert.equal(registerProfiles([{
 }]), 1, "advanced connector types must be accepted by profile import");
 
 assert.equal(registerProfiles([{
-  vendor: "Lab", model: "Positioned ports", category: "Switch", units: 1, color: "#123456", fidelity: "exact",
+  vendor: "Lab", model: "Positioned ports", category: "Switch", units: 1, color: "#123456", fidelity: "exact", preserveInstalledPorts: true,
   groups: [{
     zone: "access", count: 2, type: "RJ45_1G", speed: 1000, poe: false, prefix: "",
     labels: ["1", "2"], positions: [{ x: .4, y: .4 }, { x: .4, y: .7 }],
@@ -217,5 +222,10 @@ assert.throws(() => registerProfiles([{
     positions: [{ x: .4, y: .4 }],
   }],
 }]), /Invalid hardware profile/, "position arrays must cover every connector in their group");
+assert.throws(() => registerProfiles([{
+  vendor: "Lab", model: "Invalid preservation flag", category: "Switch", units: 1, color: "#123456",
+  preserveInstalledPorts: "true",
+  groups: [{ zone: "access", count: 1, type: "RJ45_1G", speed: 1000 }],
+}]), /Invalid hardware profile/, "the catalog preservation flag must be a boolean");
 
 console.log(`expanded catalog checks passed: ${hardwareCatalog.length} profiles, ${types.size} connector types`);

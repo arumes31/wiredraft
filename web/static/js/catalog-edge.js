@@ -7,7 +7,7 @@ const SOURCE = Object.freeze({
   arubaAP: "https://www.hpe.com/us/en/collaterals/collateral.a50002582enw.html",
   fortinetAP: "https://docs.fortinet.com/document/fortiap/7.0.0/secure-wireless-concept-guide/538598/fortiap-wi-fi-6-standard-and-utp-access-points",
   ubiquitiAP: "https://techspecs.ui.com/unifi/wifi/u7-pro",
-  adtranNID: "https://www.adtran.com/-/media/adtran/resources/data-sheets/pdfs/fsp-150-ge-104-e.pdf",
+  adtranNID: "https://www.adtran-networks.com/-/media/adva-main-site/resources/data-sheets/pdfs/fsp-150-ge-100-series.pdf",
   ubiquitiCable: "https://techspecs.ui.com/unifi/integrations/uci",
   fortiExtender: "https://docs.fortinet.com/document/fortiextender/7.2.2/admin-guide-standalone/705422/interface-management",
   teltonikaRUTX50: "https://wiki.teltonika-networks.com/view/RUTX50_Interfaces",
@@ -32,6 +32,7 @@ function profile(vendor, model, category, family, color, groups, source, note, e
     layout: extra.layout || `edge-${family.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
     fidelity: extra.fidelity || "exact",
     placement: extra.placement || "edge / shelf",
+    ...(extra.inventoryRevision ? { inventoryRevision: extra.inventoryRevision } : {}),
     source,
     note,
   };
@@ -47,13 +48,15 @@ const profiles = [
   profile("Cisco", "Catalyst 9166I", "AccessPoint", FAMILIES.accessPoints, "#e5e8e7", [
     group("access", "RJ45_MGIG", 5000, ["2.5/5G PoE"]),
     group("management", "Console", 0, ["CONSOLE"]),
-  ], SOURCE.ciscoAP, "Vendor-documented multigigabit uplink and RJ45 management console.", { placement: "ceiling / wall" }),
+  ], SOURCE.ciscoAP, "CW9166I with one 5GbE PoE uplink and RJ45 serial console; individual cover and mounting-side connector views are documented in the hardware guide.", { placement: "ceiling / wall" }),
   profile("HPE Aruba", "AP-635", "AccessPoint", FAMILIES.accessPoints, "#e7e9e5", [
     group("access", "RJ45_MGIG", 2500, ["E0", "E1"]),
-  ], SOURCE.arubaAP, "Vendor-documented dual 2.5G Ethernet interfaces.", { placement: "ceiling / wall" }),
+    group("management", "USB_MICRO_CONSOLE", 0, ["CONSOLE"]),
+  ], SOURCE.arubaAP, "Vendor-documented dual 2.5G Ethernet interfaces and Micro-B serial console.", { placement: "ceiling / wall" }),
   profile("Fortinet", "FortiAP 231F", "AccessPoint", FAMILIES.accessPoints, "#e5e7e4", [
-    group("access", "RJ45_1G", 1000, ["ETH0", "ETH1"]),
-  ], SOURCE.fortinetAP, "Vendor-documented dual 1G Ethernet uplinks.", { placement: "ceiling / wall" }),
+    group("access", "RJ45_1G", 1000, ["LAN1/PoE", "LAN2"]),
+    group("management", "Console", 0, ["CONSOLE"]),
+  ], SOURCE.fortinetAP, "FAP-231F with dual 1G Ethernet and RJ45 serial console. LAN1 accepts PoE input. Revision 1 retains both old Ethernet indices and appends the console.", { placement: "ceiling / wall", inventoryRevision: 1 }),
   profile("Ubiquiti", "UniFi U7 Pro", "AccessPoint", FAMILIES.accessPoints, "#ebedeb", [
     group("access", "RJ45_MGIG", 2500, ["2.5 GbE"]),
   ], SOURCE.ubiquitiAP, "Vendor-documented single 2.5 GbE PoE+ uplink.", { placement: "ceiling / wall" }),
@@ -70,11 +73,13 @@ const profiles = [
     group("uplink", "SFP_PLUS_10G", 10000, ["NNI"]),
     group("access", "SFP_PLUS_10G", 10000, ["UNI"]),
   ], SOURCE.genericEdge, "Two-port 10G optical carrier demarcation.", { fidelity: "generic" }),
-  profile("ADTRAN", "FSP 150-GE104", "Modem", FAMILIES.carrier, "#29383b", [
-    group("access", "RJ45_1G", 1000, ["UNI1", "UNI2", "UNI3", "UNI4"]),
+  profile("ADTRAN", "FSP 150-GE104", "Modem", FAMILIES.carrier, "#d7d8d4", [
+    group("access", "RJ45_1G", 1000, ["UNI3", "UNI4", "UNI5", "UNI6"]),
     group("uplink", "SFP_1G", 1000, ["NNI1", "NNI2"]),
-    group("management", "RJ45_1G", 1000, ["MGMT"]),
-  ], SOURCE.adtranNID, "Family-equivalent carrier Ethernet demarcation; verify the exact GE104 variant.", { fidelity: "family" }),
+    group("management", "RJ45_1G", 0, ["MGMT"]),
+    group("management", "Console", 0, ["RS232"]),
+    { ...group("access", "SFP_1G", 1000, ["UNI3 SFP", "UNI4 SFP", "UNI5 SFP", "UNI6 SFP"]), inventoryAppend: true },
+  ], SOURCE.adtranNID, "Original GE104 AC with optical-only NNI1/2, four copper/SFP UNI3–6 pairs and separate LAN/RS232 management. The newer GE104(E) has a different front. Revision 1 keeps old seven endpoint identities and appends serial and optical UNI alternatives.", { inventoryRevision: 1 }),
 
   profile("Generic Edge", "DOCSIS 3.1 cable modem", "Modem", FAMILIES.modems, "#30393c", [
     group("uplink", "COAX_F", 2500, ["CABLE"]),
@@ -119,8 +124,9 @@ const profiles = [
     group("access", "RJ45_1G", 100, ["FE1", "FE2", "FE3", "FE4"]),
     group("uplink", "RJ45_1G", 1000, ["GE WAN"]),
     group("uplink", "SFP_1G", 1000, ["SFP WAN"]),
-    group("management", "USB_MICRO_CONSOLE", 0, ["CONSOLE"]),
-  ], SOURCE.ciscoIR1101, "Base-platform Ethernet and combo WAN interfaces; cellular radio is modular.", { fidelity: "family", placement: "DIN / wall" }),
+    group("management", "USB_MINI_CONSOLE", 0, ["CONSOLE"]),
+    group("management", "Console", 0, ["SERIAL"]),
+  ], SOURCE.ciscoIR1101, "IR1101-K9 base without a PIM or expansion module: four Fast Ethernet LAN, combo Gigabit WAN, Mini-B console and independent RJ45 RS232 DTE serial interface. Revision 1 preserves indices 1–7 and appends serial at 8.", { placement: "DIN / wall", inventoryRevision: 1 }),
 ];
 
 export const edgeCatalogProfiles = Object.freeze(profiles);

@@ -9,6 +9,8 @@ const indexHTML = await readFile(new URL("./static/index.html", import.meta.url)
 const appJS = await readFile(new URL("./static/js/app.js", import.meta.url), "utf8");
 const stylesCSS = await readFile(new URL("./static/css/styles.css", import.meta.url), "utf8");
 const apiJS = await readFile(new URL("./static/js/api.js", import.meta.url), "utf8");
+const adminHTML = await readFile(new URL("./static/admin.html", import.meta.url), "utf8");
+const adminJS = await readFile(new URL("./static/js/administration.js", import.meta.url), "utf8");
 
 test("login page contains password, guest, totp enrollment, and recovery states", () => {
   for (const id of [
@@ -40,8 +42,7 @@ test("login backdrop is decorative, noninteractive, and isolated from authentica
 test("workspace exposes admin account management and csrf-aware api calls", () => {
   for (const id of [
     "account-menu", "organization-scope-toggle", "organization-scope-list", "manage-users-button",
-    "manage-organizations-button", "account-dialog", "account-form", "account-organizations",
-    "account-all-organizations", "organization-dialog", "organization-form", "organization-list",
+    "manage-organizations-button",
   ]) {
     assert.match(indexHTML, new RegExp(`id="${id}"`));
   }
@@ -49,21 +50,16 @@ test("workspace exposes admin account management and csrf-aware api calls", () =
   assert.match(apiJS, /\/api\/v1\/admin\/users/);
   assert.match(apiJS, /\/api\/v1\/admin\/organizations/);
   assert.match(apiJS, /\/api\/v1\/auth\/logout/);
-  assert.match(indexHTML, /name="authSource" value="entra"/);
-  assert.match(indexHTML, /name="externalLogin"/);
-  assert.match(indexHTML, /name="role" value="admin"/);
-  assert.match(indexHTML, /name="organizationIds"|id="account-organizations"/);
-  assert.match(indexHTML, /<h3>OPERATOR ACCOUNTS<\/h3>/);
-  assert.match(appJS, /user\.role === "admin" \? "APP ADMIN · ALL ORGANIZATIONS"/);
-  assert.match(appJS, /password: String\(data\.get\("password"\)\)/);
-  assert.match(appJS, /form\.elements\.password\.disabled = isEntra \|\| editing/);
-  assert.match(appJS, /if \(isEntra\) form\.elements\.password\.value = ""/);
-  assert.doesNotMatch(appJS, /password: authSource === "local" \? [^:]+ : ""/);
+  assert.match(adminHTML, /name="authSource"/);
+  assert.match(adminHTML, /name="externalLogin"/);
+  assert.match(adminHTML, /id="organization-picker"/);
+  assert.match(adminJS, /password: String\(data\.get\("password"\)\)/);
+  assert.match(appJS, /openAdministration\("users"\)/);
+  assert.match(appJS, /if \(autosave\.isDirty\) await saveNow\(\)/);
+  assert.doesNotMatch(indexHTML, /id="account-dialog"|id="organization-dialog"/);
   assert.match(appJS, /ORGANIZATION_SCOPE_STORAGE_KEY/);
   assert.match(appJS, /topologiesForOrganizationScope/);
-  assert.match(stylesCSS, /\.account-user-actions button\[data-account-reset\]/);
   assert.match(stylesCSS, /\.organization-scope-list/);
-  assert.match(stylesCSS, /\.organization-row\.is-default/);
   assert.doesNotMatch(stylesCSS, /\.account-user-actions button:last-child/);
   assert.match(indexHTML, /<title>WireDraft · Rack Operations Bench<\/title>/);
   assert.match(indexHTML, /aria-label="WireDraft"/);

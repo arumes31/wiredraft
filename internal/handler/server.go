@@ -1957,6 +1957,7 @@ func mountedDevicePosition(rack model.Rack, device model.Device) (float64, float
 	return x, y
 }
 
+// ensureDeviceIDs fills missing endpoint IDs without renumbering existing physical sockets.
 func ensureDeviceIDs(device *model.Device) error {
 	if device.ID == "" {
 		id, err := model.NewID()
@@ -1974,8 +1975,8 @@ func ensureDeviceIDs(device *model.Device) error {
 			device.Ports[index].ID = id
 		}
 		device.Ports[index].DeviceID = device.ID
-		device.Ports[index].PortIndex = index + 1
 	}
+	device.NormalizePortIndices()
 	return nil
 }
 

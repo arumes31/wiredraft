@@ -78,6 +78,7 @@ const (
 	PortTypeRJ45MGIG    PortType = "RJ45_MGIG"
 	PortTypeRJ4510G     PortType = "RJ45_10G"
 	PortTypeDSLRJ11     PortType = "DSL_RJ11"
+	PortTypePOTSRJ11    PortType = "POTS_RJ11"
 	PortTypeCoaxF       PortType = "COAX_F"
 	PortTypeSFP1G       PortType = "SFP_1G"
 	PortTypeSFPPlus10G  PortType = "SFP_PLUS_10G"
@@ -86,6 +87,7 @@ const (
 	PortTypeQSFPPlus40G PortType = "QSFP_PLUS_40G"
 	PortTypeQSFP28100G  PortType = "QSFP28_100G"
 	PortTypeQSFP56200G  PortType = "QSFP56_200G"
+	PortTypeQSFPDD200G  PortType = "QSFP_DD_200G"
 	PortTypeQSFPDD400G  PortType = "QSFP_DD_400G"
 	PortTypeCFP100G     PortType = "CFP_100G"
 	PortTypeCFP2100G    PortType = "CFP2_100G"
@@ -94,6 +96,7 @@ const (
 	PortTypeFiberLC     PortType = "FIBER_LC"
 	PortTypeFiberSC     PortType = "FIBER_SC"
 	PortTypeFiberMPO    PortType = "FIBER_MPO"
+	PortTypeUSBMini     PortType = "USB_MINI_CONSOLE"
 	PortTypeUSBMicro    PortType = "USB_MICRO_CONSOLE"
 	PortTypeUSBC        PortType = "USB_C_CONSOLE"
 	PortTypeStack       PortType = "Stack"
@@ -184,6 +187,8 @@ type FaceplateSpec struct {
 	HasSFPSlots  bool    `json:"hasSfpSlots"`
 	Vendor       string  `json:"vendor,omitempty"`
 	Layout       string  `json:"layout,omitempty"`
+	// InventoryRevision identifies catalog port indices; zero denotes the original inventory.
+	InventoryRevision uint32 `json:"inventoryRevision,omitempty"`
 }
 
 // Rack is a movable whole-unit equipment enclosure on the topology canvas.
@@ -469,7 +474,34 @@ func NewID() (string, error) {
 	return string(encoded), nil
 }
 
-// Normalize initializes slices and canonicalizes derived port fields.
+// NormalizePortIndices preserves the first occurrence of each positive port index.
+// Missing, nonpositive and duplicate indices receive the smallest unused positive
+// values in slice order, after reserving all existing indices.
+func (d *Device) NormalizePortIndices() {
+	used := make(map[int]bool, len(d.Ports))
+	for index := range d.Ports {
+		port := &d.Ports[index]
+		if port.PortIndex < 1 || used[port.PortIndex] {
+			port.PortIndex = 0
+			continue
+		}
+		used[port.PortIndex] = true
+	}
+	next := 1
+	for index := range d.Ports {
+		port := &d.Ports[index]
+		if port.PortIndex > 0 {
+			continue
+		}
+		for used[next] {
+			next++
+		}
+		port.PortIndex = next
+		used[next] = true
+	}
+}
+
+// Normalize initializes slices and repairs derived fields while retaining stable port indices.
 func (t *Topology) Normalize() {
 	t.Name = strings.TrimSpace(t.Name)
 	t.OrganizationID = strings.TrimSpace(t.OrganizationID)
@@ -530,10 +562,10 @@ func (t *Topology) Normalize() {
 			device.Ports = []Port{}
 		}
 		device.Faceplate.TotalPorts = len(device.Ports)
+		device.NormalizePortIndices()
 		for portIndex := range device.Ports {
 			port := &device.Ports[portIndex]
 			port.DeviceID = device.ID
-			port.PortIndex = portIndex + 1
 			if port.AllowedVLANs == nil {
 				port.AllowedVLANs = []int{}
 			}

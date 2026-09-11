@@ -64,9 +64,13 @@ docker compose down
 2. On the first administrator login, scan the QR code with a TOTP authenticator and enter its current six-digit code. If `WIREDRAFT_ADMIN_TOTP_SECRET` is already set, enrollment is skipped.
 3. Download or copy the one-use recovery codes. They are displayed only when TOTP enrollment completes.
 4. Open the demonstration map in the protected `Default` organization. Use **Identity Control > Organizations** to add organizations before assigning users or creating maps for them.
-5. Add racks and devices, connect two ports to create a cable, then configure VLANs, bundles, switch systems, firewall clusters, documentation links, and protected field photos from the inspectors.
+5. Choose **All unlocked** beside the canvas tools to add racks and devices or edit their settings. Choose **Cabling unlocked** to create, reconnect, configure, group, or delete connections while equipment stays fixed.
+
+Maps open in **Read only**, which still permits navigation, selection, inspection, and export. Either unlocked mode returns to Read only after 15 minutes without a completed edit; panning, zooming, inspecting, and unapplied form input do not reset the timer. Switching maps or reloading also relocks the editor. Completed changes remain intact, and an open form keeps its unapplied draft so you can explicitly unlock and continue.
 
 Accounts are global: a user may be granted one, several, or all organizations. The organization selector in Identity Control changes the current map view; administrators always retain access to every organization. Every map belongs to one registered organization, and `Default` cannot be renamed or deleted.
+
+Open **Identity Control > Administration** for the dedicated user and organization management area. Search or filter the Users directory, then choose **Manage** to edit access or sign-in settings. **Add user** shows only the fields needed for local/TOTP or Microsoft Entra accounts. The Organizations directory links to everyone with effective access, including administrators and global grants. Use **Back to workspace** to return to the remembered map.
 
 Guest access is enabled by default for existing guest-workspace maps. Set `WIREDRAFT_GUEST_ENABLED=false` before startup when anonymous workspace access is not wanted.
 
@@ -121,6 +125,7 @@ The published runtime image is `FROM scratch`, contains only the statically link
 
 - Multi-rack layouts with 6U–48U frames, independent front/rear rails, per-rack face switching, whole-U snapping, collision prevention, hidden-side silhouettes, grouped cable portals, trace-expanded dual-face views, capacity reporting, free-floating devices, and a navigable minimap.
 - High-DPI faceplates for switches, firewalls, routers, carrier handoffs, modems, access points, servers, patch panels, storage, power, and console equipment.
+- Documented front/rear hardware panels for 20 FortiGate and FortiSwitch models, composed from shared connector, indicator, vent, fan, and PSU artwork. Select **Hardware panel** in the device inspector; the choice is local to your session and independent of rack mounting. Cables to hidden sockets terminate at a labeled connection marker. Canvas and SVG use the same physical geometry.
 - Offline 542-profile hardware catalog with vendor-family layouts and 25 connector types up to 800G OSFP, plus JSON profile import.
 - Generic 1U–4U server rear builder with mixed card bays and independently cableable ports.
 - Copper and fiber patch panels with independent front/rear occupancy, editable rear mappings, and atomic one-to-one panel ranges.
@@ -335,9 +340,9 @@ Entra configuration errors fail startup instead of silently weakening login. OID
 ### 5. Pre-provision and link users
 
 1. Sign in as the local WireDraft administrator.
-2. Open **Identity Control > User accounts**, select **Microsoft Entra** as the account source, enter the WireDraft display username and the user's exact current Entra sign-in name (UPN), then choose the WireDraft application role and grant one, several, or all organizations. Entra accounts have no local password.
+2. Open **Identity Control > Administration > Add user**, select **Microsoft Entra** as the sign-in method, enter the WireDraft display username and the user's exact current Entra sign-in name (UPN), then choose the WireDraft application role and grant one, several, or all organizations. Entra accounts have no local password.
 3. Ask the user to select **Sign in with Microsoft**. On the first successful login, WireDraft matches the verified UPN once and binds the account to the immutable Entra tenant/object pair (`tid` + `oid`).
-4. After linking, UPN or display-name changes do not change authorization. If Microsoft deletes and recreates the identity, verify the replacement account and use **Reset Entra link** before the next login.
+4. After linking, UPN or display-name changes do not change authorization. If Microsoft deletes and recreates the identity, verify the replacement account and use **Manage > Reset Microsoft link** before the next login.
 
 Assignment in Entra and pre-provisioning in WireDraft are both required. An authenticated tenant user who has no matching enabled WireDraft account is rejected. A WireDraft administrator may promote either a local or Entra account to application administrator; this is independent of Entra directory roles. Keep the protected local bootstrap administrator available for recovery.
 

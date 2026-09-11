@@ -1,7 +1,10 @@
 import { api, APIError } from "./api.js";
 import { AppState, findPort } from "./state.js";
+import { EditorLock, EditMode, requiredRequestCapability } from "./editor-lock.js";
+import { bindEditorLockUI, lockedEditMessage } from "./editor-lock-ui.js";
 import { CanvasEngine } from "./canvas.js";
 import { nextCanvasTool } from "./canvas-interactions.js";
+import { defaultCableProperties } from "./cable-defaults.js";
 import {
   GRAPHICS_STORAGE_KEY, GraphicsMode, graphicsProfileSummary, normalizeGraphicsMode,
 } from "./graphics-quality.js";
@@ -21,6 +24,7 @@ import {
   planPatchPanelMapping, planRearPanelLinkUpdate, RearChannelType,
 } from "./patch-panels.js";
 import { normalizeRackFace, RackFace, usedRackUnits } from "./rack.js";
+import { resolveModelFaceplate } from "./faceplate-models.js";
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./link-groups.js";
 import { describeLinkGroupMembers } from "./link-group-display.js";
 import {
@@ -47,9 +51,10 @@ import {
   organizationScopeOptions, resolveOrganizationScope, selectableOrganizations, topologiesForOrganizationScope,
 } from "./organizations.js";
 
-const state = new AppState();
+const editLock = new EditorLock();
+const state = new AppState({ editLock });
 api.setRevisionProvider(() => state.topology?.revision);
-const cableMediaTypes = ["CAT5E", "CAT6", "CAT6A", "COAX", "FIBER", "SMF", "MMF", "DAC", "AOC", "TWINAX"];
+const cableMediaTypes = ["CAT5E", "CAT6", "CAT6A", "COAX", "FIBER", "SMF", "MMF", "DAC", "AOC", "TWINAX", "TELEPHONE"];
 const elements = Object.fromEntries([
   "topology-select", "topology-count", "topology-dialog", "topology-form", "topology-dialog-title", "topology-dialog-note",
   "topology-submit-button", "delete-topology-button", "map-template-field", "location-options", "edit-topology-button",
@@ -71,10 +76,6 @@ const elements = Object.fromEntries([
   "share-list", "share-form", "resource-target",
   "account-menu", "account-name", "account-role", "account-avatar", "account-scope",
   "organization-scope-toggle", "organization-scope-list", "manage-users-button", "manage-organizations-button",
-  "account-dialog", "account-form", "account-user-list", "account-user-count", "account-organizations",
-  "account-password-field", "account-entra-field", "account-enrollment-note", "account-all-organizations",
-  "account-organization-field", "account-submit-button", "cancel-account-edit", "organization-dialog",
-  "organization-form", "organization-list", "organization-count",
   "photo-dialog", "photo-manager-count", "photo-manager-list", "photo-preview", "photo-preview-meta",
   "photo-details-form", "delete-photo-button",
   "trace-session", "trace-session-label", "close-trace", "dual-face-all-button",
@@ -98,11 +99,26 @@ const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state
 }, { graphicsMode: loadGraphicsMode(), navigationMode: loadNavigationMode() });
 
 const notifications = new ToastQueue(elements.toast);
+api.setMutationGuard((path, method, body) => {
+  editLock.checkExpiry();
+  const before = structuredClone(canvas.drag?.snapshot || canvas.rackDrag?.snapshot || state.topology);
+  const capability = requiredRequestCapability(path, method, body, before);
+  if (capability && !editLock.allows(capability)) {
+    const error = new Error(lockedEditMessage(capability));
+    error.name = "EditorLockedError";
+    throw error;
+  }
+  return (result) => {
+    if (before && result?.id === before.id && Array.isArray(result.devices) && state.topology?.id === before.id) editLock.recordChange(before, result);
+  };
+});
 const minimap = new TopologyMinimap(elements["topology-minimap"], canvas, state);
 const autosave = new AutosaveController(async () => {
   if (!state.topology) return;
+  // A drag is a preview until pointer-up. Save the last completed map instead.
+  const snapshot = canvas.drag?.snapshot || canvas.rackDrag?.snapshot || state.topology;
   try {
-    const topology = await api.replaceTopology(state.topology);
+    const topology = await api.replaceTopology(snapshot);
     state.setTopology(topology);
   } catch (error) {
     if (isRevisionConflict(error)) {
@@ -122,7 +138,6 @@ let createdShareURL = "";
 let topologySummaries = [];
 let sessionInfo = null;
 let activeOrganizationScope = "";
-let managedOrganizations = [];
 let activePhotoID = "";
 
 let pendingServerCards = [];
@@ -177,6 +192,7 @@ autosave.addEventListener("status", ({ detail }) => {
   if (detail.error && !isRevisionConflict(detail.error)) showError(detail.error);
 });
 
+const editorLockUI = bindEditorLockUI({ lock: editLock, state, canvas, notify: toast });
 bindControls();
 initialize().catch(showError);
 
@@ -216,6 +232,8 @@ async function initialize() {
 }
 
 async function loadTopology(id) {
+  editLock.setMode(EditMode.READ_ONLY, "map");
+  canvas.cancelInteraction();
   elements["loading-skeleton"].hidden = false;
   events.close();
   setConnectionStatus("connecting");
@@ -654,6 +672,7 @@ function renderInspector() {
   renderPhotoInspector(selection);
   renderCommentInspector(selection);
   renderDocumentationInspector(selection);
+  editorLockUI.refresh(elements["inspector-content"]);
 }
 
 function photoURL(photo) {
@@ -896,12 +915,21 @@ function renderRackInspector(rackID) {
   });
 }
 
+/** Apply VLAN checklist colors without generating inline style attributes. */
+function applyVLANChecklistColors(container) {
+  const colors = new Map(state.topology.vlans.map((vlan) => [String(vlan.id), vlan.colorHex]));
+  container.querySelectorAll("[data-vlan-swatch]").forEach((swatch) => {
+    swatch.style.setProperty("--vlan-color", colors.get(swatch.dataset.vlanSwatch));
+  });
+}
+
+/** Render physical port settings and color its VLAN choices under strict CSP. */
 function renderPortInspector(portID) {
   const found = findPort(state.topology, portID);
   if (!found) return;
   const { device, port } = found;
   const vlanOptions = state.topology.vlans.map((vlan) => `<option value="${vlan.id}" ${vlan.id === port.nativeVlan ? "selected" : ""}>${vlan.id} · ${escapeHTML(vlan.name)}</option>`).join("");
-  const checks = state.topology.vlans.map((vlan) => `<label class="check-row"><input type="checkbox" name="allowed" value="${vlan.id}" ${port.allowedVlans.includes(vlan.id) ? "checked" : ""}><i style="--vlan-color:${vlan.colorHex}"></i><b>${vlan.id}</b><span>${escapeHTML(vlan.name)}</span></label>`).join("");
+  const checks = state.topology.vlans.map((vlan) => `<label class="check-row"><input type="checkbox" name="allowed" value="${vlan.id}" ${port.allowedVlans.includes(vlan.id) ? "checked" : ""}><i data-vlan-swatch="${vlan.id}"></i><b>${vlan.id}</b><span>${escapeHTML(vlan.name)}</span></label>`).join("");
   elements["inspector-content"].innerHTML = `
     <div class="inspector-title"><p class="eyebrow">PHYSICAL INTERFACE ${port.portIndex}</p><h3>${escapeHTML(device.name)} / ${escapeHTML(port.label)}</h3><p>${escapeHTML(port.type)} · ${port.speedMbps} Mbps ${port.isPoe ? "· PoE" : ""}</p></div>
     <form id="port-inspector-form" class="inspector-form">
@@ -914,6 +942,7 @@ function renderPortInspector(portID) {
       <label><span>LINK STATUS</span><select name="status"><option value="up" ${port.status === "up" ? "selected" : ""}>UP / ACTIVE</option><option value="down" ${port.status !== "up" ? "selected" : ""}>DOWN</option></select></label>
       <button class="primary">APPLY PORT CONFIG</button>
     </form>`;
+  applyVLANChecklistColors(document.getElementById("port-inspector-form"));
   document.getElementById("port-inspector-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -929,12 +958,25 @@ function renderPortInspector(portID) {
   });
 }
 
+/** Render the device record with a separate, session-local hardware panel view. */
 function renderDeviceInspector(deviceID) {
   const device = state.topology.devices.find((item) => item.id === deviceID);
   if (!device) return;
   const connected = state.topology.links.filter((link) => link.sourceDeviceId === device.id || link.targetDeviceId === device.id).length;
   const rack = (state.topology.racks || []).find((item) => item.id === device.rackId);
   const rackFace = normalizeRackFace(device.rackFace);
+  const physicalProfile = resolveModelFaceplate(device);
+  const physicalFace = state.deviceFaceplateFace(device.id, physicalProfile?.defaultFace);
+  const hardwareNotes = [...new Set([...(physicalProfile?.limitations || []), ...(physicalProfile?.catalogDiscrepancies || [])])];
+  const physicalPanelMarkup = physicalProfile ? `
+    <fieldset class="device-metadata-block hardware-panel-controls"><legend>HARDWARE PANEL</legend>
+      <div class="radio-row">${["front", "rear"].map((face) => `<label><input type="radio" name="hardwarePanel" value="${face}" ${physicalFace === face ? "checked" : ""}><span>${face.toUpperCase()}</span></label>`).join("")}</div>
+      <p>View this device's front or rear hardware. Connections on the opposite panel stay visible at its connection marker. This view is local to your session.</p>
+      <p class="hardware-panel-evidence">${physicalProfile.fidelity === "schematic" ? "Schematic layout; hardware options are configurable." : physicalProfile.fidelity === "family" ? "Family layout; hardware options and connector positions may vary." : "Model-specific panel layout."}${/^https:\/\//.test(physicalProfile.source || "") ? ` <a href="${escapeHTML(physicalProfile.source)}" target="_blank" rel="noopener noreferrer">Hardware reference</a>` : ""}</p>
+      ${physicalProfile.sku ? `<p>Drawn hardware: ${escapeHTML(physicalProfile.sku)}</p>` : ""}
+      ${(device.faceplate?.inventoryRevision || 0) !== (physicalProfile.inventoryRevision || 0) ? `<p>Saved inventory uses a different catalog revision. Existing cable endpoints and custom port names are preserved.</p>` : ""}
+      ${hardwareNotes.length ? `<details class="hardware-panel-notes"><summary>Hardware configuration and catalog notes</summary><ul>${hardwareNotes.map((note) => `<li>${escapeHTML(note)}</li>`).join("")}</ul></details>` : ""}
+    </fieldset>` : "";
   const location = rack ? `${rack.name} · ${rackFace.toUpperCase()} · U${device.rackUnit}` : `${Math.round(device.positionX)}, ${Math.round(device.positionY)}`;
   const system = switchSystemForDevice(state.topology, device.id);
   const cluster = firewallClusterForDevice(state.topology, device.id);
@@ -952,6 +994,7 @@ function renderDeviceInspector(deviceID) {
   elements["inspector-content"].innerHTML = `
     <div class="inspector-title"><p class="eyebrow">RACK HARDWARE</p><h3>${escapeHTML(device.name)}</h3><p>${escapeHTML(device.category)} · ${escapeHTML(device.model)}</p></div>
     <div class="metric-grid"><span>HEIGHT<b>${device.faceplate.unitsU}U</b></span><span>PORTS<b>${device.ports.length}</b></span><span>PATCHED<b>${connected}</b></span><span>LOCATION<b>${escapeHTML(location)}</b></span></div>
+    ${physicalPanelMarkup}
     <form id="device-inspector-form" class="inspector-form">
       <fieldset class="device-metadata-block"><legend>IDENTITY</legend>
         <label><span>DISPLAY NAME</span><input name="name" maxlength="120" value="${escapeHTML(device.name)}" required></label>
@@ -1008,6 +1051,9 @@ function renderDeviceInspector(deviceID) {
     await updateFrom(() => api.updateDevice(state.topology.id, next), true, "Device record updated");
   });
   document.getElementById("delete-device").addEventListener("click", () => deleteDevice(device));
+  document.querySelectorAll('input[name="hardwarePanel"]').forEach((input) => {
+    input.addEventListener("change", () => state.setDeviceFaceplateFace(device.id, input.value));
+  });
   document.querySelectorAll("[data-switch-system-member]").forEach((button) => {
     button.addEventListener("click", () => state.select("device", button.dataset.switchSystemMember));
   });
@@ -1171,6 +1217,7 @@ function renderFirewallClusterInspector(device, cluster) {
     <div class="inspector-actions"><button id="dissolve-firewall-cluster" type="button" class="danger">DISSOLVE FIREWALL CLUSTER</button></div>`;
 }
 
+/** Render cable settings and its endpoint VLAN profile with CSP-safe swatches. */
 function renderLinkInspector(linkID) {
   const link = state.topology.links.find((item) => item.id === linkID);
   if (!link) return;
@@ -1217,7 +1264,7 @@ function renderLinkInspector(linkID) {
     : "The cable and both physical endpoint interfaces are validated and saved together.";
   const applyLabel = group ? `APPLY TO ${configurationLinks.length} CABLES + ALL PORTS` : "APPLY TO CABLE + BOTH PORTS";
   const vlanOptions = state.topology.vlans.map((vlan) => `<option value="${vlan.id}" ${vlan.id === configuration.nativeVlan ? "selected" : ""}>${vlan.id} · ${escapeHTML(vlan.name)}</option>`).join("");
-  const checks = state.topology.vlans.map((vlan) => `<label class="check-row"><input type="checkbox" name="allowed" value="${vlan.id}" ${configuration.allowedVlans.includes(vlan.id) ? "checked" : ""}><i style="--vlan-color:${vlan.colorHex}"></i><b>${vlan.id}</b><span>${escapeHTML(vlan.name)}</span></label>`).join("");
+  const checks = state.topology.vlans.map((vlan) => `<label class="check-row"><input type="checkbox" name="allowed" value="${vlan.id}" ${configuration.allowedVlans.includes(vlan.id) ? "checked" : ""}><i data-vlan-swatch="${vlan.id}"></i><b>${vlan.id}</b><span>${escapeHTML(vlan.name)}</span></label>`).join("");
   elements["inspector-content"].innerHTML = `
     <div class="inspector-title"><p class="eyebrow">PHYSICAL PATCH</p><h3>${escapeHTML(link.cableType)}</h3><p>${escapeHTML(source?.device.name || "Unknown")} → ${escapeHTML(target?.device.name || "Unknown")}</p></div>
     <div class="metric-grid"><span>SOURCE<b>${escapeHTML(source?.port.label || "—")}</b></span><span>TARGET<b>${escapeHTML(target?.port.label || "—")}</b></span><span>PRIMARY VLAN<b>${link.primaryVlan || 1}</b></span><span>RULE ALERTS<b>${issueCount}</b></span></div>
@@ -1236,6 +1283,7 @@ function renderLinkInspector(linkID) {
     ${group ? `<div class="inspector-actions"><button id="edit-link-group" class="secondary">EDIT GROUP</button><button id="leave-link-group" class="danger">REMOVE FROM GROUP</button></div>` : ""}
     <div class="inspector-actions"><button id="focus-link" class="secondary">FOCUS PATH</button><button id="delete-link" class="danger">UNPATCH</button></div>`;
   const form = document.getElementById("link-configuration-form");
+  applyVLANChecklistColors(form);
   const toggleTaggedVLANs = () => {
     const accessMode = form.elements.mode.value === "Access";
     document.getElementById("link-tagged-vlans").hidden = accessMode;
@@ -1349,17 +1397,9 @@ function bindControls() {
     const button = event.target.closest("[data-organization-scope]");
     if (button instanceof HTMLButtonElement) selectOrganizationScope(button.dataset.organizationScope).catch(showError);
   });
-  elements["manage-users-button"].addEventListener("click", () => openAccountDialog().catch(showError));
-  elements["manage-organizations-button"].addEventListener("click", () => openOrganizationDialog().catch(showError));
+  elements["manage-users-button"].addEventListener("click", () => openAdministration("users").catch(showError));
+  elements["manage-organizations-button"].addEventListener("click", () => openAdministration("organizations").catch(showError));
   document.getElementById("logout-button").addEventListener("click", () => logout().catch(showError));
-  elements["account-form"].addEventListener("submit", (event) => createAccount(event).catch(showError));
-  elements["account-form"].querySelectorAll('input[name="authSource"]').forEach((input) => input.addEventListener("change", refreshAccountAuthSource));
-  elements["account-form"].querySelectorAll('input[name="role"]').forEach((input) => input.addEventListener("change", refreshAccountAccess));
-  elements["account-all-organizations"].addEventListener("change", refreshAccountAccess);
-  elements["cancel-account-edit"].addEventListener("click", resetAccountForm);
-  elements["account-user-list"].addEventListener("click", (event) => updateAccountState(event).catch(showError));
-  elements["organization-form"].addEventListener("submit", (event) => createOrganization(event).catch(showError));
-  elements["organization-list"].addEventListener("click", (event) => updateOrganization(event).catch(showError));
   document.getElementById("undo-button").addEventListener("click", () => undo());
   document.getElementById("redo-button").addEventListener("click", () => redo());
   document.getElementById("save-now-button").addEventListener("click", () => saveNow().catch(showError));
@@ -1470,278 +1510,14 @@ async function logout() {
   window.location.assign("/login");
 }
 
-async function openAccountDialog() {
-  elements["account-menu"].open = false;
-  const [directory, organizationDirectory] = await Promise.all([api.listUsers(), api.listOrganizations()]);
-  managedOrganizations = organizationDirectory?.organizations || [];
-  renderAccountDirectory(directory, managedOrganizations);
-  resetAccountForm();
-  elements["account-dialog"].showModal();
-  requestAnimationFrame(() => elements["account-form"].elements.username.focus());
-}
-
-function renderAccountDirectory(directory, organizations = managedOrganizations) {
-  const users = directory.users || [];
-  const organizationByID = new Map(organizations.map((organization) => [organization.id, organization.name]));
-  elements["account-user-count"].textContent = `${users.length} ACCOUNT${users.length === 1 ? "" : "S"}`;
-  elements["account-user-list"].replaceChildren(...users.map((user) => {
-    const row = document.createElement("article");
-    row.className = `account-user-row${user.disabled ? " is-disabled" : ""}`;
-    row.dataset.userId = user.id;
-    row.dataset.user = JSON.stringify(user);
-    const providerStatus = user.authSource === "entra"
-      ? `MICROSOFT · ${user.externalLinked ? "LINKED" : "AWAITING LINK"}`
-      : user.totpConfigured ? "LOCAL · TOTP READY" : "LOCAL · ENROLLMENT REQUIRED";
-    const accessLabel = user.role === "admin" ? "APP ADMIN · ALL ORGANIZATIONS"
-      : user.allOrganizations ? "ALL ORGANIZATIONS"
-        : (user.organizationIds || []).map((id) => organizationByID.get(id) || "UNKNOWN ORGANIZATION").join(" · ") || "NO ORGANIZATION ACCESS";
-    const protectedUser = Boolean(user.protected || user.bootstrap || user.isBootstrap);
-    const actions = protectedUser
-      ? '<em>PROTECTED ADMIN</em>'
-      : `<div class="account-user-actions"><button type="button" data-account-edit>EDIT ACCESS</button><button type="button" data-account-toggle="${user.disabled ? "enable" : "disable"}">${user.disabled ? "ENABLE" : "DISABLE"}</button>${user.authSource === "entra" && user.externalLinked ? '<button type="button" data-account-reset>RESET LINK</button>' : ""}</div>`;
-    row.innerHTML = `<i>${escapeHTML(user.username.slice(0, 1).toUpperCase())}</i><span><b>${escapeHTML(user.username)}</b><small>${escapeHTML(user.externalLogin || accessLabel)}</small><small>${escapeHTML(accessLabel)}</small><em>${providerStatus}</em></span>${actions}`;
-    return row;
-  }));
-  elements["account-organizations"].replaceChildren(...organizations.map((organization) => {
-    const label = document.createElement("label");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.name = "organizationIds";
-    checkbox.value = organization.id;
-    const text = document.createElement("span");
-    text.textContent = `${organization.name}${organization.isDefault ? " · DEFAULT" : ""}`;
-    label.append(checkbox, text);
-    return label;
-  }));
-  if (!organizations.length) {
-    const empty = document.createElement("p");
-    empty.className = "account-organization-empty";
-    empty.textContent = "No organizations are registered.";
-    elements["account-organizations"].replaceChildren(empty);
-  }
-}
-
-async function createAccount(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const data = new FormData(form);
-  const role = String(data.get("role") || "user");
-  const allOrganizations = role === "admin" || data.get("allOrganizations") === "on";
-  const organizationIds = data.getAll("organizationIds").map(String);
-  if (role !== "admin" && !allOrganizations && !organizationIds.length) {
-    notifications.push("ERROR · Select at least one organization", "error");
+async function openAdministration(section) {
+  if (sessionInfo?.role !== "admin") return;
+  if (autosave.isSaving) {
+    toast("Map is saving. Open administration once saving completes.");
     return;
   }
-  const submit = elements["account-submit-button"];
-  submit.disabled = true;
-  try {
-    const authSource = String(data.get("authSource") || "local");
-    const access = { role, allOrganizations, organizationIds: allOrganizations ? [] : organizationIds };
-    if (form.dataset.userId) {
-      const current = JSON.parse(form.dataset.user || "{}");
-      const user = await api.updateUser(form.dataset.userId, { ...access, disabled: Boolean(current.disabled) });
-      renderAccountDirectory(await api.listUsers(), managedOrganizations);
-      resetAccountForm();
-      toast(`Access updated · ${user.username || current.username}`);
-    } else {
-      const input = {
-        username: String(data.get("username")).trim(), authSource, ...access,
-        ...(authSource === "entra"
-          ? { externalLogin: String(data.get("externalLogin")).trim() }
-          : { password: String(data.get("password")) }),
-      };
-      const user = await api.createUser(input);
-      renderAccountDirectory(await api.listUsers(), managedOrganizations);
-      resetAccountForm();
-      toast(user.authSource === "entra"
-        ? `Microsoft account approved · ${user.externalLogin}`
-        : `Account created · ${user.username} must enroll TOTP`);
-    }
-  } finally {
-    submit.disabled = false;
-  }
-}
-
-async function updateAccountState(event) {
-  const button = event.target.closest("[data-account-edit], [data-account-toggle], [data-account-reset]");
-  if (!(button instanceof HTMLButtonElement)) return;
-  const row = button.closest("[data-user-id]");
-  if (!row) return;
-  const user = JSON.parse(row.dataset.user || "{}");
-  if (button.hasAttribute("data-account-edit")) {
-    editAccount(user);
-    return;
-  }
-  const isReset = button.hasAttribute("data-account-reset");
-  const disabled = isReset ? Boolean(user.disabled) : button.dataset.accountToggle === "disable";
-
-  if (isReset && !window.confirm("Reset this Microsoft identity binding? The approved account must link again on its next sign-in.")) return;
-  await api.updateUser(row.dataset.userId, {
-    role: user.role, allOrganizations: Boolean(user.allOrganizations), organizationIds: user.organizationIds || [],
-    disabled, resetExternalIdentity: isReset,
-  });
-  renderAccountDirectory(await api.listUsers(), managedOrganizations);
-  toast(isReset ? "Microsoft identity link reset" : `Account ${disabled ? "disabled" : "enabled"}`);
-}
-
-function editAccount(user) {
-  const form = elements["account-form"];
-  resetAccountForm();
-  form.dataset.userId = user.id;
-  form.dataset.user = JSON.stringify(user);
-  form.elements.username.value = user.username || "";
-  form.elements.username.readOnly = true;
-  form.elements.authSource.value = user.authSource || "local";
-  form.querySelectorAll('input[name="authSource"]').forEach((input) => { input.disabled = true; });
-  form.elements.externalLogin.value = user.externalLogin || "";
-  form.elements.externalLogin.readOnly = true;
-  form.elements.role.value = user.role || "user";
-  elements["account-all-organizations"].checked = Boolean(user.allOrganizations || user.role === "admin");
-  const selected = new Set(user.organizationIds || []);
-  form.querySelectorAll('input[name="organizationIds"]').forEach((input) => { input.checked = selected.has(input.value); });
-  elements["cancel-account-edit"].hidden = false;
-  elements["account-submit-button"].textContent = "SAVE ACCESS + REVOKE SESSIONS";
-  refreshAccountAuthSource();
-  refreshAccountAccess();
-  elements["account-enrollment-note"].innerHTML = "<b>ACCESS CHANGE</b>Saving role or organization grants revokes this account’s active sessions.";
-  requestAnimationFrame(() => form.elements.role[0]?.focus?.());
-}
-
-function resetAccountForm() {
-  const form = elements["account-form"];
-  form.reset();
-  delete form.dataset.userId;
-  delete form.dataset.user;
-  form.elements.username.readOnly = false;
-  form.elements.externalLogin.readOnly = false;
-  form.querySelectorAll('input[name="authSource"]').forEach((input) => { input.disabled = false; });
-  elements["cancel-account-edit"].hidden = true;
-  elements["account-submit-button"].textContent = "CREATE SECURE ACCOUNT";
-  refreshAccountAuthSource();
-  refreshAccountAccess();
-}
-
-function refreshAccountAuthSource() {
-  const form = elements["account-form"];
-  const isEntra = form.elements.authSource.value === "entra";
-  const editing = Boolean(form.dataset.userId);
-  elements["account-password-field"].hidden = isEntra || editing;
-  elements["account-entra-field"].hidden = !isEntra;
-  form.elements.password.required = !isEntra && !editing;
-  form.elements.password.disabled = isEntra || editing;
-  if (isEntra) form.elements.password.value = "";
-  form.elements.externalLogin.required = isEntra;
-  form.elements.externalLogin.disabled = !isEntra;
-  if (!isEntra) form.elements.externalLogin.value = "";
-  elements["account-enrollment-note"].innerHTML = isEntra
-    ? "<b>FIRST LOGIN</b>The verified Microsoft account is bound to this WireDraft user. MFA and sign-in policy remain controlled by Entra."
-    : "<b>FIRST LOGIN</b>The operator scans a QR code, verifies TOTP, and receives one-use recovery codes.";
-}
-
-function refreshAccountAccess() {
-  const form = elements["account-form"];
-  const administrator = form.elements.role.value === "admin";
-  if (administrator) elements["account-all-organizations"].checked = true;
-  elements["account-all-organizations"].disabled = administrator;
-  const globalAccess = administrator || elements["account-all-organizations"].checked;
-  elements["account-organization-field"].disabled = globalAccess;
-  elements["account-organizations"].querySelectorAll("input").forEach((input) => { input.disabled = globalAccess; });
-}
-
-async function openOrganizationDialog() {
-  elements["account-menu"].open = false;
-  const directory = await api.listOrganizations();
-  managedOrganizations = directory?.organizations || [];
-  renderOrganizationDirectory(managedOrganizations);
-  elements["organization-form"].reset();
-  elements["organization-dialog"].showModal();
-  requestAnimationFrame(() => elements["organization-form"].elements.name.focus());
-}
-
-function renderOrganizationDirectory(organizations) {
-  elements["organization-count"].textContent = `${organizations.length} ORGANIZATION${organizations.length === 1 ? "" : "S"}`;
-  elements["organization-list"].replaceChildren(...organizations.map((organization) => {
-    const row = document.createElement("article");
-    const protectedOrganization = Boolean(organization.isDefault || organization.protected);
-    row.className = `organization-row${protectedOrganization ? " is-default" : ""}`;
-    row.dataset.organizationId = organization.id;
-    row.dataset.organizationName = organization.name;
-    row.innerHTML = `<span class="organization-beacon" aria-hidden="true"></span><label><span>${organization.isDefault ? "PROTECTED DEFAULT" : protectedOrganization ? "ACTIVE GUEST WORKSPACE" : "DISPLAY NAME"}</span><input data-organization-name maxlength="120" value="${escapeHTML(organization.name)}" ${protectedOrganization ? "readonly" : ""} aria-label="Organization name"></label><div class="organization-counts"><span><b>${Number(organization.mapCount || 0)}</b>MAPS</span><span><b>${Number(organization.userCount || 0)}</b>USERS</span></div><div class="organization-actions">${protectedOrganization ? "<em>LOCKED</em>" : '<button type="button" data-organization-rename>SAVE NAME</button><button type="button" class="danger" data-organization-delete>DELETE</button>'}</div>`;
-    return row;
-  }));
-}
-
-async function createOrganization(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const submit = form.querySelector('button[type="submit"]');
-  submit.disabled = true;
-  try {
-    const data = new FormData(form);
-    const organization = await api.createOrganization({ name: String(data.get("name")).trim() });
-    form.reset();
-    await refreshOrganizationRegistry();
-    toast(`Organization registered · ${organization.name}`);
-  } finally {
-    submit.disabled = false;
-  }
-}
-
-async function updateOrganization(event) {
-  const button = event.target.closest("[data-organization-rename], [data-organization-delete]");
-  if (!(button instanceof HTMLButtonElement)) return;
-  const row = button.closest("[data-organization-id]");
-  if (!row) return;
-  const id = row.dataset.organizationId;
-  if (button.hasAttribute("data-organization-rename")) {
-    const name = row.querySelector("[data-organization-name]").value.trim();
-    if (!name || name === row.dataset.organizationName) return;
-    const organization = await api.updateOrganization(id, { name });
-    await refreshOrganizationRegistry();
-    toast(`Organization renamed · ${organization.name}`);
-    return;
-  }
-  if (!window.confirm(`Delete ${row.dataset.organizationName}? User assignments will be removed. Organizations containing maps cannot be deleted.`)) return;
-  try {
-    await api.deleteOrganization(id);
-    await refreshOrganizationRegistry();
-    toast(`Organization deleted · ${row.dataset.organizationName}`);
-  } catch (error) {
-    if (error instanceof APIError && error.status === 409) {
-      notifications.push("DELETE BLOCKED · Move or delete every map in this organization first", "error");
-      return;
-    }
-    throw error;
-  }
-}
-
-async function refreshOrganizationRegistry() {
-  const directory = await api.listOrganizations();
-  managedOrganizations = directory?.organizations || [];
-  sessionInfo = {
-    ...sessionInfo,
-    availableOrganizations: managedOrganizations.map(({ id, name, isDefault }) => ({ id, name, isDefault })),
-  };
-  const previousScope = activeOrganizationScope;
-  activeOrganizationScope = resolveOrganizationScope(sessionInfo, activeOrganizationScope);
-  rememberOrganizationScope(activeOrganizationScope);
-  renderAccountSession();
-  if (elements["organization-dialog"].open) renderOrganizationDirectory(managedOrganizations);
-  topologySummaries = await api.listTopologies();
-  const visible = fillTopologySelect(topologySummaries);
-  if (visible.some(({ id }) => id === state.topology?.id) && previousScope === activeOrganizationScope) {
-    const summary = visible.find(({ id }) => id === state.topology.id);
-    if (summary?.organization && summary.organization !== state.topology.organization) {
-      state.setTopology({ ...state.topology, organization: summary.organization });
-    }
-    elements["topology-select"].value = state.topology.id;
-    return;
-  }
-  if (!visible.length) {
-    clearActiveTopologyForScope();
-    return;
-  }
-  await loadTopology(preferredTopologyID(visible, rememberedTopologyID()));
+  if (autosave.isDirty) await saveNow();
+  window.location.assign(`/admin.html#${section}`);
 }
 
 function toggleNavigator() {
@@ -1753,6 +1529,7 @@ function toggleNavigator() {
 }
 
 function selectCanvasTool(tool) {
+  if (tool !== "select" && !requireEdit("all")) return;
   canvas.setTool(nextCanvasTool(canvas.activeTool, tool));
 }
 
@@ -1772,7 +1549,7 @@ function configureAutosave() {
 async function saveNow() {
   if (!state.topology) return;
   try {
-    const topology = await api.replaceTopology(state.topology);
+    const topology = await api.replaceTopology(canvas.drag?.snapshot || canvas.rackDrag?.snapshot || state.topology);
     state.setTopology(topology);
     autosave.markSaved();
     elements["autosave-menu"].open = false;
@@ -1788,6 +1565,7 @@ async function saveNow() {
 }
 
 function createAnnotation(input) {
+  if (!requireEdit("all")) return;
   state.commit((topology) => {
     topology.annotations ||= [];
     topology.annotations.push({
@@ -1801,6 +1579,7 @@ function createAnnotation(input) {
 }
 
 function deleteAnnotation(annotation) {
+  if (!requireEdit("all")) return;
   if (!annotation) return;
   state.commit((topology) => {
     topology.annotations = (topology.annotations || []).filter((item) => item.id !== annotation.id);
@@ -1820,6 +1599,7 @@ function openTextAnnotationDialog(point) {
 
 function saveTextAnnotation(event) {
   event.preventDefault();
+  if (!requireEdit("all")) return;
   if (!pendingAnnotationPoint) return;
   const form = new FormData(event.currentTarget);
   state.commit((topology) => {
@@ -1980,17 +1760,17 @@ async function installRack(event) {
   requestAnimationFrame(() => canvas.fit());
 }
 
+/** Install catalog hardware below existing devices without changing their saved positions. */
 async function installDevice(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
-  const index = state.topology.devices.length;
 	const catalog = await loadCatalogModule();
 	const profile = catalog.hardwareCatalog.find((candidate) => candidate.vendor === form.get("vendor") && candidate.model === form.get("model"));
 	if (!profile) throw new Error("Select a hardware catalog profile");
-	const device = catalog.instantiateProfile(profile, String(form.get("name")), {
-		x: 100 + (index % 2) * 730,
-		y: 100 + Math.floor(index / 2) * (profile.units * 100 + 50),
-	});
+	const device = catalog.instantiateProfile(profile, String(form.get("name")), { x: 0, y: 0 });
+  const position = canvas.nextDevicePosition(device);
+  device.positionX = position.x;
+  device.positionY = position.y;
 	device.faceplate.vendorColor = String(form.get("color"));
   await updateFrom(() => api.createDevice(state.topology.id, device), true, "Device installed");
   elements["device-dialog"].close();
@@ -2012,18 +1792,18 @@ async function loadCatalogModule() {
   return catalogModule;
 }
 
+/** Place a configured server below existing free hardware, including taller access points. */
 async function installStaticServer(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const units = Number(form.get("units"));
-  const index = state.topology.devices.length;
   const server = instantiateGenericServerBack({
     name: form.get("name"), model: form.get("model"), units, color: form.get("color"),
     cards: pendingServerCards.map(({ typeKey, label, portCount }) => ({ typeKey, label, portCount })),
-  }, {
-    x: 100 + (index % 2) * 730,
-    y: 100 + Math.floor(index / 2) * (units * 100 + 50),
-  });
+  }, { x: 0, y: 0 });
+  const position = canvas.nextDevicePosition(server);
+  server.positionX = position.x;
+  server.positionY = position.y;
   await updateFrom(() => api.createDevice(state.topology.id, server), true, "Generic server back installed");
   elements["static-server-dialog"].close();
 }
@@ -2075,17 +1855,17 @@ function renderPatchPanelMiniature() {
   ).join("");
 }
 
+/** Place a new patch panel after existing free hardware without overlapping larger panels. */
 async function installPatchPanel(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
-  const index = state.topology.devices.length;
   const catalog = await loadCatalogModule();
   const profile = catalog.patchPanelProfiles().find((candidate) => candidate.model === form.get("model"));
   if (!profile) throw new Error("Select a patch-panel model");
-  const panel = catalog.instantiateProfile(profile, String(form.get("name")), {
-    x: 100 + (index % 2) * 730,
-    y: 100 + Math.floor(index / 2) * (profile.units * 100 + 50),
-  });
+  const panel = catalog.instantiateProfile(profile, String(form.get("name")), { x: 0, y: 0 });
+  const position = canvas.nextDevicePosition(panel);
+  panel.positionX = position.x;
+  panel.positionY = position.y;
   panel.faceplate.vendorColor = String(form.get("color"));
   const topology = await updateFrom(() => api.createDevice(state.topology.id, panel), true, "Patch panel installed");
   if (topology) elements["patch-panel-dialog"].close();
@@ -2353,22 +2133,18 @@ async function importCatalog(event) {
 	} catch (error) { showError(error); }
 }
 
+/** Persist a cable with endpoint-appropriate media and VLAN defaults. */
 async function createLink(sourceBox, targetBox) {
-  const sourceVLANs = carriedVLANs(sourceBox.port);
-  const targetVLANs = carriedVLANs(targetBox.port);
-  const shared = [...sourceVLANs].filter((id) => targetVLANs.has(id));
-  const primary = shared[0] || sourceBox.port.nativeVlan || targetBox.port.nativeVlan || 1;
   const link = {
     id: "", sourceDeviceId: sourceBox.device.id, sourcePortId: sourceBox.port.id,
     targetDeviceId: targetBox.device.id, targetPortId: targetBox.port.id,
-    cableType: sourceBox.port.type === "COAX_F" || targetBox.port.type === "COAX_F" ? "COAX" :
-      /SFP|FIBER_/.test(sourceBox.port.type) || /SFP|FIBER_/.test(targetBox.port.type) ? "FIBER" : "CAT6A",
-    vlanIds: shared.length ? shared : [primary], primaryVlan: primary, notes: "",
+    ...defaultCableProperties(sourceBox.port, targetBox.port), notes: "",
   };
   await updateFrom(() => api.createLink(state.topology.id, link), true, "Cable patched");
 }
 
 async function deleteLink(link) {
+  if (!requireEdit("cabling")) return;
   if (!window.confirm("Disconnect this cable?")) return;
   await updateFrom(() => api.deleteLink(state.topology.id, link.id), true, "Cable disconnected");
   state.select(null, null);
@@ -2606,12 +2382,14 @@ async function dissolveFirewallCluster(cluster) {
 }
 
 async function deleteDevice(device) {
+  if (!requireEdit("all")) return;
   if (!window.confirm(`Remove ${device.name} and all connected cables?`)) return;
   await updateFrom(() => api.deleteDevice(state.topology.id, device.id), true, "Device removed");
   state.select(null, null);
 }
 
 async function deleteRack(rack) {
+  if (!requireEdit("all")) return;
   if (!rack || !window.confirm(`Delete ${rack.name}? Mounted devices will be released onto the canvas.`)) return;
   await updateFrom(() => api.deleteRack(state.topology.id, rack.id), true, "Rack removed; devices released");
   state.select(null, null);
@@ -2693,6 +2471,7 @@ function queueAnalysis() {
 }
 
 async function updateFrom(operation, remember = true, message = "") {
+  const wasDirty = autosave.isDirty;
   autosave.markDirty();
   try {
     const topology = await operation();
@@ -2703,6 +2482,10 @@ async function updateFrom(operation, remember = true, message = "") {
     return topology;
   } catch (error) {
     showError(error);
+    if (error.name === "EditorLockedError") {
+      if (!wasDirty) autosave.markSaved();
+      return null;
+    }
     if (state.topology) state.setTopology(await api.getTopology(state.topology.id));
     return null;
   }
@@ -2755,19 +2538,21 @@ function setConnectionStatus(status) {
   elements["connection-status"].querySelector("b").textContent = status === "online" ? "LIVE SYNC" : status === "offline" ? "RETRYING" : "SYNCING";
 }
 
-function carriedVLANs(port) {
-  if (port.mode === "Unconfigured") return new Set();
-  return new Set([port.nativeVlan, ...(port.allowedVlans || [])].filter(Boolean));
-}
-
 function toast(message) {
   notifications.push(message, "info");
 }
 
 function showError(error) {
+  if (error.name === "EditorLockedError") { toast(error.message); return; }
   console.error(error);
   const message = error instanceof APIError ? error.message : error?.message || "Unexpected error";
   notifications.push(`ERROR · ${message}`, "error");
+}
+
+function requireEdit(capability) {
+  if (editLock.allows(capability)) return true;
+  toast(lockedEditMessage(capability));
+  return false;
 }
 
 function isFormField(target) {

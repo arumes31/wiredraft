@@ -28,8 +28,9 @@ function installed(vendor, model) {
 
 const accessPoint = installed("HPE Aruba", "AP-635");
 assert.equal(accessPoint.category, "AccessPoint");
-assert.deepEqual(accessPoint.ports.map((port) => port.label), ["E0", "E1"]);
-assert.ok(accessPoint.ports.every((port) => port.type === "RJ45_MGIG" && port.speedMbps === 2500));
+assert.deepEqual(accessPoint.ports.map((port) => port.label), ["E0", "E1", "CONSOLE"]);
+assert.ok(accessPoint.ports.slice(0, 2).every((port) => port.type === "RJ45_MGIG" && port.speedMbps === 2500));
+assert.equal(accessPoint.ports[2].type, "USB_MICRO_CONSOLE");
 assert.equal(resolveFaceplateTemplate(accessPoint).id, "wireless-ap");
 
 const handoff = installed("Generic Edge", "10G fiber Ethernet handoff");
