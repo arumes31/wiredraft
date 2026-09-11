@@ -155,3 +155,37 @@ test("an autosave already in flight does not overwrite a completed drop", async 
   await expect.poll(() => f.workspace.topology.devices[0].positionX).toBe(200);
   expect(f.conflicts).toEqual([]);
 });
+
+test("manual save during a drag explains the deferral and persists on drop", async ({ page }) => {
+  const f = await fixture(page);
+  await drag(page, "device-0", 100, 0, { release: false });
+  await page.keyboard.press("Control+s");
+  await expect(page.locator("#toast")).toContainText("Save deferred until the drag completes");
+  expect(f.workspace.writes).toHaveLength(0);
+  await page.mouse.up();
+  await expect.poll(() => f.workspace.topology.devices[0].positionX).toBe(200);
+  await expect.poll(() => page.evaluate(() => window.revisionFixture.autosave.isDirty)).toBe(false);
+  await page.keyboard.press("Control+s");
+  await expect(page.locator("#toast")).toContainText("Topology saved");
+});
+
+test("a failed inspector update and recovery read report the original error without an unhandled rejection", async ({ page }) => {
+  const f = await fixture(page);
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.route("**/api/v1/topologies/lock-map/devices/device-0", (route) =>
+    route.fulfill({ status: 500, json: { error: "Device update unavailable" } }));
+  await page.route("**/api/v1/topologies/lock-map", (route) =>
+    route.fulfill({ status: 500, json: { error: "Recovery unavailable" } }));
+  await page.evaluate(() => window.lockFixture.state.select("device", "device-0"));
+  await page.locator('#device-inspector-form [name="name"]').fill("Changed");
+  const recovery = page.waitForResponse((response) => response.url().endsWith("/api/v1/topologies/lock-map") && response.request().method() === "GET");
+  await page.locator("#device-inspector-form button.primary").click();
+  await (await recovery).finished();
+  await expect(page.locator("#toast")).toContainText("Device update unavailable");
+  await page.unroute("**/api/v1/topologies/lock-map/devices/device-0");
+  await page.unroute("**/api/v1/topologies/lock-map");
+  await page.locator("#device-inspector-form button.primary").click();
+  await expect.poll(() => f.workspace.topology.devices[0].name).toBe("Changed");
+  expect(pageErrors).toEqual([]);
+});

@@ -61,6 +61,21 @@ test("device display override can restrict a server to its mounting face", () =>
   assert.equal(engine.deviceRectangles().length, 2);
 });
 
+test("routing anchors replace portals with the first real socket and retain it", () => {
+  const { engine, device } = fixture();
+  engine.layoutScene();
+  const portal = [...engine.routingPortBoxByID.values()].find((box) => box.portal);
+  assert.ok(portal);
+  engine.addVisibleDevice(device, null, { x: 1000, y: 100 }, "rear");
+  const socket = engine.routingPortBoxByID.get(portal.port.id);
+  assert.ok(!socket.portal);
+  assert.notEqual(socket, portal);
+  engine.addVisibleDevice(device, null, { x: 2000, y: 100 }, "rear");
+  assert.equal(engine.routingPortBoxByID.get(portal.port.id), socket);
+  engine.addVisibleDevice(device, null, { x: 3000, y: 100 }, "front");
+  assert.equal(engine.routingPortBoxByID.get(portal.port.id), socket);
+});
+
 test("cables use the panel containing the socket even when the other panel is the primary box", () => {
   const { engine, state } = fixture();
   state.topology.devices[0].rackFace = "front";

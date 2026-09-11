@@ -1582,7 +1582,10 @@ function configureAutosave() {
 async function saveNow() {
   if (!state.topology) return;
   const saved = await topologyWrites.run(saveTopologySnapshot);
-  if (!saved) return;
+  if (!saved) {
+    toast("Save deferred until the drag completes");
+    return;
+  }
   autosave.markSaved();
   elements["autosave-menu"].open = false;
   toast("Topology saved");
@@ -2630,7 +2633,11 @@ async function updateFrom(operation, remember = true, message = "") {
         if (!wasDirty) autosave.markSaved();
         return null;
       }
-      if (state.topology?.id === topologyID) receiveTopology(await api.getTopology(topologyID));
+      try {
+        if (state.topology?.id === topologyID) receiveTopology(await api.getTopology(topologyID));
+      } catch {
+        // The original error is already visible; a failed recovery must not reject the caller.
+      }
       return null;
     }
   });

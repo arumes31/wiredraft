@@ -472,6 +472,8 @@ export class CanvasEngine {
     for (const portBox of [...scene.hiddenPorts, ...scene.ports]) {
       portBox.deviceBox = routingBox;
       if (portBox.portal && this.routingPortBoxByID.has(portBox.port.id)) continue;
+      const existing = this.routingPortBoxByID.get(portBox.port.id);
+      if (existing && !existing.portal) continue;
       this.routingPortBoxByID.set(portBox.port.id, portBox);
     }
     this.portBoxesByDevice.set(device.id, [...(this.portBoxesByDevice.get(device.id) || []), ...scene.ports]);
