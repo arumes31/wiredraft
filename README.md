@@ -124,6 +124,7 @@ The published runtime image is `FROM scratch`, contains only the statically link
 ### Rack and hardware planning
 
 - Multi-rack layouts with 6U–48U frames, independent front/rear rails, per-rack face switching, whole-U snapping, collision prevention, hidden-side silhouettes, grouped cable portals, trace-expanded dual-face views, capacity reporting, free-floating devices, and a navigable minimap.
+- Servers show matching front and rear hardware at the same U position in rack views by default. In the device inspector, **Rack display → Visible faces** can use the automatic default, show both faces, or show only the mounting face. This setting is saved with the device; dual-view panels share one device record and its cable endpoints.
 - High-DPI faceplates for switches, firewalls, routers, carrier handoffs, modems, access points, servers, patch panels, storage, power, and console equipment.
 - Documented front/rear hardware panels for 20 FortiGate and FortiSwitch models, composed from shared connector, indicator, vent, fan, and PSU artwork. Select **Hardware panel** in the device inspector; the choice is local to your session and independent of rack mounting. Cables to hidden sockets terminate at a labeled connection marker. Canvas and SVG use the same physical geometry.
 - Offline 542-profile hardware catalog with vendor-family layouts and 25 connector types up to 800G OSFP, plus JSON profile import.

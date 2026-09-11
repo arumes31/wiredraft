@@ -436,6 +436,15 @@ dialog { color: var(--ink); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; padding: 9px 0; }
 .form-grid label { margin: 10px var(--modal-gutter) !important; }
 .form-grid .catalog-search { grid-column: 1 / -1; }
+.catalog-search-panel { grid-column: 1 / -1; min-width: 0; margin: 0 var(--modal-gutter) 10px; }
+.catalog-search-panel > p { margin: 0 0 8px; color: #a7bcbe; font-size: 12px; }
+.catalog-search-results { max-height: 240px; overflow-y: auto; overscroll-behavior: contain; margin: 0; padding: 0; list-style: none; }
+.catalog-search-results li + li { margin-top: 4px; }
+.catalog-search-results button { display: grid; gap: 4px; width: 100%; min-height: 48px; padding: 10px 12px; text-align: left; white-space: normal; overflow-wrap: anywhere; letter-spacing: 0; background: #0b1719; border-color: #3b4f54; }
+.catalog-search-results strong { color: #e8f3f2; font-size: 13px; }
+.catalog-search-results span { color: #a7bcbe; font-size: 12px; }
+.catalog-search-results button:hover { background: #163033; border-color: var(--cyan); }
+.catalog-search-results button:focus-visible { outline: 2px solid var(--cyan); outline-offset: -3px; }
 .form-grid .server-bmc-option { grid-column: 1 / -1; }
 .server-builder-dialog { width: min(1120px, calc(100vw - 32px)); }
 .server-builder-basics { grid-template-columns: 1.35fr 1.35fr .65fr .65fr; border-bottom: 1px solid var(--line); }

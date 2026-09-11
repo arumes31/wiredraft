@@ -29,7 +29,7 @@ import {
 import {
   findRackFaceLanding, layoutRackGroups, mountedDevicePosition, normalizeRackFace, oppositeRackFace, RackFace,
   RACK_DEVICE_INSET, RACK_FACE_GAP, RACK_HEADER_HEIGHT, RACK_UNIT_HEIGHT, RACK_WIDTH, usedRackUnits,
-  visibleRackFaces,
+  visibleRackFaces, showsBothRackFaces,
 } from "./rack.js";
 import { SceneTileIndex } from "./scene-tiles.js";
 
@@ -259,11 +259,10 @@ export class CanvasEngine {
     const viewport = this.viewportWorldRect(camera, width, height, 180);
     const visibleRackBoxes = this.rackTiles.query(viewport);
     for (const rackBox of visibleRackBoxes) this.drawRack(ctx, rackBox);
-    if (overlays) this.drawRackLanding(ctx);
     for (const box of this.shadowDeviceBoxes) {
       if (intersects(box, viewport)) this.drawDeviceShadow(ctx, box);
     }
-    for (const box of this.deviceTiles.query(viewport)) this.drawDevice(ctx, box.device, time);
+    for (const box of this.deviceTiles.query(viewport)) this.drawDevice(ctx, box.device, time, box);
     this.drawLinks(ctx, time, !overlays, overlays);
     this.drawRackPortals(ctx);
     this.drawPortDescriptions(ctx);
@@ -273,6 +272,8 @@ export class CanvasEngine {
       this.drawSelectionBox(ctx);
       this.drawDragGhosts(ctx);
       this.drawAnnotationDraft(ctx);
+      this.drawRackDragUnits(ctx, visibleRackBoxes);
+      this.drawRackLanding(ctx);
     }
     this.drawRackFaceControls(ctx, visibleRackBoxes);
     ctx.restore();
@@ -448,28 +449,34 @@ export class CanvasEngine {
   }
 
   /** Register shared physical sockets and hidden-panel routing anchors. */
-  addVisibleDevice(device, rack, position) {
+  addVisibleDevice(device, rack, position, face = null) {
     const size = faceplateDisplaySize(device, { mounted: Boolean(rack), width: DEVICE_WIDTH });
-    const deviceBox = { device, rack, x: position.x, y: position.y, ...size };
+    const deviceBox = { device, rack, face, x: position.x, y: position.y, ...size };
+    const routingBox = { ...deviceBox };
     this.deviceBoxes.push(deviceBox);
-    this.routingDeviceBoxes.push(deviceBox);
-    this.deviceBoxByID.set(device.id, deviceBox);
+    this.routingDeviceBoxes.push(routingBox);
+    if (!this.deviceBoxByID.has(device.id)) this.deviceBoxByID.set(device.id, deviceBox);
     this.deviceTiles.insert(deviceBox);
     const defaultFace = resolveModelFaceplate(device)?.defaultFace || "front";
     const scene = buildFaceplateScene(device, deviceBox, {
-      face: this.state.deviceFaceplateFace?.(device.id, defaultFace) || defaultFace,
+      face: face || this.state.deviceFaceplateFace?.(device.id, defaultFace) || defaultFace,
     });
+    deviceBox.scene = scene;
     this.faceplateSceneByDevice ||= new Map();
-    this.faceplateSceneByDevice.set(device.id, scene);
+    if (!this.faceplateSceneByDevice.has(device.id)) this.faceplateSceneByDevice.set(device.id, scene);
     for (const portBox of scene.ports) {
+      portBox.deviceBox = routingBox;
       this.portBoxes.push(portBox);
       this.portBoxByID.set(portBox.port.id, portBox);
     }
-    for (const portBox of [...scene.ports, ...scene.hiddenPorts]) {
-      this.routingPortBoxes.push(portBox);
+    for (const portBox of [...scene.hiddenPorts, ...scene.ports]) {
+      portBox.deviceBox = routingBox;
+      if (portBox.portal && this.routingPortBoxByID.has(portBox.port.id)) continue;
+      const existing = this.routingPortBoxByID.get(portBox.port.id);
+      if (existing && !existing.portal) continue;
       this.routingPortBoxByID.set(portBox.port.id, portBox);
     }
-    this.portBoxesByDevice.set(device.id, scene.ports);
+    this.portBoxesByDevice.set(device.id, [...(this.portBoxesByDevice.get(device.id) || []), ...scene.ports]);
   }
 
   addPortalDevice(device, rack, marker) {
@@ -577,6 +584,15 @@ export class CanvasEngine {
         continue;
       }
       const face = normalizeRackFace(device.rackFace);
+      if (showsBothRackFaces(device)) {
+        for (const displayFace of [face, oppositeRackFace(face)]) {
+          const rackBox = faceBoxes.get(`${rack.id}:${displayFace}`);
+          if (!rackBox) continue;
+          const visualRack = { ...rack, positionX: rackBox.x, positionY: rackBox.y };
+          this.addVisibleDevice(device, rack, mountedDevicePosition(visualRack, device), displayFace);
+        }
+        continue;
+      }
       const visibleRackBox = faceBoxes.get(`${rack.id}:${face}`);
       if (visibleRackBox) {
         const visualRack = { ...rack, positionX: visibleRackBox.x, positionY: visibleRackBox.y };
@@ -591,6 +607,13 @@ export class CanvasEngine {
         height: Math.max(UNIT_HEIGHT, (device.faceplate.unitsU || 1) * UNIT_HEIGHT),
       });
       this.addPortalDevice(device, rack, portalByRack.get(rack.id));
+    }
+    // A real socket on either displayed panel takes precedence over its hidden-panel anchor.
+    this.routingPortBoxes = [...this.routingPortBoxByID.values()];
+    for (const box of this.deviceBoxes) {
+      const scene = box.scene;
+      scene.hiddenPorts = scene.hiddenPorts.filter((port) => this.routingPortBoxByID.get(port.port.id) === port);
+      if (!scene.hiddenPorts.length) scene.portal = null;
     }
     this.vlanByID = new Map((topology.vlans || []).map((vlan) => [vlan.id, vlan]));
     this.patchPanelPathLinkIDsByLink = patchPanelPathIndex(topology);
@@ -803,7 +826,7 @@ export class CanvasEngine {
         marker.x + marker.width / 2, marker.y + marker.height / 2);
       ctx.restore();
     }
-    for (const scene of this.faceplateSceneByDevice?.values() || []) {
+    for (const { scene } of this.deviceBoxes) {
       if (!scene.portal) continue;
       const marker = scene.portal;
       ctx.save();
@@ -814,9 +837,31 @@ export class CanvasEngine {
     }
   }
 
+  drawRackDragUnits(ctx, rackBoxes) {
+    if (!this.drag?.active) return;
+    ctx.save();
+    ctx.font = `700 ${Math.min(44, Math.max(26, 14 / this.camera.zoom))}px Bahnschrift Condensed, sans-serif`;
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(5, 10, 12, .7)";
+    ctx.fillStyle = "rgba(230, 244, 243, .65)";
+    for (const box of rackBoxes) {
+      for (let unit = 1; unit <= box.rack.heightU; unit += 1) {
+        const y = box.y + RACK_HEADER_HEIGHT + (box.rack.heightU - unit + .5) * RACK_UNIT_HEIGHT;
+        for (const right of [false, true]) {
+          const x = right ? box.x + box.width - RACK_DEVICE_INSET - 16 : box.x + RACK_DEVICE_INSET + 16;
+          ctx.textAlign = right ? "right" : "left";
+          ctx.strokeText(`U${unit}`, x, y);
+          ctx.fillText(`U${unit}`, x, y);
+        }
+      }
+    }
+    ctx.restore();
+  }
+
   drawRackLanding(ctx) {
     const preview = this.rackDropPreview;
-    if (!preview) return;
+    if (!this.drag?.active || !preview) return;
     const units = Math.max(1, preview.device.faceplate.unitsU || 1);
     ctx.save();
     ctx.fillStyle = preview.isValid ? "rgba(66, 217, 200, .18)" : "rgba(243, 108, 99, .2)";
@@ -826,13 +871,23 @@ export class CanvasEngine {
     ctx.fillRect(preview.position.x, preview.position.y, DEVICE_WIDTH, units * UNIT_HEIGHT);
     ctx.strokeRect(preview.position.x, preview.position.y, DEVICE_WIDTH, units * UNIT_HEIGHT);
     ctx.setLineDash([]);
-    ctx.fillStyle = preview.isValid ? "#8ff4e8" : "#ff9189";
-    ctx.font = "700 11px Bahnschrift Condensed, sans-serif";
-    ctx.textAlign = "center";
+    const fontSize = Math.min(28, Math.max(14, 12 / this.camera.zoom));
+    const lastUnit = preview.rackUnit + units - 1;
+    const range = units === 1 ? `U${preview.rackUnit}` : `U${preview.rackUnit}–U${lastUnit}`;
+    const label = `${range} · ${units}U`;
     const face = normalizeRackFace(preview.rackFace).toUpperCase();
-    const label = preview.isValid ? `MOUNT ${face} · U${preview.rackUnit}` :
-      preview.reason === "capacity" ? `DEVICE EXCEEDS ${preview.rack.heightU}U ${face} CAPACITY` : `${face} · U${preview.rackUnit} RANGE OCCUPIED`;
-    ctx.fillText(label, preview.position.x + DEVICE_WIDTH / 2, preview.position.y - 10);
+    const status = preview.isValid ? `MOUNT ${face}` : preview.reason === "capacity"
+      ? `EXCEEDS ${preview.rack.heightU}U ${face} CAPACITY` : `${face} · RANGE OCCUPIED`;
+    const centerX = preview.position.x + DEVICE_WIDTH / 2;
+    const centerY = preview.position.y + units * UNIT_HEIGHT / 2;
+    ctx.fillStyle = preview.isValid ? "#8ff4e8" : "#ff9189";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `700 ${fontSize}px Bahnschrift Condensed, sans-serif`;
+    ctx.fillText(`${status} · ${label}`, centerX, preview.position.y - fontSize, DEVICE_WIDTH);
+    ctx.font = `300 ${Math.min(180, units * UNIT_HEIGHT * .9)}px Bahnschrift Condensed, sans-serif`;
+    ctx.fillStyle = preview.isValid ? "rgba(102, 237, 221, .72)" : "rgba(255, 145, 137, .72)";
+    ctx.fillText(String(preview.rackUnit), centerX, centerY, DEVICE_WIDTH - 80);
     ctx.restore();
   }
 
@@ -1419,8 +1474,7 @@ export class CanvasEngine {
   }
 
   /** Draw physical components, preserving selection outlines when a model supplies its own chassis silhouette. */
-  drawDevice(ctx, device, time) {
-    const box = this.deviceBoxByID?.get(device.id) || this.deviceBoxes.find((candidate) => candidate.device.id === device.id);
+  drawDevice(ctx, device, time, box = this.deviceBoxByID?.get(device.id) || this.deviceBoxes.find((candidate) => candidate.device.id === device.id)) {
     if (!box) return;
     const selected = this.state.selection?.type === "device" && this.state.selection.id === device.id;
     const multiSelected = this.selectedDevices.has(device.id);
@@ -1433,7 +1487,7 @@ export class CanvasEngine {
     const logicalPeer = systemPeer || clusterPeer;
     const logicalPeerAccent = systemPeer ? switchSystemAccent(system.mode) : clusterPeer ? firewallClusterAccent(cluster, device.id) : "#52666b";
     const template = resolveFaceplateTemplate(device);
-    const scene = this.faceplateSceneByDevice?.get(device.id);
+    const scene = box.scene || this.faceplateSceneByDevice?.get(device.id);
     const chassis = scene?.profile ? scene.chassis : box;
     const profile = this.activeGraphicsProfile || QUALITY_FALLBACK;
     ctx.save();
@@ -1465,7 +1519,7 @@ export class CanvasEngine {
       this.drawDeviceIdentity(ctx, device, box, template);
       this.drawFaceplateDetails(ctx, device, box, template);
     }
-    for (const portBox of this.portBoxesByDevice?.get(device.id) || this.portBoxes.filter((candidate) => candidate.device.id === device.id)) {
+    for (const portBox of box.scene?.ports || this.portBoxesByDevice?.get(device.id) || this.portBoxes.filter((candidate) => candidate.device.id === device.id)) {
       this.drawPort(ctx, portBox);
     }
     const portIDs = new Set((device.ports || []).map((port) => port.id));
@@ -1821,7 +1875,7 @@ export class CanvasEngine {
   /** Draw readable scene captions while leaving compact sockets available to picking, routing and tooltips. */
   drawPortDescriptions(ctx) {
     for (const box of this.portBoxes) {
-      const deviceBox = this.deviceBoxByID?.get(box.device.id) || this.deviceBoxes.find((candidate) => candidate.device.id === box.device.id);
+      const deviceBox = box.deviceBox || this.deviceBoxByID?.get(box.device.id) || this.deviceBoxes.find((candidate) => candidate.device.id === box.device.id);
       if (!deviceBox) continue;
       const template = resolveFaceplateTemplate(box.device);
       const placement = portDescriptionPlacement(box, deviceBox);
@@ -2067,7 +2121,7 @@ export class CanvasEngine {
       };
       for (const selectedID of this.selectedDevices) {
         const selected = this.state.topology.devices.find((item) => item.id === selectedID);
-        const selectedBox = this.deviceBoxes.find((item) => item.device.id === selectedID);
+        const selectedBox = selectedID === device.device.id ? device : this.deviceBoxes.find((item) => item.device.id === selectedID);
         if (selected && selectedBox) {
           this.drag.originals.set(selectedID, {
             x: selectedBox.x,
@@ -2228,7 +2282,7 @@ export class CanvasEngine {
         this.state.history.push(this.rackDrag.snapshot);
         this.state.history = this.state.history.slice(-50);
         this.state.future = [];
-        if (rack) this.callbacks.onRackUpdate?.(structuredClone(rack));
+        if (rack) this.callbacks.onRackUpdate?.(structuredClone(rack), this.rackDrag.snapshot);
       }
       this.rackDrag = null;
       this.canvas.style.cursor = "default";
@@ -2250,14 +2304,20 @@ export class CanvasEngine {
         this.state.history.push(wasDrag.snapshot);
         this.state.history = this.state.history.slice(-50);
         this.state.future = [];
+        const movedDevices = [];
         for (const id of wasDrag.originals.keys()) {
           const device = this.state.topology.devices.find((item) => item.id === id);
-          if (device && wasDrag.invalidIDs.has(id)) Object.assign(device, structuredClone(wasDrag.originals.get(id).device));
+          if (device && wasDrag.invalidIDs.has(id)) {
+            const original = wasDrag.originals.get(id).device;
+            for (const field of ["positionX", "positionY", "rackId", "rackUnit", "rackFace"]) device[field] = original[field];
+          }
           if (device) {
             this.state.editLock?.recordChange(wasDrag.snapshot, this.state.topology);
-            this.callbacks.onDeviceUpdate?.(structuredClone(device));
+            movedDevices.push(structuredClone(device));
           }
         }
+        if (this.callbacks.onDevicesUpdate) this.callbacks.onDevicesUpdate(movedDevices, wasDrag.snapshot);
+        else for (const device of movedDevices) this.callbacks.onDeviceUpdate?.(device);
       }
       this.drag = null;
       this.rackDropPreview = null;

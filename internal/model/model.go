@@ -243,6 +243,7 @@ type Device struct {
 	RackID       string         `json:"rackId,omitempty"`
 	RackUnit     int            `json:"rackUnit,omitempty"`
 	RackFace     RackFace       `json:"rackFace,omitempty"`
+	RackDisplay  string         `json:"rackDisplay,omitempty"`
 	Faceplate    FaceplateSpec  `json:"faceplate"`
 	Ports        []Port         `json:"ports"`
 }

@@ -537,6 +537,9 @@ func (d Device) Validate(vlanIDs map[int]struct{}) error {
 	if !slices.Contains(validDeviceCategories, d.Category) {
 		return fmt.Errorf("unknown category %q", d.Category)
 	}
+	if d.RackDisplay != "" && d.RackDisplay != "both" && d.RackDisplay != "mounted" {
+		return fmt.Errorf("unknown rack display %q", d.RackDisplay)
+	}
 	for label, value := range map[string]string{
 		"device serial number": d.SerialNumber,
 		"device asset tag":     d.AssetTag,

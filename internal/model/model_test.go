@@ -9,6 +9,32 @@ import (
 	"testing"
 )
 
+func TestDeviceRackDisplayRoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"", "both", "mounted"} {
+		t.Run("display="+mode, func(t *testing.T) {
+			topology := mustDemo(t)
+			topology.Devices[0].RackDisplay = mode
+			data, err := json.Marshal(topology)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded Topology
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if decoded.Devices[0].RackDisplay != mode {
+				t.Fatalf("rack display = %q, want %q", decoded.Devices[0].RackDisplay, mode)
+			}
+		})
+	}
+	topology := mustDemo(t)
+	topology.Devices[0].RackDisplay = "sideways"
+	if err := topology.Validate(); err == nil {
+		t.Fatal("unknown rack display must be rejected")
+	}
+}
+
 // TestFaceplateInventoryRevisionJSON protects index revisions across saved topology round trips.
 func TestFaceplateInventoryRevisionJSON(t *testing.T) {
 	t.Parallel()

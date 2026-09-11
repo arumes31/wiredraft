@@ -1,0 +1,44 @@
+import { expect, test } from "@playwright/test";
+import { enterGuestWorkspace, unlockEditor } from "./auth-helper.mjs";
+
+test("searches every provider and family and selects a clickable device result", async ({ page, request }) => {
+  await enterGuestWorkspace(page, request);
+  await expect(page.locator("#connection-status")).toHaveAttribute("data-state", "online", { timeout: 15_000 });
+  await unlockEditor(page);
+  await page.locator("#add-device-button").click();
+  const dialog = page.locator("#device-dialog");
+  const search = dialog.locator('[name="filter"]');
+  const results = dialog.getByRole("list", { name: "Matching devices" });
+  await dialog.locator('[name="family"]').selectOption("Switches");
+  await dialog.locator('[name="vendor"]').selectOption("Cisco");
+  await search.fill("  hPe ArUbA   AP-635  ");
+  const result = results.getByRole("button", { name: /AP-635/ });
+  await expect(result).toContainText("HPE Aruba");
+  await expect(result).toContainText("Access Points");
+  await search.press("Enter");
+  await expect(result).toBeFocused();
+  await expect(dialog).toBeVisible();
+  await result.click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('[name="family"]')).toHaveValue("Access Points");
+  await expect(dialog.locator('[name="vendor"]')).toHaveValue("HPE Aruba");
+  await expect(dialog.locator('[name="model"]')).toHaveValue("AP-635");
+  await expect(dialog.locator('[name="name"]')).toHaveValue("AP-635");
+  await expect(dialog.locator("#catalog-profile-summary")).toContainText("ACCESS POINTS · ACCESSPOINT");
+
+  await search.fill("Teltonika");
+  const router = results.getByRole("button", { name: /RUTX50/ });
+  await router.focus();
+  await page.keyboard.press("Enter");
+  await expect(dialog.locator('[name="vendor"]')).toHaveValue("Teltonika Networks");
+  await expect(dialog.locator('[name="model"]')).toHaveValue("RUTX50");
+  await expect(dialog).toBeVisible();
+  await search.fill("no-such-device-xyz");
+  await expect(results.getByRole("button")).toHaveCount(0);
+  await expect(dialog.locator("#device-search-status")).toContainText("No devices found");
+  await search.press("Enter");
+  await expect(dialog).toBeVisible();
+  await search.fill("");
+  await expect(results).toBeHidden();
+  await expect(dialog.locator('[name="model"]')).toHaveValue("RUTX50");
+});

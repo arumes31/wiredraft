@@ -96,7 +96,7 @@ export function assignCableTracks(scene, options = {}) {
   const deviceRack = (mountedDevice, deviceBox) => {
     const physicalID = mountedDevice?.rackId || deviceBox?.rack?.id || "";
     if (!physicalID) return null;
-    const face = mountedDevice?.rackFace === "rear" ? "rear" : "front";
+    const face = (deviceBox?.face || mountedDevice?.rackFace) === "rear" ? "rear" : "front";
     return rackMap.get(`${physicalID}:${face}`) || rackMap.get(physicalID) || rackByPhysicalID.get(physicalID) || null;
   };
   const descriptors = [];
@@ -104,8 +104,8 @@ export function assignCableTracks(scene, options = {}) {
   for (const link of links) {
     const source = portMap.get(link.sourcePortId);
     const target = portMap.get(link.targetPortId);
-    const sourceDevice = source ? deviceMap.get(source.device.id) : null;
-    const targetDevice = target ? deviceMap.get(target.device.id) : null;
+    const sourceDevice = source ? source.deviceBox || deviceMap.get(source.device.id) : null;
+    const targetDevice = target ? target.deviceBox || deviceMap.get(target.device.id) : null;
     if (!source || !target || !sourceDevice || !targetDevice) continue;
     const deviceIDs = [source.device.id, target.device.id].sort();
     const routingPlane = cableRoutingPlane(link);
@@ -142,7 +142,7 @@ export function assignCableTracks(scene, options = {}) {
     microSpacing,
     deviceMap,
     rackMap,
-    allDeviceBoxes: [...deviceMap.values()],
+    allDeviceBoxes: scene?.deviceBoxes || [],
     allRackBoxes: [...rackMap.values()],
     microY: new Map(),
     microRows: new Map(),

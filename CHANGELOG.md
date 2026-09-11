@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Save device and rack drops in revision-safe order, commit multi-device moves atomically, preserve active drag previews across live updates, and retry stale placement saves without overwriting remote device edits.
+- Search all device families and providers in Install Device, with clickable model/SKU results that fill the installation fields.
+- Display servers on both rack faces by default with matching hardware panels and cable endpoints, and save a per-device Rack display override.
+- Show translucent rack slot numbers above devices only while dragging, including a large centered destination number and a readable U range, device height, and placement status.
 - Default the editor to Read only, with Cabling unlocked and All unlocked modes, shared gesture/form/history safeguards, and automatic relocking after 15 minutes without a completed edit. Preserve unapplied form drafts and keep completed edits saveable after locking.
 - Move user and organization management into a dedicated Administration page with searchable directories, effective organization access, focused editors, and responsive layouts. Preserve local/TOTP and Entra sign-in, protected accounts, session revocation, and organization deletion safeguards.
 - Add documented front/rear panels for 20 FortiGate and FortiSwitch models, with reusable hardware components shared by Canvas and SVG. Hardware panel switching preserves rack mounting, cable connections, and unsaved device edits.
