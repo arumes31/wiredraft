@@ -408,13 +408,13 @@ test("stores plan comments in the inspector and manages map resources", async ({
 
   await dialog.locator('#documentation-form [name="label"]').fill("E2E Runbook");
   await dialog.locator('#documentation-form [name="url"]').fill("https://example.com/runbook");
-  await dialog.locator("#documentation-form button").click();
+  await dialog.getByRole("button", { name: "ATTACH DOCUMENT", exact: true }).click();
   await expect(dialog.locator("#documentation-list")).toContainText("E2E Runbook");
   await dialog.locator("[data-document-embed]").last().click();
   await expect(dialog.locator("#documentation-preview")).toBeVisible();
 
   await dialog.locator('#share-form [name="name"]').fill("E2E NOC review");
-  await dialog.locator("#share-form button").click();
+  await dialog.getByRole("button", { name: "CREATE READ-ONLY LINK", exact: true }).click();
   await expect(dialog.locator("#share-list")).toContainText("SECRET SHOWN ONCE");
   await expect(dialog.locator("#share-list input")).toHaveValue(/\/api\/v1\/shared\//);
 });
