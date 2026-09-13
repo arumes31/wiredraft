@@ -6,10 +6,15 @@ const storage = { getItem: () => null, setItem() {} };
 
 test("edits made during a save remain dirty after its response", async () => {
   let finish;
-  const saves = new AutosaveController(() => new Promise((resolve) => { finish = resolve; }), { storage });
+  let submittedVersion;
+  const saves = new AutosaveController((_reason, version) => {
+    submittedVersion = version;
+    return new Promise((resolve) => { finish = resolve; });
+  }, { storage });
   try {
     saves.markDirty();
     const saving = saves.flush();
+    assert.equal(submittedVersion, saves.version);
     saves.markDirty();
     finish(true);
     await saving;

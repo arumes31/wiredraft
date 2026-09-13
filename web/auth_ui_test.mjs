@@ -55,7 +55,9 @@ test("workspace exposes admin account management and csrf-aware api calls", () =
   assert.match(adminHTML, /id="organization-picker"/);
   assert.match(adminJS, /password: String\(data\.get\("password"\)\)/);
   assert.match(appJS, /openAdministration\("users"\)/);
-  assert.match(appJS, /async function openAdministration\(section\)[\s\S]*?if \(!await canLeaveMap\(\)\) return/);
+  const administrationBody = appJS.match(/^async function openAdministration\(section\) \{([\s\S]*?)^\}/m)?.[1];
+  assert.ok(administrationBody, "openAdministration must exist");
+  assert.match(administrationBody, /if \(!await canLeaveMap\(\)\) return;\s*window\.location\.assign/);
   assert.doesNotMatch(indexHTML, /id="account-dialog"|id="organization-dialog"/);
   assert.match(appJS, /ORGANIZATION_SCOPE_STORAGE_KEY/);
   assert.match(appJS, /topologiesForOrganizationScope/);

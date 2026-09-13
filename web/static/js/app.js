@@ -121,10 +121,10 @@ api.setMutationGuard((path, method, body) => {
   };
 });
 const minimap = new TopologyMinimap(elements["topology-minimap"], canvas, state);
-const autosave = new AutosaveController(async () => {
+const autosave = new AutosaveController(async (_reason, version) => {
   // Keep autosave pending while a gesture or another write owns the current revision.
   if (topologyWrites.pending || canvas.drag || canvas.rackDrag) return false;
-  return topologyWrites.run(saveTopologySnapshot);
+  return topologyWrites.run(() => saveTopologySnapshot(version));
 }, { storage: globalThis.localStorage });
 let pendingAnnotationPoint = null;
 let catalogModulePromise = null;
@@ -206,7 +206,7 @@ document.getElementById("download-draft-button").addEventListener("click", () =>
   if (state.topology) downloadDraft(state.topology);
 });
 window.addEventListener("beforeunload", (event) => {
-  if (!autosave.isDirty && !autosave.isSaving && !topologyWrites.pending) return;
+  if (!autosave.isDirty && !autosave.isSaving && !topologyWrites.pending && !drafts?.entries.length) return;
   event.preventDefault();
   event.returnValue = "";
 });
@@ -1660,12 +1660,12 @@ async function saveNow() {
   return !autosave.isDirty;
 }
 
-async function saveTopologySnapshot() {
+async function saveTopologySnapshot(submittedVersion) {
   if (!state.topology || canvas.drag || canvas.rackDrag || pendingPlacements.size) return false;
   const topologyID = state.topology.id;
   try {
     const topology = await api.replaceTopology(structuredClone(state.topology));
-    receiveTopology(topology);
+    receiveTopology(topology, { submittedVersion });
     return !pendingPlacements.size && !canvas.drag && !canvas.rackDrag;
   } catch (error) {
     if (isRevisionConflict(error)) {
@@ -2621,8 +2621,16 @@ function queueAnalysis() {
 }
 
 /** Apply server revisions without erasing queued drops or cancelling the current gesture. */
-function receiveTopology(topology, { remember = false } = {}) {
+function receiveTopology(topology, { remember = false, submittedVersion } = {}) {
   if (topology.id !== state.topology?.id || topology.revision < state.topology.revision) return;
+  if (submittedVersion !== undefined && submittedVersion !== autosave.version) {
+    // The write saved an older local version. Keep newer edits and their dirty
+    // state, but advance the revision so their next write uses the server base.
+    state.topology.revision = topology.revision;
+    state.topology.updatedAt = topology.updatedAt;
+    drafts?.capture(state.topology);
+    return;
+  }
   if (topology.revision === state.topology.revision && drafts?.hasPending(topology.id)) return;
   const gesture = canvas.drag || canvas.rackDrag;
   const preview = gesture?.snapshot?.id === topology.id

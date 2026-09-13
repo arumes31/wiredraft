@@ -158,9 +158,9 @@ test("stalled requests abort and report a recoverable timeout without replaying 
     const result = api.logout();
     assert.ok(signal, "requests must have a cancellation signal");
     const rejected = assert.rejects(result, /timed out/i);
-    t.mock.timers.tick(120_000);
-    await rejected;
+    t.mock.timers.tick(30_000);
     assert.equal(signal.aborted, true);
+    await rejected;
     assert.equal(calls, 1);
   } finally { globalThis.fetch = originalFetch; }
 });

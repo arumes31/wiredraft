@@ -64,7 +64,7 @@ export class AutosaveController extends EventTarget {
     this.isSaving = true;
     this.emit();
     try {
-      const saved = await this.save(reason);
+      const saved = await this.save(reason, version);
       if (saved === false) {
         this.isSaving = false;
         this.emit();

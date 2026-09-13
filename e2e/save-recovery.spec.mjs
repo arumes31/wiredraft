@@ -177,3 +177,57 @@ test("reconnecting to the same revision keeps the unsaved annotation on canvas",
   expect(await page.evaluate(() => window.lockFixture.state.topology.annotations.length)).toBe(1);
   await expect(page.locator("#save-state-label")).toHaveText("DIRTY");
 });
+
+test("a delayed save and its live echo preserve edits made while saving", async ({ page }) => {
+  const workspace = await fixture(page);
+  await edit(page);
+  let heldRoute;
+  await page.route("**/api/v1/topologies/lock-map", (route) => {
+    if (route.request().method() !== "PUT" || heldRoute) return route.fallback();
+    heldRoute = route;
+  });
+  await page.evaluate(() => { window.saveFixture.pendingSave = window.saveFixture.autosave.flush("manual"); });
+  await expect.poll(() => Boolean(heldRoute)).toBe(true);
+  await edit(page);
+  const submitted = heldRoute.request().postDataJSON();
+  expect(submitted.annotations).toHaveLength(1);
+  const response = await workspace.respond("/api/v1/topologies/lock-map", "PUT", submitted);
+  await page.evaluate((topology) => { window.saveFixture.events.onTopology(topology); }, response.json);
+  await heldRoute.fulfill(response);
+  await page.evaluate(() => window.saveFixture.pendingSave);
+  expect(await page.evaluate(() => ({
+    annotations: window.lockFixture.state.topology.annotations.length,
+    revision: window.lockFixture.state.topology.revision,
+    dirty: window.saveFixture.autosave.isDirty,
+  }))).toEqual({ annotations: 2, revision: response.json.revision, dirty: true });
+  await page.evaluate((topology) => window.saveFixture.events.onTopology(topology), response.json);
+  expect(await page.evaluate(() => window.lockFixture.state.topology.annotations.length)).toBe(2);
+  await page.evaluate(() => window.saveFixture.autosave.flush("manual"));
+  expect(workspace.topology.annotations).toHaveLength(2);
+  expect(await page.evaluate(() => window.saveFixture.autosave.isDirty)).toBe(false);
+});
+
+test("recovery for another map still warns before unloading a clean map", async ({ page }) => {
+  const workspace = await fixture(page);
+  await edit(page);
+  await page.evaluate((topology) => window.saveFixture.events.onTopology(topology), {
+    ...workspace.topology, revision: workspace.topology.revision + 1, name: "Shared revision",
+  });
+  await expect(page.locator("#save-state-label")).toHaveText("RECOVERY");
+  expect(await page.evaluate(() => window.saveFixture.autosave.isDirty)).toBe(false);
+  await page.locator("#topology-select").selectOption("second-map");
+  await expect(page.locator("#topology-name")).toHaveText("Second map");
+  expect(await page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  })).toBe(true);
+  await page.locator("#autosave-menu summary").click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Discard copy", exact: true }).click();
+  expect(await page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  })).toBe(false);
+});

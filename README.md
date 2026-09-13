@@ -215,11 +215,14 @@ Back up PostgreSQL and `data/media` together to preserve topology, authenticatio
 For a consistent backup, pause application writes while copying both stores. These commands use the default Compose file; add `-f docker-compose.ghcr.yml` to each Compose command for that deployment. Keep the backup directory private: the database includes authentication state.
 
 ```sh
+(
+set -e
 mkdir -p backups
 docker compose stop wiredraft
+trap 'docker compose start wiredraft' EXIT
 docker compose exec -T postgres sh -c 'exec pg_dump --clean --if-exists -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > backups/wiredraft.sql
 tar -czf backups/media.tar.gz -C data media
-docker compose start wiredraft
+)
 ```
 
 Check that both backup commands succeeded before treating this as a complete backup. Copy the pair to a dated, protected location outside the deployment host; retain several generations. Restart the application even if a backup command fails, and investigate the failed backup.
