@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -271,9 +272,11 @@ func (s *Server) createUser(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	s.logger.Info("account created",
+		"event", "account_created",
 		"administrator_id", administrator.UserID,
 		"user_id", user.ID,
 		"organization_count", len(user.OrganizationIDs),
+		auditAccess("after", user),
 	)
 	writeJSON(w, http.StatusCreated, user)
 }
@@ -299,7 +302,16 @@ func (s *Server) updateUser(w http.ResponseWriter, request *http.Request) {
 		s.authFailure(w, err)
 		return
 	}
-	user, err := s.auth.UpdateUser(request.Context(), request.PathValue("userId"), auth.UserUpdate{
+	// directoryMu keeps this snapshot and the mutation ordered with other
+	// administrator account and organization changes.
+	users := s.auth.Users()
+	index := slices.IndexFunc(users, func(user auth.UserView) bool { return user.ID == request.PathValue("userId") })
+	if index < 0 {
+		s.authFailure(w, auth.ErrNotFound)
+		return
+	}
+	before := users[index]
+	user, err := s.auth.UpdateUser(request.Context(), before.ID, auth.UserUpdate{
 		Access: access, Disabled: input.Disabled, ResetExternalIdentity: input.ResetExternalIdentity,
 	})
 	if err != nil {
@@ -307,9 +319,35 @@ func (s *Server) updateUser(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	s.logger.Info("account updated",
+		"event", "account_updated",
 		"administrator_id", administrator.UserID,
+		"user_id", user.ID,
+		auditAccess("before", before),
+		auditAccess("after", user),
 	)
 	writeJSON(w, http.StatusOK, user)
+}
+
+// auditAccess allowlists persisted access fields; UserView also contains names
+// and external identity information that must not enter the audit log.
+func auditAccess(key string, user auth.UserView) slog.Attr {
+	organizationIDs := make([]string, len(user.OrganizationIDs))
+	for index, id := range user.OrganizationIDs {
+		organizationIDs[index] = escapeAuditLineBreaks(id)
+	}
+	return slog.Group(key,
+		"role", escapeAuditLineBreaks(user.Role),
+		"all_organizations", user.AllOrganizations,
+		"organization_ids", organizationIDs,
+		"disabled", user.Disabled,
+	)
+}
+
+// Escape at the audit boundary as well as in the configured slog handler, so
+// access fields cannot introduce record delimiters in downstream text logs.
+func escapeAuditLineBreaks(value string) string {
+	value = strings.ReplaceAll(value, "\r", `\r`)
+	return strings.ReplaceAll(value, "\n", `\n`)
 }
 
 func (s *Server) canonicalUpdatedAccess(

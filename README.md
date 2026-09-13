@@ -68,6 +68,10 @@ docker compose down
 
 Maps open in **Read only**, which still permits navigation, selection, inspection, and export. Either unlocked mode returns to Read only after 15 minutes without a completed edit; panning, zooming, inspecting, and unapplied form input do not reset the timer. Switching maps or reloading also relocks the editor. Completed changes remain intact, and an open form keeps its unapplied draft so you can explicitly unlock and continue.
 
+Unsaved map changes are protected when switching maps, changing organization, importing a backup, opening administration, or signing out: choose **Save and leave**, **Discard changes**, or **Stay here**. Reloading or closing a tab with unsaved work triggers the browser's warning. The save menu shows persistent failures, a retry action, and the last successful save time.
+
+Completed local edits also receive a recovery snapshot in this tab's session storage, scoped to the signed-in account. If a server update replaces those edits, or you reload before saving, the save menu shows **Recovery**. Download the recovery JSON, create a blank map, and import the file there; importing replaces the selected map. Recovery copies are retained until explicitly discarded or the tab is closed. If browser storage is unavailable or full, the menu explains that recovery is only available in memory and offers a download. These snapshots contain topology data and attachment metadata, not photo bytes or unapplied form input.
+
 Accounts are global: a user may be granted one, several, or all organizations. The organization selector in Identity Control changes the current map view; administrators always retain access to every organization. Every map belongs to one registered organization, and `Default` cannot be renamed or deleted.
 
 Open **Identity Control > Administration** for the dedicated user and organization management area. Search or filter the Users directory, then choose **Manage** to edit access or sign-in settings. **Add user** shows only the fields needed for local/TOTP or Microsoft Entra accounts. The Organizations directory links to everyone with effective access, including administrators and global grants. Use **Back to workspace** to return to the remembered map.
@@ -208,9 +212,35 @@ sequenceDiagram
 
 Back up PostgreSQL and `data/media` together to preserve topology, authentication state, and uploaded photos. A JSON export contains attachment metadata but not the photo bytes, so it is not a replacement for these backups.
 
+For a consistent backup, pause application writes while copying both stores. These commands use the default Compose file; add `-f docker-compose.ghcr.yml` to each Compose command for that deployment. Keep the backup directory private: the database includes authentication state.
+
 ```sh
-docker compose exec -T postgres sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > wiredraft-backup.sql
+(
+set -e
+mkdir -p backups
+docker compose stop wiredraft
+trap 'docker compose start wiredraft' EXIT
+docker compose exec -T postgres sh -c 'exec pg_dump --clean --if-exists -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > backups/wiredraft.sql
+tar -czf backups/media.tar.gz -C data media
+)
 ```
+
+Check that both backup commands succeeded before treating this as a complete backup. Copy the pair to a dated, protected location outside the deployment host; retain several generations. Restart the application even if a backup command fails, and investigate the failed backup.
+
+Verify recovery in a **separate deployment directory with empty data directories**, its own Compose project name, and a different published port. Copy the matching backup pair into its `backups/` directory, configure `.env`, and restore before starting the application:
+
+```sh
+mkdir -p data/postgres data/media
+docker compose up -d postgres
+# Wait until PostgreSQL is healthy (docker compose ps).
+docker compose exec -T postgres sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < backups/wiredraft.sql
+tar -xzf backups/media.tar.gz -C data
+# Linux: restore the application container's media ownership.
+sudo chown -R 10001:10001 data/media
+docker compose up -d wiredraft
+```
+
+The SQL restore replaces the target database's application tables. Confirm the isolated restore target before running it. In the restored app, verify administrator sign-in/TOTP, organization access, map counts and revisions, representative uploaded photos, and a saved edit that survives restart. Repeat this restore check after changing the schema or backup process. PowerShell users can pipe `Get-Content -Raw backups/wiredraft.sql` into the `docker compose exec ... psql` command instead of using `<`.
 
 PostgreSQL runs on `127.0.0.1:5432` in the included development Compose file. Do not expose it publicly. WireDraft applies pending migrations from the schema files embedded in its binary before opening the HTTP server. This initializes fresh databases and upgrades existing databases automatically; startup stops with an error if a migration cannot be applied.
 
@@ -364,6 +394,8 @@ To rotate the secret, create a second Entra client secret, replace the mounted f
 
 ### Production checklist
 
+Session cookies have the `Secure` attribute only when `WIREDRAFT_COOKIE_SECURE=true` (or its legacy fallback alias is enabled). The default is `false` so plain-HTTP local deployments remain usable. Entra-enabled deployments enforce this setting at startup; other deployments do not. Operators terminating TLS at a reverse proxy must set it explicitly, even when the proxy connects to WireDraft over HTTP. WireDraft does not infer this setting from forwarded headers. `HttpOnly` and `SameSite=Strict` are always set on session cookies.
+
 - Use long, unique values for the database and administrator passwords.
 - Disable guest access unless it is intentionally required.
 - Terminate TLS at a trusted reverse proxy and set `WIREDRAFT_COOKIE_SECURE=true`.
@@ -372,6 +404,7 @@ To rotate the secret, create a second Entra client secret, replace the mounted f
 - Pin the WireDraft image to a release tag or digest; WireDraft applies its embedded database migrations during startup.
 - Preserve the `auth_state` row with the rest of the database; its encryption key is required to read stored TOTP secrets.
 - Run one WireDraft application replica. Authentication state is currently maintained as one PostgreSQL aggregate and is not yet safe for concurrent writers across multiple replicas.
+- Collect and retain the application's JSON logs for access-change investigations; see [access audit events](SECURITY.md#access-audit-events) for fields and retention limitations.
 
 ## HTTP API
 

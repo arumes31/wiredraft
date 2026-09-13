@@ -6,7 +6,7 @@ const css = readFileSync(new URL("./static/css/styles.css", import.meta.url), "u
 const appJS = readFileSync(new URL("./static/js/app.js", import.meta.url), "utf8");
 
 const dialogs = [...html.matchAll(/<dialog\s+([^>]+)>([\s\S]*?)<\/dialog>/g)];
-assert.equal(dialogs.length, 14, "map dialogs remain in the workspace; administration has its own page");
+assert.equal(dialogs.length, 15, "workspace includes the unsaved-changes dialog; administration has its own page");
 
 for (const [, attributes, body] of dialogs) {
   const id = attributes.match(/\bid="([^"]+)"/)?.[1];

@@ -23,16 +23,28 @@ async function request(path, options = {}) {
   const afterMutation = !["GET", "HEAD", "OPTIONS"].includes(method) ? mutationGuard?.(path, method, options.body) : null;
   const headers = { ...(options.headers || {}) };
   if (!["GET", "HEAD", "OPTIONS"].includes(method) && csrfToken) headers["X-CSRF-Token"] = csrfToken;
-  const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
-  const body = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) {
-    if (response.status === 401 && globalThis.location?.pathname !== "/login") {
-      globalThis.location?.assign?.("/login");
+  const controller = new AbortController();
+  const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+  // Uploads get more time; an uncertain mutation is never automatically replayed.
+  const timeout = setTimeout(() => controller.abort(), options.body instanceof FormData ? 120_000 : 30_000);
+  try {
+    const response = await fetch(path, { ...options, headers, signal, credentials: "same-origin" });
+    const body = response.status === 204 ? null : await response.json().catch((error) => {
+      if (signal.aborted) throw error;
+      return null;
+    });
+    if (!response.ok) {
+      if (response.status === 401 && globalThis.location?.pathname !== "/login") {
+        globalThis.location?.assign?.("/login");
+      }
+      throw new APIError(body?.error || `Request failed (${response.status})`, response.status, body);
     }
-    throw new APIError(body?.error || `Request failed (${response.status})`, response.status, body);
-  }
-  afterMutation?.(body);
-  return body;
+    afterMutation?.(body);
+    return body;
+  } catch (error) {
+    if (controller.signal.aborted) throw new APIError("Request timed out. Check the connection and latest state before retrying.", 0);
+    throw error;
+  } finally { clearTimeout(timeout); }
 }
 
 export const api = {

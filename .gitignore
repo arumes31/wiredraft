@@ -1,6 +1,7 @@
 # Local application state and private overrides
 /data/
 /media/
+/backups/
 /docs/
 /secrets/
 .env

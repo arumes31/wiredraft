@@ -39,6 +39,8 @@ import {
   switchSystemForDevice, switchSystemModeLabel,
 } from "./switch-systems.js";
 import { AutosaveController } from "./autosave.js";
+import { DraftRecovery } from "./draft-recovery.js";
+import { askToLeave, downloadDraft, renderRecovery } from "./save-recovery-ui.js";
 import { applyPlacements, placementChanges, TopologyWriteQueue } from "./placement-sync.js";
 import { ToastQueue } from "./toast-queue.js";
 import { topologySize, topologySizeMessage } from "./topology-size.js";
@@ -112,14 +114,17 @@ api.setMutationGuard((path, method, body) => {
     throw error;
   }
   return (result) => {
+    if (method === "PUT" && /^\/api\/v1\/topologies\/[^/]+$/.test(path) && result?.id && Array.isArray(result.devices)) {
+      drafts?.acknowledge(JSON.parse(body));
+    }
     if (before && result?.id === before.id && Array.isArray(result.devices) && state.topology?.id === before.id) editLock.recordChange(before, result);
   };
 });
 const minimap = new TopologyMinimap(elements["topology-minimap"], canvas, state);
-const autosave = new AutosaveController(async () => {
+const autosave = new AutosaveController(async (_reason, version) => {
   // Keep autosave pending while a gesture or another write owns the current revision.
   if (topologyWrites.pending || canvas.drag || canvas.rackDrag) return false;
-  return topologyWrites.run(saveTopologySnapshot);
+  return topologyWrites.run(() => saveTopologySnapshot(version));
 }, { storage: globalThis.localStorage });
 let pendingAnnotationPoint = null;
 let catalogModulePromise = null;
@@ -130,6 +135,8 @@ let shareEntries = [];
 let createdShareURL = "";
 let topologySummaries = [];
 let sessionInfo = null;
+let drafts = null;
+let leavingMap = false;
 let activeOrganizationScope = "";
 let activePhotoID = "";
 
@@ -138,10 +145,13 @@ let serverCardSequence = 0;
 
 const events = new TopologyCollaboration({
   onTopology: (topology) => {
-    if (topology.id === state.topology?.id) {
-      receiveTopology(topology);
-      queueAnalysis();
-    }
+    // A matching write response acknowledges its draft before its own SSE echo is applied.
+    return topologyWrites.tail.then(() => {
+      if (topology.id === state.topology?.id) {
+        receiveTopology(topology);
+        queueAnalysis();
+      }
+    }).catch(showError);
   },
   onStatus: (status) => setConnectionStatus(status),
   onRevisionGap: () => resyncActiveTopology().catch(showError),
@@ -156,7 +166,8 @@ async function resyncActiveTopology() {
   const topologyID = state.topology?.id;
   if (!topologyID) return;
   if (resyncPromise) return resyncPromise;
-  resyncPromise = api.getTopology(topologyID).then((topology) => {
+  resyncPromise = api.getTopology(topologyID).then(async (topology) => {
+    await topologyWrites.tail;
     if (state.topology?.id !== topologyID) return;
     receiveTopology(topology);
     queueAnalysis();
@@ -181,13 +192,54 @@ state.addEventListener("change", ({ detail }) => {
 });
 elements["close-trace"]?.addEventListener("click", () => state.setTrace([]));
 autosave.addEventListener("status", ({ detail }) => {
+  if (detail.capture) {
+    drafts?.capture(state.topology);
+    renderRecovery(drafts, document.getElementById("draft-recovery"), () => renderSaveStatus());
+  }
   renderSaveStatus(detail);
   if (detail.error && !isRevisionConflict(detail.error)) showError(detail.error);
 });
 
 const editorLockUI = bindEditorLockUI({ lock: editLock, state, canvas, notify: toast });
 bindControls();
+document.getElementById("download-draft-button").addEventListener("click", () => {
+  if (state.topology) downloadDraft(state.topology);
+});
+window.addEventListener("beforeunload", (event) => {
+  if (!autosave.isDirty && !autosave.isSaving && !topologyWrites.pending && !drafts?.entries.length) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
 initialize().catch(showError);
+
+/** All server snapshots pass here before replacing a local unsaved document. */
+function applyTopology(topology, options) {
+  const accepted = drafts?.accept(topology);
+  state.setTopology(topology, options);
+  if (accepted) autosave.markSaved({ persisted: false });
+  renderRecovery(drafts, document.getElementById("draft-recovery"), () => renderSaveStatus());
+  renderSaveStatus();
+}
+
+async function canLeaveMap() {
+  if (leavingMap) return false;
+  leavingMap = true;
+  try {
+    await topologyWrites.tail;
+    if (!autosave.isDirty) return true;
+    const choice = await askToLeave(document.getElementById("leave-map-dialog"));
+    if (choice === "discard") {
+      drafts?.discardPending(state.topology?.id);
+      autosave.markSaved({ persisted: false });
+      return true;
+    }
+    if (choice === "save") return await saveNow();
+    return false;
+  } catch (error) {
+    showError(error);
+    return false;
+  } finally { leavingMap = false; }
+}
 
 async function initialize() {
   elements["loading-skeleton"].hidden = false;
@@ -197,6 +249,8 @@ async function initialize() {
     return;
   }
   api.setCSRFToken(sessionInfo.csrfToken);
+  drafts = new DraftRecovery(`${sessionInfo.role}:${sessionInfo.userId || sessionInfo.username}`);
+  renderRecovery(drafts, document.getElementById("draft-recovery"), () => renderSaveStatus());
   activeOrganizationScope = resolveOrganizationScope(sessionInfo, rememberedOrganizationScope());
   rememberOrganizationScope(activeOrganizationScope);
   renderAccountSession();
@@ -225,6 +279,10 @@ async function initialize() {
 }
 
 async function loadTopology(id) {
+  if (state.topology && !await canLeaveMap()) {
+    elements["topology-select"].value = state.topology.id;
+    return false;
+  }
   editLock.setMode(EditMode.READ_ONLY, "map");
   canvas.cancelInteraction();
   elements["loading-skeleton"].hidden = false;
@@ -238,8 +296,8 @@ async function loadTopology(id) {
   state.setTrace([]);
   state.setAllRacksDualFace(false);
   setMapControlsAvailable(true);
-  state.setTopology(topology);
-  autosave.markSaved();
+  applyTopology(topology);
+  autosave.markSaved({ persisted: false });
   elements["topology-select"].value = id;
   rememberTopologyID(id);
   events.connect(topology);
@@ -323,7 +381,7 @@ function clearActiveTopologyForScope() {
   state.selection = null;
   state.setTrace([]);
   state.setAnalysis({ issues: [], loops: [], stp: [] });
-  state.setTopology(null);
+  applyTopology(null);
   setMapControlsAvailable(false);
   const scope = organizationScopeOptions(sessionInfo).find(({ id }) => id === activeOrganizationScope);
   const label = scope?.name || "CURRENT SCOPE";
@@ -350,6 +408,7 @@ async function selectOrganizationScope(scope) {
     closeOrganizationScopeList();
     return;
   }
+  if (!await canLeaveMap()) return;
   activeOrganizationScope = resolved;
   rememberOrganizationScope(resolved);
   renderAccountSession();
@@ -465,7 +524,7 @@ async function submitTopologyDialog(event) {
   try {
     if (form.dataset.mode === "edit") {
       const updated = await api.replaceTopology({ ...state.topology, ...metadata });
-      state.setTopology(updated);
+      applyTopology(updated);
       autosave.markSaved();
       topologySummaries = await api.listTopologies();
       if (activeOrganizationScope !== ALL_ORGANIZATIONS_SCOPE && activeOrganizationScope !== updated.organizationId) {
@@ -479,6 +538,7 @@ async function submitTopologyDialog(event) {
       toast(`Map assignment saved · ${updated.organization} / ${updated.location}`);
       return;
     }
+    if (!await canLeaveMap()) return;
     const created = await api.createTopology({
       ...metadata,
       template: String(data.get("template")),
@@ -498,6 +558,8 @@ async function deleteTopology() {
   const topology = state.topology;
   if (!topology || !window.confirm(`Delete ${topology.name}, all objects, and every uploaded photo? This cannot be undone.`)) return;
   await api.deleteTopology(topology.id, topology.revision);
+  drafts?.discardPending(topology.id);
+  autosave.markSaved({ persisted: false });
   elements["topology-dialog"].close();
   topologySummaries = await api.listTopologies();
   if (!topologySummaries.length) {
@@ -580,16 +642,20 @@ function renderTopologySize() {
 }
 
 function renderSaveStatus(status = autosave) {
-  const stateName = status.isSaving ? "saving" : status.isDirty ? "dirty" : "saved";
+  const stateName = status.isSaving ? "saving" : status.error ? "failed" : drafts?.recoveries.length ? "recovery" : status.isDirty ? "dirty" : "saved";
+  const settings = status.settings || status;
   elements["autosave-menu"].dataset.state = stateName;
   elements["autosave-menu"].querySelector("summary").setAttribute(
     "aria-label",
-    `${stateName}. Autosave ${status.enabled ? "on" : "off"}. Open autosave settings`,
+    `${stateName}. Autosave ${settings.enabled ? "on" : "off"}. Open autosave settings`,
   );
-  elements["save-state-label"].textContent = stateName.toUpperCase();
-  elements["autosave-menu"].querySelector("small").textContent = status.enabled ? `AUTO · ${status.intervalSeconds}s` : "AUTOSAVE OFF";
-  elements["autosave-enabled"].checked = status.enabled;
-  elements["autosave-interval"].value = String(status.intervalSeconds);
+  elements["save-state-label"].textContent = stateName === "failed" ? "SAVE FAILED" : stateName.toUpperCase();
+  elements["autosave-menu"].querySelector("small").textContent = settings.enabled ? `AUTO · ${settings.intervalSeconds}s` : "AUTOSAVE OFF";
+  elements["autosave-enabled"].checked = settings.enabled;
+  elements["autosave-interval"].value = String(settings.intervalSeconds);
+  document.getElementById("save-detail").textContent = status.error?.message || (status.lastSavedAt
+    ? `Last saved at ${new Date(status.lastSavedAt).toLocaleTimeString()}` : "No save in this session yet.");
+  document.getElementById("save-now-button").firstChild.textContent = status.error ? "RETRY SAVE " : "SAVE NOW ";
   if (state.topology) document.title = `${status.isDirty ? "● " : ""}${state.topology.name} · WireDraft`;
 }
 
@@ -705,7 +771,7 @@ async function uploadInspectorPhotos(event, selection) {
   submit.disabled = true;
   try {
     const topology = await api.uploadPhotos(state.topology.id, selection, files, state.topology.revision);
-    state.setTopology(topology);
+    applyTopology(topology);
     autosave.markSaved();
     toast(`${files.length} photo${files.length === 1 ? "" : "s"} uploaded securely`);
   } finally {
@@ -753,7 +819,7 @@ async function savePhotoDetails(event) {
     originalName: String(data.get("originalName")).trim(),
     caption: String(data.get("caption")).trim(),
   }, state.topology.revision);
-  state.setTopology(topology);
+  applyTopology(topology);
   autosave.markSaved();
   toast("Photo details updated");
 }
@@ -764,7 +830,7 @@ async function removeActivePhoto() {
   const topology = await api.deletePhoto(state.topology.id, photo.id, state.topology.revision);
   const siblings = photosForTarget({ type: photo.targetKind, id: photo.targetId }).filter((candidate) => candidate.id !== photo.id);
   activePhotoID = siblings[0]?.id || "";
-  state.setTopology(topology);
+  applyTopology(topology);
   autosave.markSaved();
   toast("Photo and protected media file deleted");
 }
@@ -856,7 +922,7 @@ async function savePlanComment(event, anchor) {
     author: String(form.get("author")).trim(),
     body: String(form.get("body")).trim(),
   });
-  state.setTopology(topology);
+  applyTopology(topology);
   toast("Comment stored in plan");
 }
 
@@ -868,7 +934,7 @@ async function handlePlanCommentAction(event) {
   const topology = deleteID
     ? await api.deleteComment(state.topology.id, deleteID)
     : await api.updateComment(state.topology.id, resolveID, { resolved: !thread?.resolved });
-  state.setTopology(topology);
+  applyTopology(topology);
   toast(deleteID ? "Comment removed from plan" : thread?.resolved ? "Comment reopened" : "Comment resolved");
 }
 
@@ -1538,6 +1604,7 @@ function closeOrganizationScopeList() {
 }
 
 async function logout() {
+  if (!await canLeaveMap()) return;
   await api.logout();
   api.setCSRFToken("");
   window.location.assign("/login");
@@ -1545,11 +1612,7 @@ async function logout() {
 
 async function openAdministration(section) {
   if (sessionInfo?.role !== "admin") return;
-  if (autosave.isSaving) {
-    toast("Map is saving. Open administration once saving completes.");
-    return;
-  }
-  if (autosave.isDirty) await saveNow();
+  if (!await canLeaveMap()) return;
   window.location.assign(`/admin.html#${section}`);
 }
 
@@ -1580,23 +1643,29 @@ function configureAutosave() {
 }
 
 async function saveNow() {
-  if (!state.topology) return;
-  const saved = await topologyWrites.run(saveTopologySnapshot);
+  if (!state.topology) return false;
+  const recoveryCount = drafts?.recoveries.length || 0;
+  const saved = await autosave.flush("manual");
   if (!saved) {
     toast("Save deferred until the drag completes");
-    return;
+    return false;
   }
-  autosave.markSaved();
+  if ((drafts?.recoveries.length || 0) > recoveryCount) {
+    elements["autosave-menu"].open = true;
+    toast("Newer local changes were preserved as a recovery copy. Review them before leaving.");
+    return false;
+  }
   elements["autosave-menu"].open = false;
   toast("Topology saved");
+  return !autosave.isDirty;
 }
 
-async function saveTopologySnapshot() {
+async function saveTopologySnapshot(submittedVersion) {
   if (!state.topology || canvas.drag || canvas.rackDrag || pendingPlacements.size) return false;
   const topologyID = state.topology.id;
   try {
     const topology = await api.replaceTopology(structuredClone(state.topology));
-    receiveTopology(topology);
+    receiveTopology(topology, { submittedVersion });
     return !pendingPlacements.size && !canvas.drag && !canvas.rackDrag;
   } catch (error) {
     if (isRevisionConflict(error)) {
@@ -1718,7 +1787,7 @@ async function saveDocumentationLink(event) {
   const topology = await api.createDocumentationLink(state.topology.id, {
     targetKind: target.targetKind, targetId: target.targetId, label: String(form.get("label")).trim(), url,
   });
-  state.setTopology(topology);
+  applyTopology(topology);
   event.currentTarget.reset();
   renderResources();
   toast("Documentation link attached");
@@ -1733,7 +1802,7 @@ async function handleDocumentationAction(event) {
     elements["documentation-preview"].hidden = !item;
   }
   if (deleteID) {
-    state.setTopology(await api.deleteDocumentationLink(state.topology.id, deleteID));
+    applyTopology(await api.deleteDocumentationLink(state.topology.id, deleteID));
     elements["documentation-preview"].hidden = true;
     renderResources();
   }
@@ -1748,7 +1817,7 @@ async function saveShare(event) {
     ...(expiresValue ? { expiresAt: new Date(expiresValue).toISOString() } : {}),
   });
   createdShareURL = absoluteShareURL(created.path);
-  state.setTopology(await api.getTopology(state.topology.id));
+  applyTopology(await api.getTopology(state.topology.id));
   shareEntries = await api.listShares(state.topology.id);
   event.currentTarget.reset();
   renderResources();
@@ -1764,7 +1833,7 @@ async function handleShareAction(event) {
   }
   if (deleteID) {
     await api.deleteShare(state.topology.id, deleteID);
-    state.setTopology(await api.getTopology(state.topology.id));
+    applyTopology(await api.getTopology(state.topology.id));
     shareEntries = await api.listShares(state.topology.id);
     renderResources();
     toast("Read-only share revoked");
@@ -1823,7 +1892,7 @@ async function openDeviceDialog() {
   const catalog = await loadCatalogModule();
   if (catalog.upgradeInstalledPhysicalPorts(state.topology)) {
     const topology = await api.replaceTopology(state.topology);
-    state.setTopology(topology);
+    applyTopology(topology);
   }
   setupHardwareCatalog();
   elements["device-dialog"].showModal();
@@ -2288,13 +2357,13 @@ async function saveLinkGroup(event) {
     topology = plan.action === "create" ?
       await api.createLinkGroup(topology.id, plan.group, topology.revision) :
       await api.updateLinkGroup(topology.id, plan.group, topology.revision);
-    state.setTopology(topology, { remember: true });
+    applyTopology(topology, { remember: true });
     queueAnalysis();
     elements["link-group-dialog"].close();
     toast(`${plan.group.mode === "MCLAG" ? "MC-LAG" : plan.group.mode} group saved`);
   } catch (error) {
     showError(error);
-    if (state.topology) state.setTopology(await api.getTopology(state.topology.id));
+    if (state.topology) applyTopology(await api.getTopology(state.topology.id));
   }
 }
 
@@ -2552,8 +2621,17 @@ function queueAnalysis() {
 }
 
 /** Apply server revisions without erasing queued drops or cancelling the current gesture. */
-function receiveTopology(topology, { remember = false } = {}) {
+function receiveTopology(topology, { remember = false, submittedVersion } = {}) {
   if (topology.id !== state.topology?.id || topology.revision < state.topology.revision) return;
+  if (submittedVersion !== undefined && submittedVersion !== autosave.version) {
+    // The write saved an older local version. Keep newer edits and their dirty
+    // state, but advance the revision so their next write uses the server base.
+    state.topology.revision = topology.revision;
+    state.topology.updatedAt = topology.updatedAt;
+    drafts?.capture(state.topology);
+    return;
+  }
+  if (topology.revision === state.topology.revision && drafts?.hasPending(topology.id)) return;
   const gesture = canvas.drag || canvas.rackDrag;
   const preview = gesture?.snapshot?.id === topology.id
     ? [
@@ -2569,7 +2647,7 @@ function receiveTopology(topology, { remember = false } = {}) {
     // Refresh history with remote edits, keeping only this gesture's original placement as its undo baseline.
     gesture.snapshot = applyPlacements(topology, preview.map((change) => ({ ...change, after: change.before })));
   }
-  state.setTopology(next, { remember });
+  applyTopology(next, { remember });
 }
 
 /** Commit one whole drop, retrying revision races without replaying stale device records. */
@@ -2579,7 +2657,7 @@ async function savePlacements(snapshot, collection, items) {
   const previous = [...pendingPlacements].find((batch) => batch.topologyID === snapshot.id);
   const batch = { topologyID: snapshot.id, changes, keepDirty: previous?.keepDirty ?? autosave.isDirty };
   pendingPlacements.add(batch);
-  autosave.markDirty();
+  autosave.markDirty({ capture: false });
   return topologyWrites.run(async () => {
     let latest;
     try {
@@ -2619,7 +2697,7 @@ async function updateFrom(operation, remember = true, message = "") {
   return topologyWrites.run(async () => {
     if (state.topology?.id !== topologyID) return null;
     const wasDirty = autosave.isDirty;
-    autosave.markDirty();
+    autosave.markDirty({ capture: false });
     try {
       const topology = await operation();
       receiveTopology(topology, { remember });
@@ -2659,6 +2737,7 @@ async function importBackup(event) {
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file || !state.topology) return;
+  if (!await canLeaveMap()) return;
   try {
     const topology = JSON.parse(await file.text());
     if (!Array.isArray(topology.devices) || !Array.isArray(topology.links) || !Array.isArray(topology.vlans)) throw new Error("The selected file is not a topology backup");
