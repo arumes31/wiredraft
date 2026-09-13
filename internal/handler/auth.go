@@ -331,12 +331,23 @@ func (s *Server) updateUser(w http.ResponseWriter, request *http.Request) {
 // auditAccess allowlists persisted access fields; UserView also contains names
 // and external identity information that must not enter the audit log.
 func auditAccess(key string, user auth.UserView) slog.Attr {
+	organizationIDs := make([]string, len(user.OrganizationIDs))
+	for index, id := range user.OrganizationIDs {
+		organizationIDs[index] = escapeAuditLineBreaks(id)
+	}
 	return slog.Group(key,
-		"role", user.Role,
+		"role", escapeAuditLineBreaks(user.Role),
 		"all_organizations", user.AllOrganizations,
-		"organization_ids", append([]string{}, user.OrganizationIDs...),
+		"organization_ids", organizationIDs,
 		"disabled", user.Disabled,
 	)
+}
+
+// Escape at the audit boundary as well as in the configured slog handler, so
+// access fields cannot introduce record delimiters in downstream text logs.
+func escapeAuditLineBreaks(value string) string {
+	value = strings.ReplaceAll(value, "\r", `\r`)
+	return strings.ReplaceAll(value, "\n", `\n`)
 }
 
 func (s *Server) canonicalUpdatedAccess(

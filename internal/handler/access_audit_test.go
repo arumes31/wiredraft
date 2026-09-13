@@ -134,6 +134,39 @@ func TestAccountAuditDoesNotReportFailedPersistence(t *testing.T) {
 	}
 }
 
+func TestAuditAccessEscapesLineBreaks(t *testing.T) {
+	t.Parallel()
+	user := auth.UserView{
+		Role:            "user\r\nforged event",
+		OrganizationIDs: []string{"org\nforged event", "org\rforged event", model.DefaultOrganizationID},
+	}
+	attribute := auditAccess("after", user)
+	fields := attribute.Value.Group()
+	if got := fields[0].Value.String(); got != `user\r\nforged event` {
+		t.Fatalf("role = %q, want escaped line breaks", got)
+	}
+	wantIDs := []string{`org\nforged event`, `org\rforged event`, model.DefaultOrganizationID}
+	if got := fields[2].Value.Any(); !reflect.DeepEqual(got, wantIDs) {
+		t.Fatalf("organization IDs = %#v, want %#v", got, wantIDs)
+	}
+	if user.OrganizationIDs[0] != "org\nforged event" {
+		t.Fatal("audit formatting mutated the source record")
+	}
+	for _, format := range []string{"json", "text"} {
+		t.Run(format, func(t *testing.T) {
+			var output bytes.Buffer
+			var handler slog.Handler = slog.NewJSONHandler(&output, nil)
+			if format == "text" {
+				handler = slog.NewTextHandler(&output, nil)
+			}
+			slog.New(handler).Info("account created", attribute)
+			if strings.Count(output.String(), "\n") != 1 || strings.Contains(output.String(), "\r") {
+				t.Fatalf("audit output contains forged lines: %q", output.String())
+			}
+		})
+	}
+}
+
 func readAccountAudit(t *testing.T, output, event string) map[string]any {
 	t.Helper()
 	for _, secret := range []string{"private-account-name", "Private organization name", authTestPassword, "password", "csrf", "token", "external_login"} {
