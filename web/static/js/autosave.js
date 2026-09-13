@@ -30,6 +30,9 @@ export class AutosaveController extends EventTarget {
     this.settings = loadAutosaveSettings(this.storage);
     this.isDirty = false;
     this.isSaving = false;
+    this.version = 0;
+    this.error = null;
+    this.lastSavedAt = null;
     this.timer = 0;
     this.schedule();
   }
@@ -41,20 +44,23 @@ export class AutosaveController extends EventTarget {
     this.emit();
   }
 
-  markDirty() {
-    if (this.isDirty) return;
+  markDirty({ capture = true } = {}) {
+    this.version += 1;
     this.isDirty = true;
-    this.emit();
+    this.emit(null, capture);
   }
 
-  markSaved() {
+  markSaved({ persisted = true } = {}) {
     this.isDirty = false;
     this.isSaving = false;
+    this.error = null;
+    this.lastSavedAt = persisted ? Date.now() : null;
     this.emit();
   }
 
   async flush(reason = "auto") {
-    if (!this.settings.enabled || !this.isDirty || this.isSaving) return false;
+    if ((reason !== "manual" && (!this.settings.enabled || !this.isDirty)) || this.isSaving) return false;
+    const version = this.version;
     this.isSaving = true;
     this.emit();
     try {
@@ -64,7 +70,13 @@ export class AutosaveController extends EventTarget {
         this.emit();
         return false;
       }
-      this.markSaved();
+      if (version === this.version) this.markSaved();
+      else {
+        this.isSaving = false;
+        this.error = null;
+        this.lastSavedAt = Date.now();
+        this.emit();
+      }
       return true;
     } catch (error) {
       this.isSaving = false;
@@ -85,7 +97,8 @@ export class AutosaveController extends EventTarget {
     }, this.settings.intervalSeconds * 1000);
   }
 
-  emit(error = null) {
-    this.dispatchEvent(new CustomEvent("status", { detail: { ...this.settings, isDirty: this.isDirty, isSaving: this.isSaving, error } }));
+  emit(error = null, capture = false) {
+    if (error) this.error = error;
+    this.dispatchEvent(new CustomEvent("status", { detail: { ...this.settings, isDirty: this.isDirty, isSaving: this.isSaving, error: this.error, lastSavedAt: this.lastSavedAt, capture } }));
   }
 }

@@ -98,6 +98,13 @@ textarea { resize: vertical; }
 .autosave-menu > summary::-webkit-details-marker { display: none; }
 .autosave-menu > summary > i { width: 8px; height: 8px; border: 2px solid var(--cyan); border-radius: 50%; box-shadow: 0 0 10px rgb(66 217 200 / 55%); }
 .autosave-menu[data-state="dirty"] > summary > i { border-color: var(--amber); box-shadow: 0 0 10px rgb(240 179 90 / 55%); }
+.autosave-menu[data-state="failed"] > summary > i, .autosave-menu[data-state="recovery"] > summary > i { border-color: #ff897e; box-shadow: 0 0 10px rgb(255 137 126 / 45%); }
+.autosave-popover { max-height: min(75vh, 650px); overflow-y: auto; }
+#save-detail, #draft-recovery { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+#draft-recovery > div { padding-block: 10px; border-top: 1px solid var(--line); }
+.save-dialog { max-width: 560px; }
+.save-dialog .dialog-shell > p { padding: 20px var(--modal-gutter); line-height: 1.6; }
+.save-dialog footer { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 var(--modal-gutter) 20px; }
 .autosave-menu[data-state="saving"] > summary > i { border-top-color: transparent; animation: save-spin .8s linear infinite; }
 .autosave-menu summary span { font-family: var(--display); }
 .autosave-menu summary b, .autosave-menu summary small { display: block; white-space: nowrap; }

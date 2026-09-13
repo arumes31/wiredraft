@@ -59,6 +59,9 @@
         <label class="autosave-toggle"><input id="autosave-enabled" type="checkbox" checked><span>ENABLED BY DEFAULT</span></label>
         <label><span>SAVE INTERVAL</span><select id="autosave-interval"><option value="30">EVERY 30 SECONDS</option><option value="60">EVERY 1 MINUTE</option><option value="300">EVERY 5 MINUTES</option></select></label>
         <button id="save-now-button" type="button">SAVE NOW <kbd>CTRL S</kbd></button>
+        <p id="save-detail" role="status" aria-live="polite">No save in this session yet.</p>
+        <button id="download-draft-button" type="button">DOWNLOAD CURRENT MAP</button>
+        <section id="draft-recovery" aria-label="Recovered drafts" hidden></section>
       </div>
     </details>
     <details id="account-menu" class="account-menu">
@@ -456,6 +459,13 @@
     </div>
   </dialog>
 
+  <dialog id="leave-map-dialog" class="panel-dialog save-dialog" aria-labelledby="leave-map-title" aria-describedby="leave-map-description">
+    <form method="dialog" class="dialog-shell">
+      <header><h2 id="leave-map-title">UNSAVED CHANGES</h2><button type="button" class="dialog-close" data-close="leave-map-dialog" aria-label="Stay on this map">×</button></header>
+      <p id="leave-map-description">Save your changes before leaving this map, discard them, or stay here to continue editing.</p>
+      <footer><button value="stay" autofocus>STAY HERE</button><button value="discard" class="danger">DISCARD CHANGES</button><button value="save" class="primary">SAVE AND LEAVE</button></footer>
+    </form>
+  </dialog>
   <input id="import-file" type="file" accept="application/json,.json" hidden>
 	<input id="catalog-file" type="file" accept="application/json,.json" hidden>
   <script type="module" src="/js/app.js?v=20260806-dual-face"></script>

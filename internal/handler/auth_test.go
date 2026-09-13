@@ -215,7 +215,7 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 			t.Errorf("audit log is missing %q event", event)
 		}
 	}
-	for _, userValue := range []string{adminUsername, "vienna-user", `"organizations"`, `"administrator"`, `"user"`} {
+	for _, userValue := range []string{adminUsername, "vienna-user", account["password"].(string), `"organizations":`, `"administrator":`, `"user":`} {
 		if strings.Contains(logOutput, userValue) {
 			t.Errorf("audit log contains user-controlled identity field %q: %s", userValue, logOutput)
 		}
@@ -237,7 +237,10 @@ func TestAdminCSRFAndAccountCreation(t *testing.T) {
 			continue
 		}
 		updateEntryFound = true
-		for _, field := range []string{"user_id", "disabled", "organization_count"} {
+		if entry["user_id"] != user.ID || entry["event"] != "account_updated" {
+			t.Errorf("account update audit must identify the stored user: %s", line)
+		}
+		for _, field := range []string{"username", "password", "external_login", "csrf_token", "token"} {
 			if _, exists := entry[field]; exists {
 				t.Errorf("account update audit log contains request-derived field %q: %s", field, line)
 			}

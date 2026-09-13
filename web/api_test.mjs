@@ -143,3 +143,45 @@ test("empty and malformed successful responses resolve to null", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("stalled requests abort and report a recoverable timeout without replaying writes", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let signal;
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  globalThis.fetch = (_path, options) => {
+    calls++;
+    signal = options.signal;
+    return new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason)));
+  };
+  try {
+    const result = api.logout();
+    assert.ok(signal, "requests must have a cancellation signal");
+    const rejected = assert.rejects(result, /timed out/i);
+    t.mock.timers.tick(120_000);
+    await rejected;
+    assert.equal(signal.aborted, true);
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("the timeout also covers a stalled response body", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let reading;
+  const bodyStarted = new Promise((resolve) => { reading = resolve; });
+  globalThis.fetch = async (_path, { signal }) => ({
+    status: 200, ok: true,
+    json: () => new Promise((_resolve, reject) => {
+      reading();
+      signal.addEventListener("abort", () => reject(signal.reason));
+    }),
+  });
+  try {
+    const result = api.authStatus();
+    const rejected = assert.rejects(result, /timed out/i);
+    await bodyStarted;
+    t.mock.timers.tick(30_001);
+    await rejected;
+  } finally { globalThis.fetch = originalFetch; }
+});
