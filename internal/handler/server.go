@@ -161,6 +161,7 @@ func newHandler(
 	protected("PUT /api/v1/topologies/{id}/links/{linkId}/configuration", server.configureLink)
 	protected("PUT /api/v1/topologies/{id}/links/{linkId}/media", server.updateLinkMedia)
 	protected("PUT /api/v1/topologies/{id}/links/{linkId}/direction", server.setLinkDirection)
+	protected("PUT /api/v1/topologies/{id}/links/{linkId}/endpoint", server.repatchLink)
 	protected("DELETE /api/v1/topologies/{id}/links/{linkId}", server.deleteLink)
 	protected("POST /api/v1/topologies/{id}/link-groups", server.createLinkGroup)
 	protected("PUT /api/v1/topologies/{id}/link-groups/{groupId}", server.updateLinkGroup)

@@ -138,6 +138,8 @@ The published runtime image is `FROM scratch`, contains only the statically link
 ### Physical cabling
 
 - Magnetic port-to-port drafting with precise connector hit testing and automatic endpoint link-state updates.
+- Select a cable and drag its S (source) or T (target) handle to repatch one end. Free ports are marked in teal; occupied ports are amber and require a modal confirmation to swap the two ends atomically. Escape or an empty drop cancels. VLAN and port settings remain on their physical ports; cable properties and group membership are retained. Repatching checks the displayed revision and preserves front/rear patch-panel termination planes.
+- Select a cable and drag its S (source) or T (target) handle to repatch one end. Free ports are marked in teal; occupied ports are amber and require a modal confirmation to swap the two ends atomically. Escape or an empty drop cancels. VLAN and port settings remain on their physical ports; cable properties and group membership are retained. Repatching checks the displayed revision and preserves front/rear patch-panel termination planes.
 - Deterministic orthogonal routing, rack-side/inter-rack gutters, crossing underpasses, bundled device-pair tracks, and separated vertical lanes in dense layouts.
 - Cable media and transceiver metadata for copper, coax, SMF/MMF, DAC, AOC, and twinax.
 - Trunk, LACP, MC-LAG, and failover link groups with shared labels, primary/backup roles, group-wide VLAN editing, and complete-path hover highlighting.

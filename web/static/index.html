@@ -383,6 +383,16 @@
     </form>
   </dialog>
 
+  <dialog id="repatch-dialog" class="panel-dialog" aria-labelledby="repatch-dialog-title" aria-describedby="repatch-dialog-note">
+    <form id="repatch-form" method="dialog">
+      <header><div><p class="eyebrow">OCCUPIED PORT</p><h2 id="repatch-dialog-title">SWAP CABLE ENDS?</h2></div><button type="button" class="dialog-close" data-close="repatch-dialog" aria-label="Cancel cable swap">×</button></header>
+      <p id="repatch-dialog-note" class="dialog-note">This port already has a cable. Confirm both moves below. The other end of each cable stays connected.</p>
+      <div id="repatch-summary" class="repatch-summary"></div>
+      <p class="dialog-note">VLAN and port settings stay with their physical ports.</p>
+      <footer><button type="button" class="secondary" data-close="repatch-dialog" autofocus>CANCEL</button><button type="submit" class="primary">SWAP CABLE ENDS</button></footer>
+    </form>
+  </dialog>
+
   <dialog id="link-group-dialog" class="panel-dialog" aria-labelledby="link-group-dialog-title">
     <form id="link-group-form" method="dialog">
       <header><div><p class="eyebrow">PHYSICAL LINK BUNDLE</p><h2 id="link-group-dialog-title">GROUP CABLES</h2></div><button type="button" class="dialog-close" data-close="link-group-dialog" aria-label="Close cable group dialog">×</button></header>

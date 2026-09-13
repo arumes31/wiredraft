@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Repatch selected cable ends by dragging their source/target handles, with a preview and mandatory confirmation for atomic swaps onto occupied ports. Preserve cable identity and physical port configuration, and reject stale confirmations.
+- Repatch selected cable ends by dragging their source/target handles, with a preview and mandatory confirmation for atomic swaps onto occupied ports. Preserve cable identity and physical port configuration, and reject stale confirmations.
 - Save device and rack drops in revision-safe order, commit multi-device moves atomically, preserve active drag previews across live updates, and retry stale placement saves without overwriting remote device edits.
 - Search all device families and providers in Install Device, with clickable model/SKU results that fill the installation fields.
 - Display servers on both rack faces by default with matching hardware panels and cable endpoints, and save a per-device Rack display override.

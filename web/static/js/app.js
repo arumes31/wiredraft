@@ -5,6 +5,7 @@ import { bindEditorLockUI, lockedEditMessage } from "./editor-lock-ui.js";
 import { CanvasEngine } from "./canvas.js";
 import { nextCanvasTool } from "./canvas-interactions.js";
 import { defaultCableProperties } from "./cable-defaults.js";
+import { repatchEndpointLabel } from "./link-repatch.js";
 import {
   GRAPHICS_STORAGE_KEY, GraphicsMode, graphicsProfileSummary, normalizeGraphicsMode,
 } from "./graphics-quality.js";
@@ -71,6 +72,7 @@ const elements = Object.fromEntries([
   "patch-panel-dialog", "patch-panel-form", "patch-panel-profile-summary", "patch-panel-map-dialog", "patch-panel-map-form",
   "patch-map-target-end", "patch-map-count", "patch-map-pairs", "patch-map-error", "create-patch-map-button",
   "link-group-dialog", "link-group-form", "link-group-summary", "switch-system-dialog", "switch-system-form",
+  "repatch-dialog", "repatch-form", "repatch-summary",
   "switch-system-members", "switch-system-member-count", "firewall-cluster-dialog", "firewall-cluster-form",
   "firewall-cluster-members", "firewall-cluster-member-count", "import-file", "catalog-file",
   "graphics-quality", "graphics-quality-detail", "navigation-mode", "navigation-mode-detail", "navigation-readout",
@@ -94,6 +96,7 @@ const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state
   onDevicesUpdate: (devices, snapshot) => savePlacements(snapshot, "devices", devices),
   onRackUpdate: (rack, snapshot) => savePlacements(snapshot, "racks", [rack]),
   onLinkCreate: createLink,
+  onLinkRepatch: requestCableRepatch,
   onLinkDelete: deleteLink,
   onLinkGroupRequest: openLinkGroupDialog,
   onViewChange: () => minimap?.draw(),
@@ -127,6 +130,7 @@ const autosave = new AutosaveController(async (_reason, version) => {
   return topologyWrites.run(() => saveTopologySnapshot(version));
 }, { storage: globalThis.localStorage });
 let pendingAnnotationPoint = null;
+let pendingRepatch = null;
 let catalogModulePromise = null;
 let catalogModule = null;
 let exportModulePromise = null;
@@ -1550,6 +1554,16 @@ function bindControls() {
   elements["vlan-form"].addEventListener("submit", saveVLAN);
   elements["trace-form"].addEventListener("submit", tracePath);
   elements["link-group-form"].addEventListener("submit", saveLinkGroup);
+  elements["repatch-form"].addEventListener("submit", (event) => {
+    event.preventDefault();
+    const pending = pendingRepatch;
+    elements["repatch-dialog"].close();
+    if (pending) saveCableRepatch(pending.plan, pending.snapshot);
+  });
+  elements["repatch-dialog"].addEventListener("close", () => {
+    pendingRepatch = null;
+    document.getElementById("diagram-canvas").focus({ preventScroll: true });
+  });
   elements["link-group-form"].querySelectorAll('input[name="mode"]').forEach((input) => input.addEventListener("change", toggleFailoverPrimary));
   elements["switch-system-form"].addEventListener("submit", saveSwitchSystem);
   elements["firewall-cluster-form"].addEventListener("submit", saveFirewallCluster);
@@ -2650,6 +2664,42 @@ function receiveTopology(topology, { remember = false, submittedVersion } = {}) 
   applyTopology(next, { remember });
 }
 
+function requestCableRepatch(plan, snapshot) {
+  if (!requireEdit("cabling")) return;
+  if (!plan.swapLink) {
+    saveCableRepatch(plan, snapshot);
+    return;
+  }
+  pendingRepatch = structuredClone({ plan, snapshot });
+  const from = repatchEndpointLabel(plan.from, plan.side);
+  const to = repatchEndpointLabel(plan.to, plan.side);
+  elements["repatch-summary"].replaceChildren(...[
+    [plan.link, from, to], [plan.swapLink, to, from],
+  ].map(([link, previous, next]) => {
+    const row = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `${link.cableType} · Cable ${link.id.slice(0, 8)}`;
+    const before = document.createElement("p");
+    before.textContent = `From: ${previous}`;
+    const after = document.createElement("p");
+    after.textContent = `To: ${next}`;
+    row.append(title, before, after);
+    return row;
+  }));
+  elements["repatch-dialog"].showModal();
+}
+
+async function saveCableRepatch(plan, snapshot) {
+  if (!requireEdit("cabling")) return;
+  await updateFrom(() => {
+    // Keep the revision shown during the drag/modal, even when queued behind another write.
+    if (state.topology?.id !== snapshot.id || state.topology?.revision !== snapshot.revision) {
+      throw new Error("The map changed. Drag the cable end again to review its current connections.");
+    }
+    return api.repatchLink(snapshot.id, plan.link.id, plan.input, snapshot.revision);
+  }, true, plan.swapLink ? "Cable ends swapped" : "Cable repatched");
+}
+
 /** Commit one whole drop, retrying revision races without replaying stale device records. */
 async function savePlacements(snapshot, collection, items) {
   const changes = placementChanges(snapshot, collection, items);
@@ -2751,6 +2801,7 @@ async function importBackup(event) {
 }
 
 function keyboardShortcuts(event) {
+  if (elements["repatch-dialog"].open) return;
   if (event.defaultPrevented || isFormField(event.target)) return;
   const key = event.key.toLowerCase();
   if ((event.ctrlKey || event.metaKey) && key === "z") { event.preventDefault(); event.shiftKey ? redo() : undo(); }
