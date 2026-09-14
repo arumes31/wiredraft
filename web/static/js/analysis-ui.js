@@ -6,8 +6,8 @@ export function analysisView(analysis) {
   };
   const total = normalized.issues.length + normalized.loops.length;
   const items = [
-    ...normalized.issues.map((issue) => `<div class="analysis-item"><b>${escapeHTML(issue.kind.replaceAll("_", " ").toUpperCase())}</b>${escapeHTML(issue.message)}</div>`),
-    ...normalized.loops.map((loop) => `<div class="analysis-item"><b>VLAN ${loop.vlanId} LOOP</b>${loop.deviceIds.length} devices participate in a forwarding cycle.</div>`),
+    ...normalized.issues.map((issue, index) => `<button type="button" class="analysis-item" data-analysis-index="${index}"><b>${escapeHTML(issue.kind.replaceAll("_", " ").toUpperCase())}</b>${escapeHTML(issue.message)}<small>SHOW AFFECTED EQUIPMENT</small></button>`),
+    ...normalized.loops.map((loop, index) => `<button type="button" class="analysis-item" data-analysis-index="${normalized.issues.length + index}"><b>VLAN ${loop.vlanId} LOOP</b>${loop.deviceIds.length} devices participate in a forwarding cycle.<small>SHOW CYCLE</small></button>`),
   ];
   const stpMarkup = normalized.stp.length ? normalized.stp.map(stpInstanceMarkup).join("") :
     `<p class="analysis-ok">No connected switching domains carry a configured VLAN.</p>`;
@@ -17,6 +17,21 @@ export function analysisView(analysis) {
     stpCountText: normalized.stp.length ? `${normalized.stp.length} DOMAIN${normalized.stp.length === 1 ? "" : "S"}` : "NO DOMAINS",
     stpMarkup,
   };
+}
+
+export function analysisTargets(analysis, topology, index) {
+  const issues = analysis?.issues || [];
+  const issue = issues[index];
+  const loop = (analysis?.loops || [])[index - issues.length];
+  const group = (topology?.linkGroups || []).find((item) => item.id === issue?.groupId);
+  const ids = new Set(issue ? [issue.linkId, ...(group?.linkIds || [])] : loop?.linkIds || []);
+  const links = (topology?.links || []).filter((link) => ids.has(link.id));
+  const ports = new Set(links.flatMap((link) => [link.sourcePortId, link.targetPortId]));
+  const devices = new Set(loop?.deviceIds || []);
+  for (const device of topology?.devices || []) {
+    if (device.ports.some((port) => ports.has(port.id))) devices.add(device.id);
+  }
+  return { linkIds: links.map((link) => link.id), deviceIds: [...devices] };
 }
 
 function stpInstanceMarkup(instance) {

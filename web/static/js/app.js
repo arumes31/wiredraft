@@ -47,7 +47,7 @@ import { planRackReplacement } from "./rack-placement.js";
 import { ToastQueue } from "./toast-queue.js";
 import { topologySize, topologySizeMessage } from "./topology-size.js";
 import { TopologyMinimap } from "./minimap.js";
-import { renderTopologyTree } from "./topology-tree.js";
+import { renderTopologyTree, searchInstalledDevices } from "./topology-tree.js";
 import {
   ACTIVE_MAP_STORAGE_KEY, nextMapName, preferredTopologyID, topologyOptionLabel,
 } from "./maps.js";
@@ -405,6 +405,8 @@ function clearActiveTopologyForScope() {
 }
 
 function setMapControlsAvailable(available) {
+  document.getElementById("duplicate-topology-button").disabled = !available;
+  document.getElementById("inventory-search").disabled = !available;
   elements["edit-topology-button"].disabled = !available;
   elements["export-menu"].hidden = !available;
   document.querySelectorAll(".toolbar > button").forEach((button) => { button.disabled = !available; });
@@ -455,6 +457,8 @@ function openTopologyDialog() {
   const form = elements["topology-form"];
   const isGuest = sessionInfo?.role === "guest";
   form.reset();
+  form.elements.location.readOnly = false;
+  form.elements.location.required = true;
   form.dataset.mode = "create";
   form.elements.name.value = nextMapName(topologySummaries);
   const organization = organizationForNewTopology(sessionInfo, activeOrganizationScope);
@@ -478,6 +482,8 @@ function openEditTopologyDialog() {
   const form = elements["topology-form"];
   const isGuest = sessionInfo?.role === "guest";
   form.reset();
+  form.elements.location.readOnly = false;
+  form.elements.location.required = true;
   form.dataset.mode = "edit";
   form.elements.name.value = state.topology.name || "";
   refreshTopologyScopeOptions(state.topology.organizationId || "");
@@ -493,6 +499,24 @@ function openEditTopologyDialog() {
   elements["topology-submit-button"].textContent = "SAVE MAP ASSIGNMENT";
   elements["topology-dialog"].showModal();
   requestAnimationFrame(() => (isGuest ? form.elements.location : form.elements.organizationId).focus());
+}
+
+function openDuplicateTopologyDialog() {
+  if (!state.topology) return;
+  openTopologyDialog();
+  const form = elements["topology-form"];
+  form.dataset.mode = "duplicate";
+  form.dataset.sourceId = state.topology.id;
+  form.elements.name.value = `${state.topology.name.slice(0, 110)} (copy)`;
+  refreshTopologyScopeOptions(state.topology.organizationId);
+  form.elements.organizationId.disabled = true;
+  form.elements.location.value = state.topology.location || "";
+  form.elements.location.readOnly = true;
+  form.elements.location.required = false;
+  elements["map-template-field"].hidden = true;
+  elements["topology-dialog-title"].textContent = "DUPLICATE MAP";
+  elements["topology-dialog-note"].textContent = "Copy the saved map, equipment, comments, documents and photos into the same organization. Share links are not copied. Save pending edits when prompted to include them.";
+  elements["topology-submit-button"].textContent = "CREATE + OPEN COPY";
 }
 
 function refreshTopologyScopeOptions(selectedOrganizationID = "") {
@@ -530,6 +554,19 @@ async function submitTopologyDialog(event) {
   };
   submit.disabled = true;
   try {
+    if (form.dataset.mode === "duplicate") {
+      const sourceID = form.dataset.sourceId;
+      if (!await canLeaveMap()) return;
+      const source = await api.getTopology(sourceID);
+      const created = await api.duplicateTopology(sourceID, metadata.name, source.revision);
+      topologySummaries = await api.listTopologies();
+      fillTopologySelect(topologySummaries);
+      elements["topology-dialog"].close();
+      await loadTopology(created.id);
+      requestAnimationFrame(() => canvas.fit());
+      toast(`Map duplicated · ${created.name}`);
+      return;
+    }
     if (form.dataset.mode === "edit") {
       const updated = await api.replaceTopology({ ...state.topology, ...metadata });
       applyTopology(updated);
@@ -624,10 +661,15 @@ function renderTopology() {
 
 function renderNavigator() {
   if (!state.topology) return;
+  const search = document.getElementById("inventory-search");
+  if (search.dataset.mapId !== state.topology.id) {
+    search.value = "";
+    search.dataset.mapId = state.topology.id;
+  }
   renderTopologyTree(elements["topology-tree"], state.topology, state.selection, (type, id) => {
     if (type === "device") {
       state.select("device", id);
-      canvas.focusDevice(id);
+      canvas.focusDevices([id]);
       return;
     }
     if (type === "vlan") {
@@ -635,7 +677,10 @@ function renderNavigator() {
       state.setTrace(related);
       toast(`${related.length} VLAN ${id} cable${related.length === 1 ? "" : "s"} highlighted`);
     }
-  });
+  }, search.value);
+  const status = document.getElementById("inventory-search-status");
+  status.hidden = !search.value.trim();
+  status.textContent = `${searchInstalledDevices(state.topology, search.value).length} matching devices`;
 }
 
 function renderTopologySize() {
@@ -704,10 +749,20 @@ function renderNavigationInput(input = {}) {
 
 async function renderAnalysis() {
   analysisUIModulePromise ||= import("./analysis-ui.js");
-  const { analysisView } = await analysisUIModulePromise;
+  const { analysisView, analysisTargets } = await analysisUIModulePromise;
   const view = analysisView(state.analysis);
   elements["analysis-count"].textContent = view.countText;
   elements["analysis-list"].innerHTML = view.markup;
+  elements["analysis-list"].querySelectorAll("[data-analysis-index]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const targets = analysisTargets(state.analysis, state.topology, Number(button.dataset.analysisIndex));
+      state.setTrace(targets.linkIds);
+      if (targets.linkIds.length) state.select("link", targets.linkIds[0]);
+      else if (targets.deviceIds.length) state.select("device", targets.deviceIds[0]);
+      canvas.focusDevices(targets.deviceIds);
+      if (!targets.deviceIds.length) toast("The affected equipment is no longer in this map. Refresh analysis.");
+    });
+  });
   elements["stp-count"].textContent = view.stpCountText;
   elements["stp-list"].innerHTML = view.stpMarkup;
   elements["stp-list"].querySelectorAll("[data-stp-links]").forEach((button) => {
@@ -1452,6 +1507,37 @@ function renderRearPanelLinkInspector(link, source, target) {
 }
 
 function bindControls() {
+  document.getElementById("inventory-search").addEventListener("input", renderNavigator);
+  document.getElementById("duplicate-topology-button").addEventListener("click", openDuplicateTopologyDialog);
+  document.getElementById("about-button").addEventListener("click", async () => {
+    try {
+      const { showDiagnostics } = await import("./diagnostics.js");
+      await showDiagnostics(api, { topology: state.topology, connection: document.getElementById("connection-status").dataset.state,
+        graphics: elements["graphics-quality"].value, editMode: editLock.mode, dirty: autosave.isDirty, storageAvailable: Boolean(drafts && !drafts.storageError) });
+    } catch (error) { showError(error); }
+  });
+  document.getElementById("pdf-tiled-button").addEventListener("click", () => {
+    elements["export-menu"].open = false;
+    document.getElementById("pdf-options-status").textContent = "";
+    document.getElementById("pdf-options-dialog").showModal();
+  });
+  document.getElementById("pdf-options-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('[type="submit"]');
+    const status = document.getElementById("pdf-options-status");
+    const dialog = document.getElementById("pdf-options-dialog");
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    dialog.addEventListener("close", cancel);
+    button.disabled = true;
+    try {
+      const { exportTiledPDF } = await import("./pdf-tiles.js");
+      const count = await exportTiledPDF(state.topology, canvas, Number(form.elements.scale.value), (message) => { status.textContent = message; }, controller.signal);
+      status.textContent = `Exported ${count} pages.`;
+    } catch (error) { status.textContent = controller.signal.aborted ? "Export cancelled." : error.message; }
+    finally { button.disabled = false; dialog.removeEventListener("close", cancel); }
+  });
   elements["topology-select"].addEventListener("change", (event) => loadTopology(event.target.value).catch(showError));
   document.getElementById("add-topology-button").addEventListener("click", openTopologyDialog);
   elements["edit-topology-button"].addEventListener("click", openEditTopologyDialog);

@@ -176,6 +176,19 @@ To create a rack, choose **All unlocked**, then **+ Rack**. Enter its name and c
 
 ### Navigation and shortcuts
 
+Use **Find installed equipment** above the topology navigator to search by device
+name, hostname, management IP, serial number, asset tag, or model. Multiple words
+must all match. Selecting a result frames its equipment; clearing the search
+restores collapsed navigator groups. Group expansion is retained across selection
+and topology refreshes within the active map. Click a Rule Engine alert to select
+its cable and frame the affected equipment, or highlight all cables in a group or cycle.
+
+The **Duplicate active map** button beside the map picker creates an independent
+copy in the same organization. Give the copy a name; if prompted, save pending
+edits to include them or discard them to copy the saved version. Equipment,
+configuration, comments, documentation and photo files are copied. Existing share
+links are excluded. The original remains intact and the new map opens read-only.
+
 Choose **Navigation → Auto**, **Trackpad**, or **Mouse** in the left sidebar. Trackpad mode uses two-finger scrolling to pan and pinching to zoom; Mouse mode uses wheel scrolling to zoom. Auto detects the gesture type. Choose an explicit mode if your input device is misidentified.
 
 | Action | Control |
@@ -201,6 +214,21 @@ Select an object and use **Field photos → Upload JPEG / PNG** to attach up to 
 Open **Resources** to attach HTTP(S) documentation links or create a read-only share with an optional expiry. Copy a newly created share URL immediately: its secret is shown only once. Revoke shares from the same dialog. Documentation embeds depend on the destination site's framing policy; use **Open** when embedding is unavailable.
 
 ### Saving and exports
+
+**Export → Multipage PDF** prints large maps as A3 landscape tiles rather than
+shrinking everything onto one sheet. Choose a print scale; pages run left to right
+and then top to bottom, with an 18-point overlap and row/column labels. Each tile
+is rendered independently to preserve detail. Exports are limited to 100 pages;
+reduce the scale or map extent if necessary. A changed map interrupts export so
+pages cannot silently combine different versions.
+
+**Identity Control → About / diagnostics** shows the build revision, Go version,
+map revision, object counts, connection state, graphics mode, and recovery-storage
+availability. Copy diagnostics for a support report; names, inventory values,
+organization identifiers, account details, addresses and credentials are omitted.
+Git builds use Go's embedded VCS metadata. Published container builds receive the
+commit through `WIREDRAFT_BUILD_REVISION`; custom Docker builds can set that build
+argument, otherwise they display `development`.
 
 The autosave menu enables or disables autosave, selects a 30-second, 1-minute, or 5-minute interval, and offers **Save now** and draft recovery. See [First use](#first-use) for unsaved-change and recovery behavior.
 

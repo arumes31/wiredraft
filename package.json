@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:workspace": "playwright test --config=playwright.workspace.config.mjs workspace.spec.mjs",
+    "test:performance": "playwright test --config=playwright.workspace.config.mjs performance.spec.mjs",
     "audit:faceplates": "node scripts/audit-faceplates.mjs",
     "minify:js": "node scripts/minify-js.mjs --source web/static/js --output .quality-data/minified-js",
     "test": "npm run test:unit && npm run test:e2e",

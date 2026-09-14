@@ -48,6 +48,10 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  diagnostics: () => request("/api/v1/diagnostics"),
+  duplicateTopology: (id, name, revision) => request(`/api/v1/topologies/${encodeURIComponent(id)}/duplicate`, {
+    method: "POST", headers: revisionHeaders(revision), body: JSON.stringify({ name }),
+  }),
   setMutationGuard: (guard) => { mutationGuard = typeof guard === "function" ? guard : null; },
   setRevisionProvider: (provider) => { revisionProvider = typeof provider === "function" ? provider : () => null; },
   setCSRFToken: (token) => { csrfToken = typeof token === "string" ? token : ""; },

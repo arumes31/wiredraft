@@ -81,6 +81,7 @@ test("toast queue caps visible notices and supports manual and timed dismissal",
 test("topology tree groups devices, escapes labels, and emits selections", () => {
   const buttons = [];
   const container = {
+    dataset: {},
     _html: "",
     set innerHTML(value) {
       this._html = value;
@@ -97,7 +98,7 @@ test("topology tree groups devices, escapes labels, and emits selections", () =>
       }
     },
     get innerHTML() { return this._html; },
-    querySelectorAll: () => buttons,
+    querySelectorAll: (selector) => selector === "[data-tree-type]" ? buttons : [],
   };
   const selections = [];
   renderTopologyTree(container, {

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Search installed equipment by name, hostname, IP, serial, asset tag, and model; retain navigator expansion across refreshes and frame equipment from validation alerts.
+- Duplicate saved maps within their organization, including independent photo files and internal references while excluding existing share grants.
+- Export large diagrams as overlapping A3 PDF pages with print-scale choices, progress, cancellation, and protection against map changes during export.
+- Add an About / diagnostics panel with build revision and copyable non-sensitive workspace health details.
+- Establish a repeatable 240-device browser performance baseline for loading, selection, and dragging, with CI budgets and retained measurements.
 - Reuse an existing rack’s frame color when placing a new rack, while keeping the custom color picker available.
 - Require confirmation for drops onto occupied rack ranges. Show the affected hardware, move displaced devices onto the canvas only after confirmation, and preserve cancellation, undo, and revision checks.
 - Repatch selected cable ends by dragging their source/target handles, with a preview and mandatory confirmation for atomic swaps onto occupied ports. Preserve cable identity and physical port configuration, and reject stale confirmations.

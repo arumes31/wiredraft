@@ -128,6 +128,7 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
+          build-args: WIREDRAFT_BUILD_REVISION=${{ github.sha }}
           annotations: ${{ steps.metadata.outputs.annotations }}
           cache-from: type=gha,scope=ghcr-image
           cache-to: type=gha,mode=max,scope=ghcr-image

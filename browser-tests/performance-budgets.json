@@ -1,0 +1,13 @@
+{
+  "devices": 240,
+  "loadMs": 10000,
+  "selectionMedianMs": 2500,
+  "dragMedianMs": 6000,
+  "reference": {
+    "date": "2026-09-14",
+    "platform": "Windows amd64, Chromium 153, headless",
+    "loadMs": 2113,
+    "selectionMedianMs": 1001,
+    "dragMedianMs": 2691
+  }
+}

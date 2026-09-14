@@ -58,7 +58,7 @@ Invoke-Gate 'Git history secret scan' { go run github.com/zricethezav/gitleaks/v
 Invoke-Gate 'Locked frontend install' { npm ci --ignore-scripts }
 Invoke-Gate 'Frontend dependency audit' { npm audit --audit-level=high }
 Invoke-Gate 'JavaScript syntax' {
-    $javascriptFiles = Get-ChildItem -LiteralPath web, scripts, e2e -Recurse -File |
+    $javascriptFiles = Get-ChildItem -LiteralPath web, scripts, e2e, browser-tests -Recurse -File |
         Where-Object { $_.Extension -in '.js', '.mjs' }
     foreach ($file in $javascriptFiles) {
         node --check $file.FullName
@@ -166,6 +166,7 @@ if (-not $SkipContainers) {
 }
 
 if (-not $SkipBrowsers) {
+    Invoke-Gate 'Workspace regression and performance' { npx playwright test --config=playwright.workspace.config.mjs }
     Invoke-Gate 'Playwright browser matrix' { npm run test:e2e }
     Invoke-Gate 'Microsoft Edge' { npm run test:edge }
     Invoke-Gate 'Accessibility' { npm run test:a11y }
