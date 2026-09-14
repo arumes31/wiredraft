@@ -20,6 +20,7 @@ import {
 } from "./patch-panels.js";
 import { cableLabelVisibility, curveLabelCandidates, placeCableLabels, pointerBubblePlacement, radialCandidates } from "./label-layout.js";
 import { findPort } from "./state.js";
+import { planCableRepatch } from "./link-repatch.js";
 import { connectorKind, portDescriptionPlacement, portLinkLEDColor } from "./termination.js";
 import { switchSystemAccent, switchSystemForDevice } from "./switch-systems.js";
 import { firewallClusterAccent, firewallClusterForDevice, firewallClusterRole } from "./firewall-clusters.js";
@@ -118,6 +119,7 @@ export class CanvasEngine {
     this.mode = CableMode.IDLE;
     this.draft = null;
     this.linkDrag = null;
+    this.repatch = null;
     this.drag = null;
     this.rackDrag = null;
     this.rackDropPreview = null;
@@ -132,7 +134,7 @@ export class CanvasEngine {
     this.graphicsProfileKey = "";
     this.onStateChange = ({ detail }) => {
       const layoutChanged = ["topology", "layout", "rack-view", "device-view", "trace"].includes(detail?.kind);
-      const gestureSnapshot = this.drag?.snapshot || this.rackDrag?.snapshot;
+      const gestureSnapshot = this.drag?.snapshot || this.rackDrag?.snapshot || this.repatch?.snapshot;
       if (gestureSnapshot && (gestureSnapshot.id !== this.state.topology?.id || gestureSnapshot.revision !== this.state.topology?.revision)) this.cancelInteraction(false);
       if (detail?.kind === "device-view") {
         this.cancelInteraction();
@@ -193,6 +195,7 @@ export class CanvasEngine {
     window.addEventListener("keydown", (event) => {
       if (event.code === "Space" && !isFormField(event.target)) this.isSpaceDown = true;
       if (event.key === "Escape") {
+        if (event.target.closest?.("dialog[open]")) return;
         this.setTool("select");
         if (this.state.traceLinkIDs?.size) this.state.setTrace([]);
         if (this.state.dualFaceRackIDs?.size) this.state.setAllRacksDualFace(false);
@@ -269,6 +272,7 @@ export class CanvasEngine {
     this.drawAnnotations(ctx, overlays);
     if (overlays) {
       this.drawDraft(ctx);
+      this.drawRepatch(ctx);
       this.drawSelectionBox(ctx);
       this.drawDragGhosts(ctx);
       this.drawAnnotationDraft(ctx);
@@ -1910,6 +1914,73 @@ export class CanvasEngine {
     ctx.restore();
   }
 
+  repatchHandles() {
+    if (this.state.selection?.type !== "link" || !this.canEdit("cabling")) return [];
+    const link = this.state.topology?.links.find(item => item.id === this.state.selection.id);
+    if (!link) return [];
+    return ["source", "target"].flatMap(endpoint => {
+      const box = this.portBoxByID?.get(link[`${endpoint}PortId`]);
+      return box ? [{ endpoint, link, box, x: box.centerX, y: box.centerY }] : [];
+    });
+  }
+
+  hitRepatchHandle(world) {
+    return this.repatchHandles().find(handle => Math.hypot(world.x - handle.x, world.y - handle.y) <= 9 / this.camera.zoom);
+  }
+
+  drawRepatch(ctx) {
+    const handles = this.repatchHandles();
+    if (!handles.length) return;
+    ctx.save();
+    const zoom = this.camera.zoom;
+    if (this.repatch) {
+      for (const [portID, plan] of this.repatch.targets) {
+        const box = this.portBoxByID.get(portID);
+        if (!box) continue;
+        ctx.strokeStyle = plan.swapLink ? "#f0b35a" : "#42d9c8";
+        ctx.lineWidth = 1.5 / zoom;
+        ctx.strokeRect(box.x - 2 / zoom, box.y - 2 / zoom, box.width + 4 / zoom, box.height + 4 / zoom);
+      }
+      const fixedEnd = this.repatch.endpoint === "source" ? "target" : "source";
+      const fixedBox = this.routingPortBoxByID.get(this.repatch.link[`${fixedEnd}PortId`]);
+      if (fixedBox) {
+        const target = this.repatch.target;
+        const tip = target ? { x: target.centerX, y: target.centerY } : this.pointerWorld;
+        ctx.setLineDash([7 / zoom, 5 / zoom]);
+        this.strokeCurve(ctx, cableBezier({ x: fixedBox.centerX, y: fixedBox.centerY }, tip),
+          this.repatch.plan?.swapLink ? "#f0b35a" : target ? "#42d9c8" : "#8fa4a7", 2.5 / zoom, .95);
+        ctx.setLineDash([]);
+      }
+      if (this.repatch.plan?.swapLink) {
+        const plan = this.repatch.plan;
+        const otherEnd = plan.swapEndpoint === "source" ? "target" : "source";
+        const other = this.routingPortBoxByID.get(plan.swapLink[`${otherEnd}PortId`]);
+        const origin = this.portBoxByID.get(this.repatch.link[`${this.repatch.endpoint}PortId`]);
+        if (other && origin) {
+          ctx.setLineDash([7 / zoom, 5 / zoom]);
+          this.strokeCurve(ctx, cableBezier({ x: other.centerX, y: other.centerY }, { x: origin.centerX, y: origin.centerY }), "#f0b35a", 2.5 / zoom, .95);
+          ctx.setLineDash([]);
+        }
+      }
+    }
+    for (const handle of handles) {
+      ctx.beginPath(); ctx.arc(handle.x, handle.y, 7 / zoom, 0, Math.PI * 2);
+      ctx.fillStyle = "#102b2b"; ctx.fill();
+      ctx.strokeStyle = "#79f3e2"; ctx.lineWidth = 2 / zoom; ctx.stroke();
+      ctx.fillStyle = "#e9ffff"; ctx.font = `bold ${9 / zoom}px sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(handle.endpoint === "source" ? "S" : "T", handle.x, handle.y);
+    }
+    ctx.restore();
+  }
+
+  updateRepatchTarget(world) {
+    const candidate = this.hitPort(world) || this.nearestPort(world, 18 / this.camera.zoom);
+    this.repatch.plan = candidate ? this.repatch.targets.get(candidate.port.id) : null;
+    this.repatch.target = this.repatch.plan ? candidate : null;
+    this.canvas.style.cursor = this.repatch.plan ? "grabbing" : "not-allowed";
+  }
+
   drawSelectionBox(ctx) {
     if (!this.selectionBox) return;
     const x = Math.min(this.selectionBox.start.x, this.selectionBox.end.x);
@@ -1921,7 +1992,7 @@ export class CanvasEngine {
   }
 
   drawTooltip(ctx) {
-    if (this.drag || this.rackDrag || this.pan || this.draft || this.selectionBox || this.linkDrag?.active) return;
+    if (this.drag || this.rackDrag || this.pan || this.draft || this.repatch || this.selectionBox || this.linkDrag?.active) return;
     const topology = this.state.topology;
     let lines = [];
     let accent = "#42d9c8";
@@ -2080,6 +2151,19 @@ export class CanvasEngine {
       if (type === "text") this.callbacks.onAnnotationTextRequest?.(world);
       return;
     }
+    const handle = this.hitRepatchHandle(world);
+    if (handle) {
+      const targets = new Map();
+      for (const box of this.portBoxes) {
+        const plan = planCableRepatch(this.state.topology, handle.link.id, handle.endpoint, box.port.id);
+        if (plan) targets.set(box.port.id, plan);
+      }
+      this.repatch = { link: handle.link, endpoint: handle.endpoint, targets, target: null, plan: null,
+        snapshot: { id: this.state.topology.id, revision: this.state.topology.revision }, startScreen: screen, active: false };
+      this.pointerWorld = world;
+      this.canvas.style.cursor = "grabbing";
+      return;
+    }
     const annotation = this.hitAnnotation(world);
     if (annotation) {
       this.state.select("annotation", annotation.id);
@@ -2117,6 +2201,7 @@ export class CanvasEngine {
         active: false,
         originals: new Map(),
         invalidIDs: new Set(),
+        occupiedLandings: new Map(),
         snapshot: structuredClone(this.state.topology),
       };
       for (const selectedID of this.selectedDevices) {
@@ -2171,6 +2256,11 @@ export class CanvasEngine {
     this.callbacks.onPointer?.(world, this.camera.zoom);
     this.hoveredLink = null;
     this.hoveredDevice = null;
+    if (this.repatch) {
+      if (screenDistance(screen, this.repatch.startScreen) >= DRAG_ACTIVATION_DISTANCE) this.repatch.active = true;
+      this.updateRepatchTarget(world);
+      return;
+    }
     if (this.pan) {
       this.camera.x = this.pan.camera.x + screen.x - this.pan.screen.x;
       this.camera.y = this.pan.camera.y + screen.y - this.pan.screen.y;
@@ -2204,6 +2294,7 @@ export class CanvasEngine {
       const dx = world.x - this.drag.start.x;
       const dy = world.y - this.drag.start.y;
       this.drag.invalidIDs.clear();
+      this.drag.occupiedLandings.clear();
       this.rackDropPreview = null;
       for (const [id, original] of this.drag.originals) {
         const device = this.state.topology.devices.find((item) => item.id === id);
@@ -2224,6 +2315,7 @@ export class CanvasEngine {
         this.rackDropPreview = { ...landing, device };
         if (!landing.isValid) {
           this.drag.invalidIDs.add(id);
+          if (landing.reason === "occupied") this.drag.occupiedLandings.set(id, landing);
           continue;
         }
         device.rackId = landing.rack.id;
@@ -2260,14 +2352,20 @@ export class CanvasEngine {
     const faceControl = this.hitRackFaceControl(world);
     const rack = this.hitRack(world);
     const rackHeader = rack && world.y <= rack.y + RACK_HEADER_HEIGHT;
-    this.canvas.style.cursor = faceControl || this.hoveredAnnotation || this.hoveredPort || this.hoveredLink || this.hoveredDevice ? "pointer" : this.draft ? "crosshair" : rackHeader ? "grab" : "default";
+    this.canvas.style.cursor = this.hitRepatchHandle(world) ? "grab" : faceControl || this.hoveredAnnotation || this.hoveredPort || this.hoveredLink || this.hoveredDevice ? "pointer" : this.draft ? "crosshair" : rackHeader ? "grab" : "default";
   }
 
   pointerUp(event) {
     this.checkEditGesture();
     this.invalidate();
     const wasDrag = this.drag;
-    if (this.annotationDraft) {
+    if (this.repatch) {
+      this.updateRepatchTarget(this.screenToWorld(this.eventPoint(event)));
+      const { plan, snapshot, active } = this.repatch;
+      this.repatch = null;
+      this.canvas.style.cursor = "default";
+      if (active && plan) this.callbacks.onLinkRepatch?.(plan, snapshot);
+    } else if (this.annotationDraft) {
       const draft = this.annotationDraft;
       this.annotationDraft = null;
       if (draft.type !== "text" && Math.hypot(draft.end.x - draft.start.x, draft.end.y - draft.start.y) > 8 / this.camera.zoom) {
@@ -2300,7 +2398,20 @@ export class CanvasEngine {
       this.linkDrag = null;
       this.canvas.style.cursor = "default";
     } else if (wasDrag) {
-      if (wasDrag.active) {
+      if (wasDrag.active && wasDrag.occupiedLandings.size) {
+        const proposed = [];
+        for (const [id, original] of wasDrag.originals) {
+          const device = this.state.topology.devices.find((item) => item.id === id);
+          if (!device) continue;
+          const landing = wasDrag.occupiedLandings.get(id);
+          if (landing) proposed.push({ ...device, rackId: landing.rack.id, rackUnit: landing.rackUnit,
+            rackFace: landing.rackFace, positionX: landing.position.x, positionY: landing.position.y });
+          else if (!wasDrag.invalidIDs.has(id)) proposed.push(structuredClone(device));
+          for (const field of ["positionX", "positionY", "rackId", "rackUnit", "rackFace"]) device[field] = original.device[field];
+        }
+        this.state.emit("topology");
+        this.callbacks.onRackPlacementRequest?.(proposed, wasDrag.snapshot);
+      } else if (wasDrag.active) {
         this.state.history.push(wasDrag.snapshot);
         this.state.history = this.state.history.slice(-50);
         this.state.future = [];
@@ -2381,7 +2492,7 @@ export class CanvasEngine {
   checkEditGesture() {
     this.state.editLock?.checkExpiry();
     if (((this.drag || this.rackDrag || this.annotationDraft) && !this.canEdit("all")) ||
-        ((this.draft || this.linkDrag) && !this.canEdit("cabling"))) this.cancelInteraction();
+        ((this.draft || this.linkDrag || this.repatch) && !this.canEdit("cabling"))) this.cancelInteraction();
   }
 
   cancelInteraction(restore = true) {
@@ -2401,7 +2512,7 @@ export class CanvasEngine {
       const rack = this.state.topology?.racks.find((item) => item.id === original?.id);
       if (rack) { rack.positionX = original.positionX; rack.positionY = original.positionY; }
     }
-    this.draft = null; this.linkDrag = null; this.drag = null; this.rackDrag = null; this.rackDropPreview = null;
+    this.draft = null; this.linkDrag = null; this.repatch = null; this.drag = null; this.rackDrag = null; this.rackDropPreview = null;
     this.pan = null; this.selectionBox = null; this.annotationDraft = null; this.mode = CableMode.IDLE;
     this.canvas.style.cursor = "default";
     this.invalidate(true);

@@ -437,6 +437,10 @@ dialog { color: var(--ink); }
 .panel-dialog button { border-radius: 9px; }
 .panel-dialog button:disabled { opacity: .42; cursor: not-allowed; filter: saturate(.4); }
 .panel-dialog footer { position: sticky; bottom: 0; z-index: 4; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; padding: 14px var(--modal-gutter); border-top: 1px solid #34474d; background: linear-gradient(180deg, rgb(15 24 27 / 95%), rgb(10 17 19 / 98%)); box-shadow: 0 -12px 30px rgb(0 0 0 / 20%); backdrop-filter: blur(18px); }
+.repatch-summary { margin: 18px var(--modal-gutter); display: grid; gap: 16px; }
+.repatch-summary > div { padding-left: 12px; border-left: 2px solid #f0b35a; overflow-wrap: anywhere; }
+.repatch-summary strong { color: #f0b35a; font-size: 12px; }
+.repatch-summary p { margin: 7px 0 0; color: #e8f3f2; font-size: 13px; line-height: 1.5; }
 .panel-dialog footer button { min-height: 40px; padding-inline: 16px; border-radius: 9px; }
 .panel-dialog footer .primary { border-color: #62eadb; background: linear-gradient(180deg, #5be4d4, #38caba); box-shadow: 0 8px 22px rgb(31 178 164 / 18%), inset 0 1px rgb(255 255 255 / 32%); }
 .panel-dialog footer .primary:hover { border-color: #8ff9ed; background: linear-gradient(180deg, #7af3e5, #46d6c6); box-shadow: 0 10px 28px rgb(31 178 164 / 28%), inset 0 1px rgb(255 255 255 / 38%); }

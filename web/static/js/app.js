@@ -5,6 +5,7 @@ import { bindEditorLockUI, lockedEditMessage } from "./editor-lock-ui.js";
 import { CanvasEngine } from "./canvas.js";
 import { nextCanvasTool } from "./canvas-interactions.js";
 import { defaultCableProperties } from "./cable-defaults.js";
+import { repatchEndpointLabel } from "./link-repatch.js";
 import {
   GRAPHICS_STORAGE_KEY, GraphicsMode, graphicsProfileSummary, normalizeGraphicsMode,
 } from "./graphics-quality.js";
@@ -42,6 +43,7 @@ import { AutosaveController } from "./autosave.js";
 import { DraftRecovery } from "./draft-recovery.js";
 import { askToLeave, downloadDraft, renderRecovery } from "./save-recovery-ui.js";
 import { applyPlacements, placementChanges, TopologyWriteQueue } from "./placement-sync.js";
+import { planRackReplacement } from "./rack-placement.js";
 import { ToastQueue } from "./toast-queue.js";
 import { topologySize, topologySizeMessage } from "./topology-size.js";
 import { TopologyMinimap } from "./minimap.js";
@@ -71,6 +73,8 @@ const elements = Object.fromEntries([
   "patch-panel-dialog", "patch-panel-form", "patch-panel-profile-summary", "patch-panel-map-dialog", "patch-panel-map-form",
   "patch-map-target-end", "patch-map-count", "patch-map-pairs", "patch-map-error", "create-patch-map-button",
   "link-group-dialog", "link-group-form", "link-group-summary", "switch-system-dialog", "switch-system-form",
+  "repatch-dialog", "repatch-form", "repatch-summary",
+  "rack-placement-dialog", "rack-placement-form", "rack-placement-summary",
   "switch-system-members", "switch-system-member-count", "firewall-cluster-dialog", "firewall-cluster-form",
   "firewall-cluster-members", "firewall-cluster-member-count", "import-file", "catalog-file",
   "graphics-quality", "graphics-quality-detail", "navigation-mode", "navigation-mode-detail", "navigation-readout",
@@ -92,8 +96,10 @@ const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state
     elements["pointer-readout"].textContent = `X ${Math.round(point.x).toString().padStart(4, "0")} · Y ${Math.round(point.y).toString().padStart(4, "0")}`;
   },
   onDevicesUpdate: (devices, snapshot) => savePlacements(snapshot, "devices", devices),
+  onRackPlacementRequest: requestRackPlacement,
   onRackUpdate: (rack, snapshot) => savePlacements(snapshot, "racks", [rack]),
   onLinkCreate: createLink,
+  onLinkRepatch: requestCableRepatch,
   onLinkDelete: deleteLink,
   onLinkGroupRequest: openLinkGroupDialog,
   onViewChange: () => minimap?.draw(),
@@ -127,6 +133,8 @@ const autosave = new AutosaveController(async (_reason, version) => {
   return topologyWrites.run(() => saveTopologySnapshot(version));
 }, { storage: globalThis.localStorage });
 let pendingAnnotationPoint = null;
+let pendingRepatch = null;
+let pendingRackPlacement = null;
 let catalogModulePromise = null;
 let catalogModule = null;
 let exportModulePromise = null;
@@ -1483,7 +1491,7 @@ function bindControls() {
   });
   document.getElementById("navigator-toggle").addEventListener("click", toggleNavigator);
   document.querySelectorAll("[data-canvas-tool]").forEach((button) => button.addEventListener("click", () => selectCanvasTool(button.dataset.canvasTool)));
-  document.getElementById("add-rack-button").addEventListener("click", () => elements["rack-dialog"].showModal());
+  document.getElementById("add-rack-button").addEventListener("click", openRackDialog);
   document.getElementById("add-device-button").addEventListener("click", () => openDeviceDialog().catch(showError));
   document.getElementById("add-server-button").addEventListener("click", openStaticServerDialog);
   document.getElementById("add-patch-panel-button").addEventListener("click", () => openPatchPanelDialog().catch(showError));
@@ -1520,6 +1528,12 @@ function bindControls() {
   document.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => document.getElementById(button.dataset.close).close()));
   elements["device-form"].addEventListener("submit", installDevice);
   elements["rack-form"].addEventListener("submit", installRack);
+  const rackColorSource = document.getElementById("rack-color-source");
+  const rackColorInput = elements["rack-form"].elements.namedItem("color");
+  rackColorSource.addEventListener("change", () => {
+    if (rackColorSource.value) rackColorInput.value = rackColorSource.value;
+  });
+  rackColorInput.addEventListener("input", () => { rackColorSource.value = ""; });
   elements["static-server-form"].addEventListener("submit", installStaticServer);
   elements["static-server-form"].elements.units.addEventListener("change", renderServerCardBuilder);
   elements["static-server-form"].elements.color.addEventListener("input", renderServerBackPreview);
@@ -1550,6 +1564,33 @@ function bindControls() {
   elements["vlan-form"].addEventListener("submit", saveVLAN);
   elements["trace-form"].addEventListener("submit", tracePath);
   elements["link-group-form"].addEventListener("submit", saveLinkGroup);
+  elements["repatch-form"].addEventListener("submit", (event) => {
+    event.preventDefault();
+    const pending = pendingRepatch;
+    elements["repatch-dialog"].close();
+    if (pending) saveCableRepatch(pending.plan, pending.snapshot);
+  });
+  elements["repatch-dialog"].addEventListener("close", () => {
+    pendingRepatch = null;
+    document.getElementById("diagram-canvas").focus({ preventScroll: true });
+  });
+  elements["rack-placement-form"].addEventListener("submit", (event) => {
+    event.preventDefault();
+    const pending = pendingRackPlacement;
+    pendingRackPlacement = null;
+    elements["rack-placement-dialog"].close();
+    if (!pending || !requireEdit("all")) return;
+    updateFrom(() => {
+      if (state.topology?.id !== pending.snapshot.id || state.topology?.revision !== pending.snapshot.revision) {
+        throw new Error("The map changed. Drop the device again to review the occupied range.");
+      }
+      return api.replaceTopology(applyPlacements(state.topology, pending.plan.changes, { checkConflicts: true }));
+    }, true, "Rack placement updated");
+  });
+  elements["rack-placement-dialog"].addEventListener("close", () => {
+    pendingRackPlacement = null;
+    document.getElementById("diagram-canvas").focus({ preventScroll: true });
+  });
   elements["link-group-form"].querySelectorAll('input[name="mode"]').forEach((input) => input.addEventListener("change", toggleFailoverPrimary));
   elements["switch-system-form"].addEventListener("submit", saveSwitchSystem);
   elements["firewall-cluster-form"].addEventListener("submit", saveFirewallCluster);
@@ -1856,6 +1897,15 @@ async function runLazyExport(name, ...arguments_) {
 function closeExportMenu() {
   elements["export-menu"].open = false;
   elements["export-menu"].querySelector("summary")?.focus();
+}
+
+function openRackDialog() {
+  const racks = state.topology?.racks || [];
+  const source = document.getElementById("rack-color-source");
+  source.replaceChildren(new Option("Choose a rack…", ""), ...racks.map((rack) =>
+    new Option(`${rack.name} · ${rack.color}`, rack.color)));
+  document.getElementById("rack-color-source-field").hidden = racks.length === 0;
+  elements["rack-dialog"].showModal();
 }
 
 async function installRack(event) {
@@ -2650,6 +2700,65 @@ function receiveTopology(topology, { remember = false, submittedVersion } = {}) 
   applyTopology(next, { remember });
 }
 
+function requestCableRepatch(plan, snapshot) {
+  if (!requireEdit("cabling")) return;
+  if (!plan.swapLink) {
+    saveCableRepatch(plan, snapshot);
+    return;
+  }
+  pendingRepatch = structuredClone({ plan, snapshot });
+  const from = repatchEndpointLabel(plan.from, plan.side);
+  const to = repatchEndpointLabel(plan.to, plan.side);
+  elements["repatch-summary"].replaceChildren(...[
+    [plan.link, from, to], [plan.swapLink, to, from],
+  ].map(([link, previous, next]) => {
+    const row = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `${link.cableType} · Cable ${link.id.slice(0, 8)}`;
+    const before = document.createElement("p");
+    before.textContent = `From: ${previous}`;
+    const after = document.createElement("p");
+    after.textContent = `To: ${next}`;
+    row.append(title, before, after);
+    return row;
+  }));
+  elements["repatch-dialog"].showModal();
+}
+
+async function saveCableRepatch(plan, snapshot) {
+  if (!requireEdit("cabling")) return;
+  await updateFrom(() => {
+    // Keep the revision shown during the drag/modal, even when queued behind another write.
+    if (state.topology?.id !== snapshot.id || state.topology?.revision !== snapshot.revision) {
+      throw new Error("The map changed. Drag the cable end again to review its current connections.");
+    }
+    return api.repatchLink(snapshot.id, plan.link.id, plan.input, snapshot.revision);
+  }, true, plan.swapLink ? "Cable ends swapped" : "Cable repatched");
+}
+
+/** Keep an occupied drop out of local state and persistence until explicitly confirmed. */
+function requestRackPlacement(devices, snapshot) {
+  if (!requireEdit("all")) return;
+  try {
+    const plan = planRackReplacement(snapshot, devices);
+    pendingRackPlacement = { plan, snapshot };
+    elements["rack-placement-summary"].replaceChildren(...[
+      ...plan.mounted.map((device) => {
+        const rack = snapshot.racks.find((item) => item.id === device.rackId);
+        const end = device.rackUnit + Math.max(1, Number(device.faceplate?.unitsU) || 1) - 1;
+        const range = end === device.rackUnit ? `U${device.rackUnit}` : `U${device.rackUnit}–U${end}`;
+        return `Mount ${device.name}: ${rack.name} · ${normalizeRackFace(device.rackFace)} · ${range}`;
+      }),
+      ...plan.displaced.map((device) => `Move ${device.name} onto the canvas`),
+    ].map((label) => {
+      const row = document.createElement("p");
+      row.textContent = label;
+      return row;
+    }));
+    elements["rack-placement-dialog"].showModal();
+  } catch (error) { showError(error); }
+}
+
 /** Commit one whole drop, retrying revision races without replaying stale device records. */
 async function savePlacements(snapshot, collection, items) {
   const changes = placementChanges(snapshot, collection, items);
@@ -2751,6 +2860,7 @@ async function importBackup(event) {
 }
 
 function keyboardShortcuts(event) {
+  if (elements["repatch-dialog"].open || elements["rack-placement-dialog"].open) return;
   if (event.defaultPrevented || isFormField(event.target)) return;
   const key = event.key.toLowerCase();
   if ((event.ctrlKey || event.metaKey) && key === "z") { event.preventDefault(); event.shiftKey ? redo() : undo(); }

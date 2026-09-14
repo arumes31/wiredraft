@@ -277,6 +277,7 @@
         <label><span>RACK NAME</span><input name="name" required maxlength="120" value="RACK A01"></label>
         <label><span>CAPACITY</span><select name="heightU"><option value="6">6U WALL</option><option value="12">12U</option><option value="18">18U</option><option value="24">24U</option><option value="42" selected>42U STANDARD</option><option value="45">45U</option><option value="48">48U</option></select></label>
         <label><span>FRAME COLOR</span><input type="color" name="color" value="#2c4b4e"></label>
+        <label id="rack-color-source-field" hidden><span>USE EXISTING RACK COLOR</span><select id="rack-color-source"><option value="">Choose a rack…</option></select></label>
       </div>
       <footer><button type="button" class="secondary" data-close="rack-dialog">CANCEL</button><button value="place" class="primary">PLACE RACK</button></footer>
     </form>
@@ -380,6 +381,25 @@
       <label><span>DESTINATION PORT</span><select name="target" required></select></label>
       <label><span>VLAN</span><select name="vlan" required></select></label>
       <footer><button type="button" class="secondary" data-close="trace-dialog">CANCEL</button><button value="trace" class="primary">TRACE SIGNAL</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="rack-placement-dialog" class="panel-dialog" aria-labelledby="rack-placement-title" aria-describedby="rack-placement-note">
+    <form id="rack-placement-form" method="dialog">
+      <header><div><p class="eyebrow">RANGE OCCUPIED</p><h2 id="rack-placement-title">REPLACE RACK PLACEMENT?</h2></div><button type="button" class="dialog-close" data-close="rack-placement-dialog" aria-label="Cancel rack placement">×</button></header>
+      <p id="rack-placement-note" class="dialog-note">Confirm to mount the dropped devices and move the hardware occupying this range onto the canvas. Connected cables stay attached.</p>
+      <div id="rack-placement-summary" class="repatch-summary"></div>
+      <footer><button type="button" class="secondary" data-close="rack-placement-dialog" autofocus>CANCEL</button><button type="submit" class="primary">CONFIRM PLACEMENT</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="repatch-dialog" class="panel-dialog" aria-labelledby="repatch-dialog-title" aria-describedby="repatch-dialog-note">
+    <form id="repatch-form" method="dialog">
+      <header><div><p class="eyebrow">OCCUPIED PORT</p><h2 id="repatch-dialog-title">SWAP CABLE ENDS?</h2></div><button type="button" class="dialog-close" data-close="repatch-dialog" aria-label="Cancel cable swap">×</button></header>
+      <p id="repatch-dialog-note" class="dialog-note">This port already has a cable. Confirm both moves below. The other end of each cable stays connected.</p>
+      <div id="repatch-summary" class="repatch-summary"></div>
+      <p class="dialog-note">VLAN and port settings stay with their physical ports.</p>
+      <footer><button type="button" class="secondary" data-close="repatch-dialog" autofocus>CANCEL</button><button type="submit" class="primary">SWAP CABLE ENDS</button></footer>
     </form>
   </dialog>
 

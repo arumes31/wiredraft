@@ -38,6 +38,7 @@ test("client subscribes to every collaboration event published by the server", (
   const sources = [
     readFileSync(new URL("../internal/handler/server.go", import.meta.url), "utf8"),
     readFileSync(new URL("../internal/handler/photos.go", import.meta.url), "utf8"),
+    readFileSync(new URL("../internal/handler/link_repatch.go", import.meta.url), "utf8"),
   ].join("\n");
   const published = new Set([...sources.matchAll(/s\.publish\([^,]+,\s*"([a-z_]+)"/g)].map((match) => match[1]));
   assert.deepEqual([...COLLABORATION_EVENT_TYPES].sort(), [...published].sort());

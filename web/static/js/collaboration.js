@@ -3,7 +3,7 @@ import { APIError } from "./api.js";
 export const COLLABORATION_EVENT_TYPES = Object.freeze([
   "topology_updated", "rack_created", "rack_updated", "rack_deleted",
   "device_created", "device_moved", "device_deleted", "port_updated",
-  "link_created", "links_created", "link_configured", "link_direction_updated", "link_deleted",
+  "link_created", "links_created", "link_configured", "link_direction_updated", "link_repatched", "link_deleted",
   "link_group_created", "link_group_updated", "link_group_deleted",
   "switch_system_created", "switch_system_updated", "switch_system_deleted",
   "firewall_cluster_created", "firewall_cluster_updated", "firewall_cluster_deleted",
