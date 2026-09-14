@@ -587,7 +587,6 @@ scripts/             CI mirror, minification, and mutation helpers
 
 ## Documentation
 
-- [Changelog](CHANGELOG.md): user-visible additions, fixes, and behavior changes.
 - [Hardware faceplates](FACEPLATES.md): evidence and fidelity rules, inventory compatibility, and geometry audits (`npm run audit:faceplates`).
 - [Contributing](CONTRIBUTING.md): development conventions and the complete local CI workflow.
 - [Security](SECURITY.md): private vulnerability reporting, supported deployment practices, and access audit events.
