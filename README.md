@@ -12,7 +12,7 @@
 [![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Farumes31%2Fwiredraft-2496ED?logo=docker&logoColor=white)](https://github.com/arumes31/wiredraft/pkgs/container/wiredraft)
 [![License: MIT](https://img.shields.io/github/license/arumes31/wiredraft)](LICENSE)
 
-[Quick start](#quick-start) · [First use](#first-use) · [GHCR](#run-the-ghcr-image) · [Entra login](#microsoft-entra-id-login) · [Configuration](#configuration) · [Architecture](#architecture) · [Development](#development)
+[Quick start](#quick-start) · [First use](#first-use) · [Workspace guide](#workspace-guide) · [GHCR](#run-the-ghcr-image) · [Configuration](#configuration) · [Entra login](#microsoft-entra-id-login) · [HTTP API](#http-api) · [Development](#development) · [Documentation](#documentation)
 
 </div>
 
@@ -65,6 +65,8 @@ docker compose down
 3. Download or copy the one-use recovery codes. They are displayed only when TOTP enrollment completes.
 4. Open the demonstration map in the protected `Default` organization. Use **Identity Control > Organizations** to add organizations before assigning users or creating maps for them.
 5. Choose **All unlocked** beside the canvas tools to add racks and devices or edit their settings. Choose **Cabling unlocked** to create, reconnect, configure, group, or delete connections while equipment stays fixed.
+
+To create your own map, select **+** beside **Active map**, enter its name, organization, and location, then choose **Blank workspace** or **Starter topology**. Use the adjacent pencil button to edit the active map's metadata later.
 
 Maps open in **Read only**, which still permits navigation, selection, inspection, and export. Either unlocked mode returns to Read only after 15 minutes without a completed edit; panning, zooming, inspecting, and unapplied form input do not reset the timer. Switching maps or reloading also relocks the editor. Completed changes remain intact, and an open form keeps its unapplied draft so you can explicitly unlock and continue.
 
@@ -127,11 +129,14 @@ The published runtime image is `FROM scratch`, contains only the statically link
 
 ### Rack and hardware planning
 
+To create a rack, choose **All unlocked**, then **+ Rack**. Enter its name and capacity, and set **Frame color** with the color picker or choose a rack under **Use existing rack color** to copy its color. The dropdown lists rack names and color codes from the current map and appears only when the map already contains racks. You can adjust the copied color with the picker before selecting **Place rack**; the source rack is unaffected.
+
 - Multi-rack layouts with 6U–48U frames, independent front/rear rails, per-rack face switching, whole-U snapping, collision prevention, hidden-side silhouettes, grouped cable portals, trace-expanded dual-face views, capacity reporting, free-floating devices, and a navigable minimap.
+- Drag hardware onto a rack's numbered rails to preview its destination U range. Dropping onto an occupied range opens a confirmation listing the affected devices. Confirm to mount the dropped hardware and move displaced devices onto the canvas with cables attached, or cancel to leave the map unchanged. Confirmed placement supports undo; a map changed by another edit must be reviewed again.
 - Servers show matching front and rear hardware at the same U position in rack views by default. In the device inspector, **Rack display → Visible faces** can use the automatic default, show both faces, or show only the mounting face. This setting is saved with the device; dual-view panels share one device record and its cable endpoints.
 - High-DPI faceplates for switches, firewalls, routers, carrier handoffs, modems, access points, servers, patch panels, storage, power, and console equipment.
-- Documented front/rear hardware panels for 20 FortiGate and FortiSwitch models, composed from shared connector, indicator, vent, fan, and PSU artwork. Select **Hardware panel** in the device inspector; the choice is local to your session and independent of rack mounting. Cables to hidden sockets terminate at a labeled connection marker. Canvas and SVG use the same physical geometry.
-- Offline 542-profile hardware catalog with vendor-family layouts and 25 connector types up to 800G OSFP, plus JSON profile import.
+- Source-backed front/rear hardware panels across multiple vendors, composed from shared connector, indicator, vent, fan, and PSU artwork. Select **Hardware panel** in the device inspector; the choice is local to your session and independent of rack mounting. Cables to hidden sockets terminate at a labeled connection marker. Canvas and SVG use the same physical geometry. See [hardware faceplates](FACEPLATES.md) for model, family, and schematic fidelity and evidence requirements.
+- Offline multi-vendor hardware catalog covering networking, compute, storage, power, wireless, and rack accessories, plus JSON profile import. In **+ Device**, search all devices and providers by name or SKU, then select a result to fill the installation fields; family and provider selectors also support browsing.
 - Generic 1U–4U server rear builder with mixed card bays and independently cableable ports.
 - Copper and fiber patch panels with independent front/rear occupancy, editable rear mappings, and atomic one-to-one panel ranges.
 
@@ -158,6 +163,7 @@ The published runtime image is `FROM scratch`, contains only the statically link
 - Anchored comment threads, HTTP(S) documentation links, and revocable tokenized read-only shares.
 - Export to A3 PDF, self-contained interactive HTML, configuration workbook, PNG, SVG, and JSON; the HTML viewer embeds its CSS, source data, search, pan/zoom, hover tracing, face filters, and inspector without remote assets, while JSON can be restored as a topology backup.
 - Device inventory for hostname, management IP, serial, asset tag, owner/team, site hierarchy, rack/U position, and STP priority.
+- Persistent arrows, boxes, and text notes, plus JPEG/PNG field photos attached to selected objects with editable captions and filenames.
 
 ### Runtime and security
 
@@ -165,6 +171,40 @@ The published runtime image is `FROM scratch`, contains only the statically link
 - Strict JSON decoding, request size limits, same-origin and CSRF enforcement, security headers, structured logs, database transactions, and graceful shutdown.
 - Embedded native ES-module frontend with no runtime Node.js dependency; release builds minify modules before `go:embed` compilation.
 - Responsive controls, keyboard-visible focus, reduced-motion support, adaptive graphics quality, bounded frame rates, and suspended rendering for hidden canvases.
+
+## Workspace guide
+
+### Navigation and shortcuts
+
+Choose **Navigation → Auto**, **Trackpad**, or **Mouse** in the left sidebar. Trackpad mode uses two-finger scrolling to pan and pinching to zoom; Mouse mode uses wheel scrolling to zoom. Auto detects the gesture type. Choose an explicit mode if your input device is misidentified.
+
+| Action | Control |
+| --- | --- |
+| Pan | Drag empty canvas, hold Space and drag, or drag with the middle mouse button |
+| Select multiple devices | Shift-drag a selection box on empty canvas; Shift-click devices to extend the selection |
+| Move a rack | Drag its header |
+| Frame the whole topology | **Fit map** |
+| Show front and rear rack views together | **Expand all**; use the same control to collapse them |
+| Save now | Ctrl/Cmd+S or **Save now** in the autosave menu |
+| Undo / redo | Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z; Ctrl/Cmd+Y also redoes |
+| Delete the selected rack, device, cable, or annotation | Delete or Backspace, subject to the current edit mode |
+| Exit a drawing tool | Escape or select the active tool again |
+
+Editing shortcuts require the appropriate unlocked mode and do not replace normal typing in form fields. Outside a dialog, Escape also clears an active path trace and collapses expanded rack faces. **Graphics mode** offers Auto, Performance, Balanced, and Quality to tune rendering for your device and map size.
+
+### Notes, photos, and resources
+
+Use **Arrow**, **Box**, or **Note** in the canvas toolbar to add saved markup. Select an annotation to edit it in the inspector. Comments in the selected object's inspector remain part of the map and its JSON backup.
+
+Select an object and use **Field photos → Upload JPEG / PNG** to attach up to 12 images per upload, at most 10 MiB each. Open a thumbnail to view it in **Photo manager**, change its display filename or caption, or delete it. Photo access follows the map's organization. JSON backups contain photo metadata only; preserve the separate media files as described under [persistent data](#persistent-data).
+
+Open **Resources** to attach HTTP(S) documentation links or create a read-only share with an optional expiry. Copy a newly created share URL immediately: its secret is shown only once. Revoke shares from the same dialog. Documentation embeds depend on the destination site's framing policy; use **Open** when embedding is unavailable.
+
+### Saving and exports
+
+The autosave menu enables or disables autosave, selects a 30-second, 1-minute, or 5-minute interval, and offers **Save now** and draft recovery. See [First use](#first-use) for unsaved-change and recovery behavior.
+
+Use **Export** for PDF, interactive HTML, a configuration workbook, PNG, SVG, or a JSON backup. **Restore JSON** replaces the active map; create a blank map first when you want to keep the original. Exported HTML can be opened without the server and provides viewing and tracing controls; use JSON for restoring an editable map.
 
 ## Architecture
 
@@ -321,7 +361,7 @@ Microsoft's references cover [app registration](https://learn.microsoft.com/en-u
 
 ### 3. Mount the client secret
 
-Create a file outside the repository and restrict it to the account that manages the deployment. Do not put the secret in `.env`, a Compose file, an image layer, or Git.
+Create a private secret file in the deployment's ignored `secrets/` directory and restrict access to the deployment operator and container user. Do not put the secret in `.env`, a Compose file, an image layer, or Git.
 
 ```sh
 mkdir -p secrets
@@ -409,19 +449,30 @@ Session cookies have the `Secure` attribute only when `WIREDRAFT_COOKIE_SECURE=t
 
 ## HTTP API
 
-The versioned API is rooted at `/api/v1`.
+The versioned API is rooted at `/api/v1`. Paths in the first table are relative to that prefix.
 
 | Area | Routes |
 | --- | --- |
-| Health and authentication | `/health`, `/auth/*`, `/admin/users` |
-| Topologies and inventory | `/topologies`, `/topologies/{id}`, `/racks`, `/devices`, `/ports` |
-| Protected photos | `/topologies/{id}/photos` and `/topologies/{id}/photos/{photoId}` |
-| Cabling and logical systems | `/links`, `/link-groups`, `/switch-systems`, `/firewall-clusters` |
-| Network intent | `/vlans`, `/analysis`, `/trace` |
-| Collaboration | `/events`, `/comments`, `/documentation-links`, `/shares` |
-| Public read-only access | `/shared/{topologyId}/{token}` |
+| Health and authentication | `/health`, `/auth/*` |
+| Administration | `/admin/users`, `/admin/users/{userId}`, `/admin/organizations`, `/admin/organizations/{organizationId}` |
+| Maps | `/topologies`, `/topologies/{id}` |
+| Public read-only access | `/shared/{id}/{token}` |
 
-Mutations support optimistic concurrency with `If-Match: "rev-N"`. Error responses use `{ "error": "message", "code": 400 }`. The browser client is the current request-body reference, and the persisted domain schema is defined in `internal/model`.
+All resources below are relative to `/api/v1/topologies/{id}`; for example, rack creation uses `POST /api/v1/topologies/{id}/racks`.
+
+| Area | Resource paths |
+| --- | --- |
+| Inventory | `/racks`, `/racks/{rackId}`, `/devices`, `/devices/{deviceId}`, `/ports/{portId}` |
+| Protected photos | `/photos`, `/photos/{photoId}` |
+| Cables | `/links`, `/links/bulk`, `/links/{linkId}`, `/links/{linkId}/configuration`, `/links/{linkId}/media`, `/links/{linkId}/direction`, `/links/{linkId}/endpoint` |
+| Logical groups | `/link-groups`, `/link-groups/{groupId}`, `/switch-systems`, `/switch-systems/{systemId}`, `/firewall-clusters`, `/firewall-clusters/{clusterId}` |
+| Network intent | `/vlans`, `/vlans/{vlanId}`, `/analysis`, `/trace` |
+| Live updates and comments | `/events`, `/comments`, `/comments/{threadId}`, `/comments/{threadId}/replies` |
+| Documentation and shares | `/documentation-links`, `/documentation-links/{linkId}`, `/shares`, `/shares/{shareId}` |
+
+These are resource paths, not a promise that every resource supports every HTTP method. See the [route registrations](internal/handler/server.go) for supported methods and the [browser API client](web/static/js/api.js) for request bodies. The persisted domain schema is defined in [internal/model](internal/model).
+
+Topology mutations support optimistic concurrency with `If-Match: "rev-N"`. Error responses use `{ "error": "message", "code": 400 }`.
 
 ## Development
 
@@ -448,6 +499,8 @@ $env:WIREDRAFT_ADMIN_PASSWORD = "a-long-local-admin-password"
 go run ./cmd/server
 ```
 
+The native server reads process environment variables; it does not load `.env` automatically. Set the remaining options as needed in the same shell. Browser assets are embedded at build time, so restart `go run` or rebuild the binary after editing files under `web/static`.
+
 Build a static binary:
 
 ```sh
@@ -461,6 +514,8 @@ Without `make`:
 go build -trimpath -ldflags="-s -w" -o wiredraft ./cmd/server
 ```
 
+For the static build equivalent in PowerShell, set `$env:CGO_ENABLED = "0"` and run `go build -trimpath -ldflags="-s -w" -o wiredraft.exe ./cmd/server`.
+
 ### Tests and quality gates
 
 ```sh
@@ -469,8 +524,13 @@ go test -race ./...
 npm ci
 npm run test:unit
 npm run test:coverage
+npx playwright install chromium firefox webkit
 npm run test:e2e
 ```
+
+Browser tests need a reachable PostgreSQL test database. The Playwright server helper reads `.env` and starts the app at `http://127.0.0.1:41817`; when running on the host with the supplied `.env`, override `PGHOST=127.0.0.1` in your shell and use the matching database credentials. Use a dedicated test database because browser tests create and modify persisted maps. On Linux, install browser system dependencies with `npx playwright install --with-deps chromium firefox webkit`.
+
+To target an already running test server, set `PLAYWRIGHT_BASE_URL` to its URL; this skips automatic server startup. Additional checks are `npm run test:a11y`, `npm run test:visual`, and `npm run test:edge` (requires installed Microsoft Edge). Use `npm run test:visual:update` only when deliberately regenerating baselines for review. Playwright writes diagnostics under `test-results/` and its HTML report under `playwright-report/`.
 
 The Core CI workflow enforces at least 70% Go statement coverage and 80% frontend line, function, and branch coverage. Run the complete locally reproducible suite from PowerShell 7 before review:
 
@@ -487,6 +547,7 @@ cmd/server/          Application entry point and health probe
 internal/auth/       Password, TOTP, recovery, sessions, and user access
 internal/config/     Environment and flag parsing
 internal/handler/    HTTP API, middleware, static delivery, and authorization
+internal/media/      Private photo storage and image validation
 internal/model/      Topology domain, validation, STP, tracing, and analysis
 internal/store/      PostgreSQL persistence, embedded migrations, and revision transactions
 internal/sse/        Per-topology event broker
@@ -495,6 +556,14 @@ web/*_test.mjs       Frontend unit and contract tests
 e2e/                 Playwright, accessibility, and visual tests
 scripts/             CI mirror, minification, and mutation helpers
 ```
+
+## Documentation
+
+- [Changelog](CHANGELOG.md): user-visible additions, fixes, and behavior changes.
+- [Hardware faceplates](FACEPLATES.md): evidence and fidelity rules, inventory compatibility, and geometry audits (`npm run audit:faceplates`).
+- [Contributing](CONTRIBUTING.md): development conventions and the complete local CI workflow.
+- [Security](SECURITY.md): private vulnerability reporting, supported deployment practices, and access audit events.
+- [Example configuration](.env.example): deployment environment variables with placeholder credentials.
 
 ## Contributing
 
