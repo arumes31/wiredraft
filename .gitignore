@@ -1,4 +1,5 @@
 # Local application state and private overrides
+/CHANGELOG.md
 /data/
 /media/
 /backups/
@@ -40,6 +41,7 @@ graphify-out/
 /llms.txt
 
 # Logs and temporary runtime files
+/.tmp/
 *.log
 *.pid
 *.pid.lock

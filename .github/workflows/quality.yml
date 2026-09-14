@@ -127,8 +127,11 @@ jobs:
         run: npx playwright install --with-deps "$BROWSER"
       - name: Run browser tests
         run: npx playwright test --project="$BROWSER"
+      - name: Workspace regression and large-map performance
+        if: matrix.browser == 'chromium'
+        run: npx playwright test --config=playwright.workspace.config.mjs
       - name: Upload browser diagnostics
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-${{ matrix.browser }}

@@ -10,6 +10,11 @@ WireDraft compiles its Go module dependencies into the server binary and serves 
 
 Keep pull requests focused and explain any persistence-format or API compatibility impact.
 
+For workspace changes, run `npm run test:workspace`. For canvas or navigation
+changes, also run `npm run test:performance`; see
+[the benchmark methodology](browser-tests/README.md) for fixture sizes, budgets,
+and measurement limits. Both checks run in Core CI's Chromium job.
+
 ### Physical faceplates
 
 Model geometry lives in `web/static/js/faceplate-models.js`. Add only documented SKUs, cite the official guide and panel pages, and compose normalized components and typed port slots for each physical face. Coordinates describe a traced illustration, not manufacturing dimensions. Unknown variants retain their existing schematic layouts. Preserve inventory `portIndex` and IDs so user labels and cabling remain stable.

@@ -2646,6 +2646,24 @@ export class CanvasEngine {
     if (box) this.centerOn(box.x + box.width / 2, box.y + box.height / 2);
   }
 
+  /** Frame the equipment involved in an alert, including hidden rack faces. */
+  focusDevices(deviceIDs) {
+    this.resize();
+    const ids = new Set(deviceIDs);
+    for (const device of this.state.topology?.devices || []) {
+      if (ids.has(device.id) && device.rackId) this.state.setRackDualFace(device.rackId, true);
+    }
+    const boxes = this.deviceRectangles().filter((box) => ids.has(box.device.id));
+    if (!boxes.length) return;
+    const left = Math.min(...boxes.map((box) => box.x));
+    const top = Math.min(...boxes.map((box) => box.y));
+    const right = Math.max(...boxes.map((box) => box.x + box.width));
+    const bottom = Math.max(...boxes.map((box) => box.y + box.height));
+    this.camera.zoom = Math.max(.1, Math.min(1.5, (this.width - 100) / (right - left), (this.height - 100) / (bottom - top)));
+    this.centerOn((left + right) / 2, (top + bottom) / 2);
+    this.callbacks.onPointer?.(this.pointerWorld, this.camera.zoom);
+  }
+
   worldBounds() {
     this.layoutScene();
     const boxes = [...this.rackBoxes, ...this.deviceBoxes];
@@ -2706,12 +2724,13 @@ export class CanvasEngine {
     return { x, y };
   }
 
-  renderExport() {
-    const bounds = this.worldBounds();
-    const scale = Math.min(2, 7000 / Math.max(bounds.width + 100, bounds.height + 100));
+  renderExport({ region = null } = {}) {
+    const bounds = region || this.worldBounds();
+    const padding = region ? 0 : 100;
+    const scale = Math.min(2, 7000 / Math.max(bounds.width + padding, bounds.height + padding));
     const canvas = document.createElement("canvas");
-    canvas.width = Math.ceil((bounds.width + 100) * scale);
-    canvas.height = Math.ceil((bounds.height + 100) * scale);
+    canvas.width = Math.ceil((bounds.width + padding) * scale);
+    canvas.height = Math.ceil((bounds.height + padding) * scale);
     const context = canvas.getContext("2d");
     const oldRatio = this.ratio;
     this.ratio = 1;
@@ -2719,9 +2738,12 @@ export class CanvasEngine {
       ...resolveGraphicsProfile(GraphicsMode.QUALITY, this.state.topology),
       animationScope: "none", pulses: "none",
     };
-    this.renderFrame(context, canvas.width, canvas.height, { x: (50 - bounds.x) * scale, y: (50 - bounds.y) * scale, zoom: scale }, 0, false, exportProfile);
-    this.ratio = oldRatio;
-    this.activeGraphicsProfile = this.graphicsProfile();
+    try {
+      this.renderFrame(context, canvas.width, canvas.height, { x: (padding / 2 - bounds.x) * scale, y: (padding / 2 - bounds.y) * scale, zoom: scale }, 0, false, exportProfile);
+    } finally {
+      this.ratio = oldRatio;
+      this.activeGraphicsProfile = this.graphicsProfile();
+    }
     return canvas;
   }
 }

@@ -12,9 +12,10 @@ COPY . .
 COPY --from=frontend /app/.quality-data/minified-js/ /app/web/static/js/
 ARG TARGETOS
 ARG TARGETARCH
+ARG WIREDRAFT_BUILD_REVISION=development
 RUN rm -f web/static/js/manifest.json && \
     CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build \
-      -trimpath -ldflags="-s -w -buildid=" -o /wiredraft ./cmd/server
+      -trimpath -ldflags="-s -w -buildid= -X wiredraft/internal/handler.BuildRevision=${WIREDRAFT_BUILD_REVISION}" -o /wiredraft ./cmd/server
 RUN mkdir -p /media
 
 FROM scratch

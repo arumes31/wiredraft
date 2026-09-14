@@ -22,6 +22,7 @@
         <select id="topology-select" aria-label="Active topology"></select>
         <button id="edit-topology-button" type="button" aria-label="Edit active map organization and location" title="Edit active map">✎</button>
         <button id="add-topology-button" type="button" aria-label="Create another map" title="Create another map">+</button>
+        <button id="duplicate-topology-button" type="button" aria-label="Duplicate active map" title="Duplicate active map">⧉</button>
       </div>
     </div>
     <nav class="toolbar" aria-label="Diagram tools">
@@ -43,6 +44,7 @@
         <div class="export-popover" role="menu" aria-label="Export and restore options">
           <p><span>OUTPUT BAY</span><b>EXPORT / RESTORE</b></p>
           <button id="pdf-button" role="menuitem"><b>PDF SHEET</b><small>Print-ready A3 document</small></button>
+          <button id="pdf-tiled-button" role="menuitem"><b>MULTIPAGE PDF</b><small>Readable A3 tiles for large maps</small></button>
           <button id="html-button" role="menuitem"><b>HTML REPORT</b><small>Self-contained interactive map</small></button>
           <button id="configuration-button" role="menuitem"><b>CONFIG WORKBOOK</b><small>Inventory · ports · VLANs · physical paths</small></button>
           <button id="png-button" role="menuitem"><b>PNG IMAGE</b><small>High-resolution raster</small></button>
@@ -77,6 +79,7 @@
         <button id="manage-users-button" type="button" hidden><b>ADMINISTRATION</b><small>USERS &amp; ACCESS</small></button>
         <button id="manage-organizations-button" type="button" hidden><b>ORGANIZATIONS</b><small>MAP BOUNDARIES &amp; ACCESS</small></button>
         <button id="logout-button" type="button" class="danger"><b>END SESSION</b><small>CLEAR LOCAL ACCESS</small></button>
+        <button id="about-button" type="button"><b>ABOUT / DIAGNOSTICS</b><small>BUILD &amp; TROUBLESHOOTING</small></button>
       </div>
     </details>
     <div id="connection-status" class="connection-status" data-state="connecting">
@@ -120,6 +123,9 @@
       </section>
       <section class="rail-section topology-tree-section">
         <div class="section-heading"><h2>TOPOLOGY NAVIGATOR</h2><span>RACK / DEVICE / VLAN</span></div>
+        <label class="inventory-search" for="inventory-search">FIND INSTALLED EQUIPMENT</label>
+        <input id="inventory-search" type="search" placeholder="Name, IP, serial, asset tag or model" aria-controls="topology-tree" autocomplete="off">
+        <p id="inventory-search-status" role="status" class="dialog-note" hidden></p>
         <div id="topology-tree" class="topology-tree"></div>
       </section>
       <section class="rail-section">
@@ -187,6 +193,23 @@
     </aside>
   </main>
 
+
+  <dialog id="about-dialog" class="panel-dialog" aria-labelledby="about-title">
+    <header><h2 id="about-title">ABOUT WIREDRAFT</h2><button type="button" class="dialog-close" data-close="about-dialog" aria-label="Close diagnostics">×</button></header>
+    <p class="dialog-note">Build and workspace health. Copied diagnostics exclude map names, inventory, account details, addresses, and credentials.</p>
+    <pre id="diagnostics-content" aria-live="polite">Loading build information…</pre>
+    <footer><button id="copy-diagnostics-button" type="button">COPY DIAGNOSTICS</button><button type="button" data-close="about-dialog">CLOSE</button></footer>
+  </dialog>
+
+  <dialog id="pdf-options-dialog" class="panel-dialog" aria-labelledby="pdf-options-title">
+    <form id="pdf-options-form">
+      <header><h2 id="pdf-options-title">MULTIPAGE PDF</h2><button type="button" class="dialog-close" data-close="pdf-options-dialog" aria-label="Close PDF options">×</button></header>
+      <p class="dialog-note">A3 landscape pages read left to right, then top to bottom, with a small overlap. Increase scale for larger labels.</p>
+      <label>PRINT SCALE<select name="scale"><option value="0.75">100% · standard size</option><option value="1">133% · larger labels</option><option value="1.5">200% · largest labels</option></select></label>
+      <p id="pdf-options-status" role="status"></p>
+      <footer><button type="button" data-close="pdf-options-dialog">CANCEL</button><button type="submit">EXPORT PAGES</button></footer>
+    </form>
+  </dialog>
 
   <dialog id="topology-dialog" class="panel-dialog topology-dialog" aria-labelledby="topology-dialog-title">
     <form id="topology-form" method="dialog">

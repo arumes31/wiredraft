@@ -105,6 +105,7 @@ export function requiredRequestCapability(path, method, body, current) {
   const match = path.match(/^\/api\/v1\/topologies\/([^/]+)(?:\/([^/]+))?/);
   // Creating a separate map and managing accounts are outside the canvas lock.
   if (!match) return null;
+  if (match[2] === "duplicate" && method === "POST") return null;
   if (["links", "link-groups"].includes(match[2])) return "cabling";
   if (!match[2] && method === "PUT") {
     const next = JSON.parse(body);

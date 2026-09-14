@@ -142,6 +142,8 @@ func newHandler(
 	}
 	protected("GET /api/v1/topologies", server.listTopologies)
 	protected("POST /api/v1/topologies", server.createTopology)
+	protected("GET /api/v1/diagnostics", server.diagnostics)
+	protected("POST /api/v1/topologies/{id}/duplicate", server.duplicateTopology)
 	protected("GET /api/v1/topologies/{id}", server.getTopology)
 	protected("PUT /api/v1/topologies/{id}", server.replaceTopology)
 	protected("DELETE /api/v1/topologies/{id}", server.deleteTopology)
