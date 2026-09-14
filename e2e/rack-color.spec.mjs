@@ -1,0 +1,50 @@
+import { expect, test } from "@playwright/test";
+import { mockLockWorkspace } from "./editor-lock-fixture.mjs";
+
+test("new racks can reuse an existing color or override it with a custom color", async ({ page }) => {
+  const workspace = await mockLockWorkspace(page);
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/");
+  await expect(page.locator("#topology-name")).toHaveText(workspace.topology.name);
+  await page.locator('[data-edit-mode="all"]').click();
+  await page.locator("#add-rack-button").click();
+  const dialog = page.locator("#rack-dialog");
+  const source = dialog.getByLabel("USE EXISTING RACK COLOR");
+  const color = dialog.getByLabel("FRAME COLOR", { exact: true });
+  await expect(source.locator("option").last()).toHaveText("Rack · #304348");
+  await source.selectOption("#304348");
+  await expect(color).toHaveValue("#304348");
+  await color.fill("#123456");
+  await expect(source).toHaveValue("");
+  await source.selectOption("#304348");
+  await dialog.getByLabel("RACK NAME").fill("Matching rack");
+  await page.screenshot({ path: test.info().outputPath("existing-rack-color.png") });
+  await dialog.getByRole("button", { name: "PLACE RACK", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const creation = workspace.writes.find((write) => write.path.endsWith("/racks"));
+  expect(creation.input).toMatchObject({ name: "Matching rack", color: "#304348" });
+  expect(errors).toEqual([]);
+});
+
+test("rack color choices refresh on open and are hidden for an empty map", async ({ page }) => {
+  const workspace = await mockLockWorkspace(page);
+  await page.goto("/");
+  await expect(page.locator("#topology-name")).toHaveText(workspace.topology.name);
+  await page.locator('[data-edit-mode="all"]').click();
+  await page.locator("#add-rack-button").click();
+  await expect(page.locator("#rack-color-source")).toBeVisible();
+  await page.keyboard.press("Escape");
+  const topology = workspace.topology;
+  topology.racks[0].color = "#abcdef";
+  topology.racks[0].name = 'Rack <B> & "C"';
+  await page.evaluate((value) => window.lockFixture.state.setTopology(value), topology);
+  await page.locator("#add-rack-button").click();
+  await expect(page.locator("#rack-color-source option").last()).toHaveText('Rack <B> & "C" · #abcdef');
+  await page.keyboard.press("Escape");
+  topology.racks = [];
+  await page.evaluate((value) => window.lockFixture.state.setTopology(value), topology);
+  await page.locator("#add-rack-button").click();
+  await expect(page.locator("#rack-color-source")).toBeHidden();
+  await expect(page.locator('#rack-form input[name="color"]')).toBeVisible();
+});

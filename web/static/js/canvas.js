@@ -2201,6 +2201,7 @@ export class CanvasEngine {
         active: false,
         originals: new Map(),
         invalidIDs: new Set(),
+        occupiedLandings: new Map(),
         snapshot: structuredClone(this.state.topology),
       };
       for (const selectedID of this.selectedDevices) {
@@ -2293,6 +2294,7 @@ export class CanvasEngine {
       const dx = world.x - this.drag.start.x;
       const dy = world.y - this.drag.start.y;
       this.drag.invalidIDs.clear();
+      this.drag.occupiedLandings.clear();
       this.rackDropPreview = null;
       for (const [id, original] of this.drag.originals) {
         const device = this.state.topology.devices.find((item) => item.id === id);
@@ -2313,6 +2315,7 @@ export class CanvasEngine {
         this.rackDropPreview = { ...landing, device };
         if (!landing.isValid) {
           this.drag.invalidIDs.add(id);
+          if (landing.reason === "occupied") this.drag.occupiedLandings.set(id, landing);
           continue;
         }
         device.rackId = landing.rack.id;
@@ -2395,7 +2398,20 @@ export class CanvasEngine {
       this.linkDrag = null;
       this.canvas.style.cursor = "default";
     } else if (wasDrag) {
-      if (wasDrag.active) {
+      if (wasDrag.active && wasDrag.occupiedLandings.size) {
+        const proposed = [];
+        for (const [id, original] of wasDrag.originals) {
+          const device = this.state.topology.devices.find((item) => item.id === id);
+          if (!device) continue;
+          const landing = wasDrag.occupiedLandings.get(id);
+          if (landing) proposed.push({ ...device, rackId: landing.rack.id, rackUnit: landing.rackUnit,
+            rackFace: landing.rackFace, positionX: landing.position.x, positionY: landing.position.y });
+          else if (!wasDrag.invalidIDs.has(id)) proposed.push(structuredClone(device));
+          for (const field of ["positionX", "positionY", "rackId", "rackUnit", "rackFace"]) device[field] = original.device[field];
+        }
+        this.state.emit("topology");
+        this.callbacks.onRackPlacementRequest?.(proposed, wasDrag.snapshot);
+      } else if (wasDrag.active) {
         this.state.history.push(wasDrag.snapshot);
         this.state.history = this.state.history.slice(-50);
         this.state.future = [];

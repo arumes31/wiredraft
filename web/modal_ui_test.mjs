@@ -6,7 +6,7 @@ const css = readFileSync(new URL("./static/css/styles.css", import.meta.url), "u
 const appJS = readFileSync(new URL("./static/js/app.js", import.meta.url), "utf8");
 
 const dialogs = [...html.matchAll(/<dialog\s+([^>]+)>([\s\S]*?)<\/dialog>/g)];
-assert.equal(dialogs.length, 16, "workspace includes unsaved-changes and cable-swap dialogs; administration has its own page");
+assert.equal(dialogs.length, 17, "workspace includes unsaved-changes, cable-swap, and occupied-rack dialogs; administration has its own page");
 
 for (const [, attributes, body] of dialogs) {
   const id = attributes.match(/\bid="([^"]+)"/)?.[1];

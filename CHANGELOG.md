@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Repatch selected cable ends by dragging their source/target handles, with a preview and mandatory confirmation for atomic swaps onto occupied ports. Preserve cable identity and physical port configuration, and reject stale confirmations.
+- Reuse an existing rack’s frame color when placing a new rack, while keeping the custom color picker available.
+- Require confirmation for drops onto occupied rack ranges. Show the affected hardware, move displaced devices onto the canvas only after confirmation, and preserve cancellation, undo, and revision checks.
 - Repatch selected cable ends by dragging their source/target handles, with a preview and mandatory confirmation for atomic swaps onto occupied ports. Preserve cable identity and physical port configuration, and reject stale confirmations.
 - Save device and rack drops in revision-safe order, commit multi-device moves atomically, preserve active drag previews across live updates, and retry stale placement saves without overwriting remote device edits.
 - Search all device families and providers in Install Device, with clickable model/SKU results that fill the installation fields.
