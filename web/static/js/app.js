@@ -1,4 +1,6 @@
 import { api, APIError } from "./api.js";
+import { bindInventoryCopy } from "./inventory-copy.js";
+import { parseTopologyBackup, restoreAsNewMap } from "./restore-backup.js";
 import { AppState, findPort } from "./state.js";
 import { EditorLock, EditMode, requiredRequestCapability } from "./editor-lock.js";
 import { bindEditorLockUI, lockedEditMessage } from "./editor-lock-ui.js";
@@ -113,7 +115,9 @@ const notifications = new ToastQueue(elements.toast);
 api.setMutationGuard((path, method, body) => {
   editLock.checkExpiry();
   const before = structuredClone(canvas.drag?.snapshot || canvas.rackDrag?.snapshot || state.topology);
-  const capability = requiredRequestCapability(path, method, body, before);
+  const restoringNewMap = restoringTopologyID && restoringTopologyID !== state.topology?.id
+    && path === `/api/v1/topologies/${encodeURIComponent(restoringTopologyID)}` && ["PUT", "DELETE"].includes(method);
+  const capability = restoringNewMap ? null : requiredRequestCapability(path, method, body, before);
   if (capability && !editLock.allows(capability)) {
     const error = new Error(lockedEditMessage(capability));
     error.name = "EditorLockedError";
@@ -133,6 +137,7 @@ const autosave = new AutosaveController(async (_reason, version) => {
   return topologyWrites.run(() => saveTopologySnapshot(version));
 }, { storage: globalThis.localStorage });
 let pendingAnnotationPoint = null;
+let restoringTopologyID = null;
 let pendingRepatch = null;
 let pendingRackPlacement = null;
 let catalogModulePromise = null;
@@ -460,6 +465,7 @@ function openTopologyDialog() {
   form.elements.location.readOnly = false;
   form.elements.location.required = true;
   form.dataset.mode = "create";
+  delete form.backup;
   form.elements.name.value = nextMapName(topologySummaries);
   const organization = organizationForNewTopology(sessionInfo, activeOrganizationScope);
   refreshTopologyScopeOptions(organization?.id || "");
@@ -554,6 +560,41 @@ async function submitTopologyDialog(event) {
   };
   submit.disabled = true;
   try {
+    if (form.dataset.mode === "restore") {
+      if (!await canLeaveMap()) return;
+      let restored;
+      try {
+        restored = await restoreAsNewMap({
+          ...api,
+          createTopology: async (input) => {
+            const created = await api.createTopology(input);
+            restoringTopologyID = created.id;
+            return created;
+          },
+        }, form.backup, metadata);
+      } catch (error) {
+        try {
+          topologySummaries = await api.listTopologies();
+          fillTopologySelect(topologySummaries);
+        } catch { /* Preserve the restore error if the connection is still unavailable. */ }
+        throw error;
+      } finally {
+        restoringTopologyID = null;
+      }
+      topologySummaries = await api.listTopologies();
+      if (activeOrganizationScope !== ALL_ORGANIZATIONS_SCOPE && activeOrganizationScope !== restored.organizationId) {
+        activeOrganizationScope = restored.organizationId;
+        rememberOrganizationScope(activeOrganizationScope);
+        renderAccountSession();
+      }
+      fillTopologySelect(topologySummaries);
+      elements["topology-dialog"].close();
+      delete form.backup;
+      await loadTopology(restored.id);
+      requestAnimationFrame(() => canvas.fit());
+      toast(`Backup restored as new map · ${restored.name}`);
+      return;
+    }
     if (form.dataset.mode === "duplicate") {
       const sourceID = form.dataset.sourceId;
       if (!await canLeaveMap()) return;
@@ -1161,6 +1202,7 @@ function renderDeviceInspector(deviceID) {
     ${rearMappingsMarkup}
     ${switchSystemMarkup}
     ${firewallClusterMarkup}`;
+  bindInventoryCopy(document.getElementById("device-inspector-form"), toast);
   document.getElementById("device-inspector-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -1607,6 +1649,28 @@ function bindControls() {
   document.getElementById("import-button").addEventListener("click", () => {
     closeExportMenu();
     elements["import-file"].click();
+  });
+  document.getElementById("import-new-button").addEventListener("click", () => {
+    closeExportMenu();
+    document.getElementById("import-new-file").click();
+  });
+  document.getElementById("import-new-file").addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const backup = parseTopologyBackup(await file.text());
+      openTopologyDialog();
+      const form = elements["topology-form"];
+      form.dataset.mode = "restore";
+      form.backup = backup;
+      form.elements.name.value = `${String(backup.name || "Restored map").slice(0, 109)} (restored)`;
+      form.elements.location.value = backup.location || "";
+      elements["map-template-field"].hidden = true;
+      elements["topology-dialog-title"].textContent = "RESTORE AS NEW MAP";
+      elements["topology-dialog-note"].textContent = "Restore this backup into a separate map. Existing maps are preserved. JSON does not contain photo files; photos and share links are not restored.";
+      elements["topology-submit-button"].textContent = "RESTORE + OPEN MAP";
+    } catch (error) { showError(error); }
   });
 	document.getElementById("catalog-import-button").addEventListener("click", () => elements["catalog-file"].click());
   elements["import-file"].addEventListener("change", importBackup);
@@ -2934,8 +2998,7 @@ async function importBackup(event) {
   if (!file || !state.topology) return;
   if (!await canLeaveMap()) return;
   try {
-    const topology = JSON.parse(await file.text());
-    if (!Array.isArray(topology.devices) || !Array.isArray(topology.links) || !Array.isArray(topology.vlans)) throw new Error("The selected file is not a topology backup");
+    const topology = parseTopologyBackup(await file.text());
     topology.id = state.topology.id;
     topology.createdAt = state.topology.createdAt;
     topology.organizationId = state.topology.organizationId;

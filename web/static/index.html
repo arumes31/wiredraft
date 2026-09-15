@@ -50,7 +50,8 @@
           <button id="png-button" role="menuitem"><b>PNG IMAGE</b><small>High-resolution raster</small></button>
           <button id="svg-button" role="menuitem"><b>SVG VECTOR</b><small>Scalable diagram</small></button>
           <button id="json-button" role="menuitem"><b>JSON BACKUP</b><small>Restorable topology data</small></button>
-          <button id="import-button" class="restore-option" role="menuitem"><b>RESTORE JSON</b><small>Load a saved topology</small></button>
+          <button id="import-new-button" class="restore-option" role="menuitem"><b>RESTORE AS NEW MAP</b><small>Create a separate map from JSON</small></button>
+          <button id="import-button" class="restore-option" role="menuitem"><b>RESTORE JSON</b><small>Replace the active map</small></button>
         </div>
       </details>
     </nav>
@@ -510,6 +511,7 @@
     </form>
   </dialog>
   <input id="import-file" type="file" accept="application/json,.json" hidden>
+  <input id="import-new-file" type="file" accept="application/json,.json" hidden>
 	<input id="catalog-file" type="file" accept="application/json,.json" hidden>
   <script type="module" src="/js/app.js?v=20260806-dual-face"></script>
 </body>

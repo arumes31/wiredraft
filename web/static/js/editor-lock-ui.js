@@ -17,7 +17,7 @@ const equipmentControls = [
 ].join(",");
 
 export function editRequirement(element) {
-  if (element.closest("[data-close], [data-cancel-rear-link], [data-dialog-unlock]")) return null;
+  if (element.closest("[data-close], [data-cancel-rear-link], [data-dialog-unlock], [data-inventory-copy]")) return null;
   if (element.closest(cablingControls)) return "cabling";
   return element.closest(equipmentControls) ? "all" : null;
 }

@@ -2280,8 +2280,8 @@ export class CanvasEngine {
       if (!rack) return;
       const dx = world.x - this.rackDrag.start.x;
       const dy = world.y - this.rackDrag.start.y;
-      rack.positionX = Math.max(0, Math.round((this.rackDrag.original.x + dx) / GRID) * GRID);
-      rack.positionY = Math.max(0, Math.round((this.rackDrag.original.y + dy) / GRID) * GRID);
+      rack.positionX = Math.round((this.rackDrag.original.x + dx) / GRID) * GRID;
+      rack.positionY = Math.round((this.rackDrag.original.y + dy) / GRID) * GRID;
       this.state.emit("topology");
       return;
     }
@@ -2300,8 +2300,8 @@ export class CanvasEngine {
         const device = this.state.topology.devices.find((item) => item.id === id);
         if (!device) continue;
         const proposed = {
-          x: Math.max(0, Math.round((original.x + dx) / GRID) * GRID),
-          y: Math.max(0, Math.round((original.y + dy) / GRID) * GRID),
+          x: Math.round((original.x + dx) / GRID) * GRID,
+          y: Math.round((original.y + dy) / GRID) * GRID,
         };
         device.rackId = "";
         device.rackUnit = 0;

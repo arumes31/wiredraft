@@ -183,6 +183,8 @@ restores collapsed navigator groups. Group expansion is retained across selectio
 and topology refreshes within the active map. Click a Rule Engine alert to select
 its cable and frame the affected equipment, or highlight all cables in a group or cycle.
 
+Use **Copy** beside hostname, management IP, serial number, and asset tag in the device inspector to copy the displayed value, including an unapplied draft. Copying works in Read only; empty fields have no copy action. If clipboard access is unavailable, the field is selected for Ctrl/Cmd+C.
+
 The **Duplicate active map** button beside the map picker creates an independent
 copy in the same organization. Give the copy a name; if prompted, save pending
 edits to include them or discard them to copy the saved version. Equipment,
@@ -190,6 +192,8 @@ configuration, comments, documentation and photo files are copied. Existing shar
 links are excluded. The original remains intact and the new map opens read-only.
 
 Choose **Navigation → Auto**, **Trackpad**, or **Mouse** in the left sidebar. Trackpad mode uses two-finger scrolling to pan and pinching to zoom; Mouse mode uses wheel scrolling to zoom. Auto detects the gesture type. Choose an explicit mode if your input device is misidentified.
+
+The canvas extends in every direction. Racks and free devices can cross the coordinate origin and move left or up into negative coordinates while retaining grid snapping. Pan to reach more space; **Fit map** brings all equipment back into view.
 
 | Action | Control |
 | --- | --- |
@@ -232,7 +236,7 @@ argument, otherwise they display `development`.
 
 The autosave menu enables or disables autosave, selects a 30-second, 1-minute, or 5-minute interval, and offers **Save now** and draft recovery. See [First use](#first-use) for unsaved-change and recovery behavior.
 
-Use **Export** for PDF, interactive HTML, a configuration workbook, PNG, SVG, or a JSON backup. **Restore JSON** replaces the active map; create a blank map first when you want to keep the original. Exported HTML can be opened without the server and provides viewing and tracing controls; use JSON for restoring an editable map.
+Use **Export** for PDF, interactive HTML, a configuration workbook, PNG, SVG, or a JSON backup. **Restore as new map** asks for a name, organization, and location and opens a separate restored map in Read only. Photos and share links are excluded; JSON does not contain photo files. **Restore JSON** replaces the active map. Exported HTML can be opened without the server and provides viewing and tracing controls; use JSON for restoring an editable map.
 
 ## Architecture
 
