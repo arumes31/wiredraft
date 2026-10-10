@@ -52,7 +52,7 @@ Invoke-Gate 'Go coverage floor' { go run ./cmd/checkcoverage -profile $coverageF
 Invoke-Gate 'Topology JSON fuzzing' { go test ./internal/model -run='^$' -fuzz=FuzzTopologyJSON "-fuzztime=${FuzzSeconds}s" }
 Invoke-Gate 'Request JSON fuzzing' { go test ./internal/handler -run='^$' -fuzz=FuzzDecodeJSON "-fuzztime=${FuzzSeconds}s" }
 Invoke-Gate 'Go vulnerability scan' { go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./... }
-Invoke-Gate 'Go security scan' { go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -quiet ./... }
+Invoke-Gate 'Go security scan' { go run github.com/securego/gosec/v2/cmd/gosec@7b1b5cebe007d62fb58eacb90fc571112939ec30 -quiet ./... }
 Invoke-Gate 'Git history secret scan' { go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner . }
 
 Invoke-Gate 'Locked frontend install' { npm ci --ignore-scripts }
