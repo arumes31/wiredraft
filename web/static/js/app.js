@@ -43,7 +43,7 @@ import { AutosaveController } from "./autosave.js";
 import { DraftRecovery } from "./draft-recovery.js";
 import { askToLeave, downloadDraft, renderRecovery } from "./save-recovery-ui.js";
 import { applyPlacements, placementChanges, TopologyWriteQueue } from "./placement-sync.js";
-import { planRackReplacement } from "./rack-placement.js";
+import { planRackReplacement, newDevicePlacement } from "./rack-placement.js";
 import { ToastQueue } from "./toast-queue.js";
 import { topologySize, topologySizeMessage } from "./topology-size.js";
 import { TopologyMinimap } from "./minimap.js";
@@ -97,6 +97,7 @@ const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state
   },
   onDevicesUpdate: (devices, snapshot) => savePlacements(snapshot, "devices", devices),
   onRackPlacementRequest: requestRackPlacement,
+  onDeviceCreateRequest: openDeviceContextMenu,
   onRackUpdate: (rack, snapshot) => savePlacements(snapshot, "racks", [rack]),
   onLinkCreate: createLink,
   onLinkRepatch: requestCableRepatch,
@@ -135,6 +136,8 @@ const autosave = new AutosaveController(async (_reason, version) => {
 let pendingAnnotationPoint = null;
 let pendingRepatch = null;
 let pendingRackPlacement = null;
+let pendingDeviceTarget = null;
+let deviceContextTarget = null;
 let catalogModulePromise = null;
 let catalogModule = null;
 let exportModulePromise = null;
@@ -1612,7 +1615,24 @@ function bindControls() {
   elements["import-file"].addEventListener("change", importBackup);
 	elements["catalog-file"].addEventListener("change", importCatalog);
   document.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => document.getElementById(button.dataset.close).close()));
-  elements["device-form"].addEventListener("submit", installDevice);
+  elements["device-form"].addEventListener("submit", (event) => installDevice(event).catch(showError));
+  elements["device-dialog"].addEventListener("close", () => { pendingDeviceTarget = null; });
+  const deviceMenu = document.getElementById("device-context-menu");
+  document.getElementById("add-device-here-button").addEventListener("click", () => {
+    const target = deviceContextTarget;
+    deviceMenu.hidePopover();
+    if (target) openDeviceDialog(target).catch(showError);
+  });
+  deviceMenu.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    deviceMenu.hidePopover();
+    canvas.canvas.focus();
+  });
+  // Firefox emits contextmenu before pointerup, which immediately dismisses an auto popover.
+  document.addEventListener("pointerdown", (event) => {
+    if (!deviceMenu.contains(event.target)) deviceMenu.hidePopover();
+  });
   elements["rack-form"].addEventListener("submit", installRack);
   const rackColorSource = document.getElementById("rack-color-source");
   const rackColorInput = elements["rack-form"].elements.namedItem("color");
@@ -2008,9 +2028,27 @@ async function installRack(event) {
   requestAnimationFrame(() => canvas.fit());
 }
 
-/** Install catalog hardware below existing devices without changing their saved positions. */
+function deviceTargetLabel(target) {
+  const rack = state.topology?.racks?.find((item) => item.id === target.rackId);
+  return target.rackId ? `${rack?.name || "Rack"} · ${normalizeRackFace(target.rackFace).toUpperCase()} · U${target.rackUnit}`
+    : `CANVAS · X ${Math.round(target.x)} · Y ${Math.round(target.y)}`;
+}
+
+function openDeviceContextMenu(target, screen) {
+  const menu = document.getElementById("device-context-menu");
+  deviceContextTarget = { ...target, topologyID: state.topology.id };
+  document.getElementById("device-context-location").textContent = deviceTargetLabel(target);
+  menu.showPopover();
+  menu.style.left = `${Math.max(8, Math.min(screen.x, window.innerWidth - menu.offsetWidth - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(screen.y, window.innerHeight - menu.offsetHeight - 8))}px`;
+  document.getElementById("add-device-here-button").focus();
+}
+
+/** Install catalog hardware at the requested location, or below existing free devices. */
 async function installDevice(event) {
   event.preventDefault();
+  const target = pendingDeviceTarget;
+  const topologyID = state.topology.id;
   const form = new FormData(event.currentTarget);
 	const catalog = await loadCatalogModule();
 	const profile = catalog.hardwareCatalog.find((candidate) => candidate.vendor === form.get("vendor") && candidate.model === form.get("model"));
@@ -2020,17 +2058,38 @@ async function installDevice(event) {
   device.positionX = position.x;
   device.positionY = position.y;
 	device.faceplate.vendorColor = String(form.get("color"));
-  await updateFrom(() => api.createDevice(state.topology.id, device), true, "Device installed");
-  elements["device-dialog"].close();
+  const button = elements["device-form"].querySelector('button[value="install"]');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const previousIDs = new Set(state.topology.devices.map((item) => item.id));
+    const topology = await updateFrom(() => {
+      if (state.topology.id !== topologyID || (target && target.topologyID !== topologyID)) throw new Error("The map changed. Choose the device position again.");
+      if (target) Object.assign(device, newDevicePlacement(state.topology, device, target));
+      return api.createDevice(topologyID, device);
+    }, true, "Device installed");
+    if (topology) {
+      elements["device-dialog"].close();
+      const created = topology.devices.find((item) => !previousIDs.has(item.id));
+      if (created) state.select("device", created.id);
+    }
+  } finally { button.disabled = false; }
 }
 
-async function openDeviceDialog() {
+async function openDeviceDialog(target = null) {
+  if (!requireEdit("all")) return;
+  const topologyID = state.topology.id;
   const catalog = await loadCatalogModule();
+  if (state.topology.id !== topologyID || (target && target.topologyID !== topologyID)) return;
   if (catalog.upgradeInstalledPhysicalPorts(state.topology)) {
     const topology = await api.replaceTopology(state.topology);
     applyTopology(topology);
   }
   setupHardwareCatalog();
+  pendingDeviceTarget = target;
+  const note = document.getElementById("device-placement-note");
+  note.hidden = !target;
+  note.textContent = target ? `PLACE AT ${deviceTargetLabel(target)}${target.rackId ? " · Multi-unit devices extend upward from this unit." : ""}` : "";
   elements["device-dialog"].showModal();
 }
 

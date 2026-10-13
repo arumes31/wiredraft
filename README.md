@@ -129,6 +129,8 @@ The published runtime image is `FROM scratch`, contains only the statically link
 
 ### Rack and hardware planning
 
+To add hardware at a specific position, choose **All unlocked**, right-click empty canvas space or a free rack unit, and select **Add device here**. Choose the model and click **Place device**. The dialog shows the destination rack face and unit; taller devices extend upward from that unit and must fit without overlapping existing equipment. Press **Escape** to cancel.
+
 To create a rack, choose **All unlocked**, then **+ Rack**. Enter its name and capacity, and set **Frame color** with the color picker or choose a rack under **Use existing rack color** to copy its color. The dropdown lists rack names and color codes from the current map and appears only when the map already contains racks. You can adjust the copied color with the picker before selecting **Place rack**; the source rack is unaffected.
 
 - Multi-rack layouts with 6U–48U frames, independent front/rear rails, per-rack face switching, whole-U snapping, collision prevention, hidden-side silhouettes, grouped cable portals, trace-expanded dual-face views, capacity reporting, free-floating devices, and a navigable minimap.

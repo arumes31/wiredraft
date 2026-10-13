@@ -271,9 +271,15 @@
     </div>
   </dialog>
 
+  <div id="device-context-menu" class="canvas-context-menu" popover="manual" aria-label="Add hardware at this position">
+    <p id="device-context-location"></p>
+    <button type="button" id="add-device-here-button">ADD DEVICE HERE</button>
+  </div>
+
   <dialog id="device-dialog" class="panel-dialog" aria-labelledby="device-dialog-title">
     <form id="device-form" method="dialog">
       <header><div><p class="eyebrow">HARDWARE CATALOG</p><h2 id="device-dialog-title">INSTALL DEVICE</h2></div><button type="button" class="dialog-close" data-close="device-dialog" aria-label="Close install device dialog">×</button></header>
+      <p id="device-placement-note" class="dialog-note" hidden></p>
       <p class="dialog-note">Search all devices and providers, or browse by family. Edge and wireless equipment can remain free-floating on the map or be placed in a rack when it is installed on a shelf.</p>
       <div class="form-grid">
         <label class="catalog-search"><span>SEARCH ALL DEVICES / PROVIDERS</span><input name="filter" id="device-model-filter" type="search" autocomplete="off" aria-controls="device-search-results" aria-describedby="device-search-status" placeholder="e.g. Aruba AP-635, FortiAP, RUTX50, FG-200G"></label>

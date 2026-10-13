@@ -25,6 +25,7 @@ export function createLockWorkspace() {
         if (method !== "GET") {
           writes.push({ path, method, input });
           if (path.endsWith("/links") && method === "POST") topology.links.push({ ...input, id: `link-${writes.length}` });
+          else if (path.endsWith("/devices") && method === "POST") topology.devices.push({ ...input, id: `device-new-${writes.length}` });
           else if (path.includes("/links/") && method === "DELETE") topology.links = topology.links.filter((link) => link.id !== path.split("/").at(-1));
           else if (path.includes("/devices/") && method === "PUT") topology.devices = topology.devices.map((device) => device.id === input.id ? input : device);
           else if (method === "PUT" && !path.slice("/api/v1/topologies/".length).includes("/")) topology = input;

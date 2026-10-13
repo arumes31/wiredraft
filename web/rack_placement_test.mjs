@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planRackReplacement } from "./static/js/rack-placement.js";
+import { planRackReplacement, newDevicePlacement } from "./static/js/rack-placement.js";
 import { applyPlacements } from "./static/js/placement-sync.js";
 
 const device = (id, rackUnit, unitsU = 1, rackFace = "front") => ({
@@ -8,6 +8,23 @@ const device = (id, rackUnit, unitsU = 1, rackFace = "front") => ({
   positionX: 100, positionY: 100, faceplate: { unitsU }, ports: [],
 });
 const topology = (devices) => ({ devices, racks: [{ id: "rack", name: "Rack", heightU: 6, positionX: 900, positionY: 100 }] });
+
+test("new hardware is placed at the requested canvas point or exact rack unit and face", () => {
+  const before = topology([device("occupied", 2)]);
+  const hardware = device("new", 0, 2);
+  assert.deepEqual(newDevicePlacement(before, hardware, { x: -50, y: 800 }), { positionX: -50, positionY: 800 });
+  assert.deepEqual(newDevicePlacement(before, hardware, { rackId: "rack", rackUnit: 2, rackFace: "rear" }),
+    { rackId: "rack", rackUnit: 2, rackFace: "rear", positionX: 930, positionY: 464 });
+  assert.equal(hardware.rackId, "");
+});
+
+test("new hardware cannot overwrite occupied units, overflow the rack, or use a deleted rack", () => {
+  const before = topology([device("occupied", 3)]);
+  for (const target of [
+    { rackId: "rack", rackUnit: 2 }, { rackId: "rack", rackUnit: 6 },
+    { rackId: "deleted", rackUnit: 1 },
+  ]) assert.throws(() => newDevicePlacement(before, device("new", 0, 2), target), /does not fit/);
+});
 
 test("a partial overlap releases every occupied device but preserves adjacent and opposite-face mounts", () => {
   const source = device("source", 0, 3);
