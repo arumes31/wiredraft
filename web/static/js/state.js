@@ -1,4 +1,5 @@
 import { sameDocument } from "./editor-lock.js";
+import { racksWithBothFaces } from "./rack.js";
 
 function clone(value) {
   return value == null ? value : structuredClone(value);
@@ -16,12 +17,17 @@ export class AppState extends EventTarget {
     this.rackFaces = new Map();
     this.deviceFaceplateFaces = new Map();
     this.dualFaceRackIDs = new Set();
+    this.automaticDualFaceRackIDs = new Set();
     this.history = [];
     this.future = [];
   }
 
   /** Replace the map snapshot and retain local views only for live entities. */
   setTopology(topology, { remember = false } = {}) {
+    if (this.topology?.id !== topology?.id) {
+      this.dualFaceRackIDs = new Set();
+      this.automaticDualFaceRackIDs = new Set();
+    }
     if (this.editLock && this.topology?.id !== topology?.id) this.editLock.setMode("read-only", "map");
     if (remember && this.topology) {
       this.history.push(clone(this.topology));
@@ -143,6 +149,14 @@ export class AppState extends EventTarget {
   }
 
   emit(kind) {
+    if (kind === "topology") {
+      const automatic = racksWithBothFaces(this.topology);
+      // Only newly occupied second sides auto-open; refreshes respect manual collapse.
+      for (const rackID of automatic) {
+        if (!this.automaticDualFaceRackIDs.has(rackID)) this.dualFaceRackIDs.add(rackID);
+      }
+      this.automaticDualFaceRackIDs = automatic;
+    }
     this.dispatchEvent(new CustomEvent("change", { detail: { kind } }));
   }
 

@@ -129,6 +129,10 @@ The published runtime image is `FROM scratch`, contains only the statically link
 
 ### Rack and hardware planning
 
+Racks open in **Dual** view automatically when equipment is visible on both sides, including servers with front and rear panels. You can still collapse a rack manually; live refreshes keep that choice. A newly occupied second side opens automatically again.
+
+For hardware installed backwards, select the device and set **Physical mounting → Installation orientation → Reversed**, then **Update device record**. The hardware panels and socket positions swap while rack allocation, port IDs and cable connections are preserved. The orientation is saved with the device and included in exports.
+
 To add hardware at a specific position, choose **All unlocked**, right-click empty canvas space or a free rack unit, and select **Add device here**. Choose the model and click **Place device**. The dialog shows the destination rack face and unit; taller devices extend upward from that unit and must fit without overlapping existing equipment. Press **Escape** to cancel.
 
 To create a rack, choose **All unlocked**, then **+ Rack**. Enter its name and capacity, and set **Frame color** with the color picker or choose a rack under **Use existing rack color** to copy its color. The dropdown lists rack names and color codes from the current map and appears only when the map already contains racks. You can adjust the copied color with the picker before selecting **Place rack**; the source rack is unaffected.
