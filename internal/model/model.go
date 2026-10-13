@@ -244,6 +244,7 @@ type Device struct {
 	RackUnit     int            `json:"rackUnit,omitempty"`
 	RackFace     RackFace       `json:"rackFace,omitempty"`
 	RackDisplay  string         `json:"rackDisplay,omitempty"`
+	RackReversed bool           `json:"rackReversed,omitempty"` // Swap physical panels without changing mounting rails.
 	Faceplate    FaceplateSpec  `json:"faceplate"`
 	Ports        []Port         `json:"ports"`
 }

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { hardwareCatalog, instantiateProfile } from "../web/static/js/catalog.js";
 import { mockLockWorkspace } from "./editor-lock-fixture.mjs";
 
-test("server panels follow both rack faces and the saved device override", async ({ page }, testInfo) => {
+async function serverRack(page) {
   const workspace = await mockLockWorkspace(page);
   const topology = workspace.topology;
   const server = instantiateProfile(hardwareCatalog.find((profile) => profile.model === "ProLiant DL360"), "SERVER BOTH FACES", { x: 0, y: 0 });
@@ -16,10 +16,15 @@ test("server panels follow both rack faces and the saved device override", async
   await page.setViewportSize({ width: 1700, height: 1000 });
   await page.goto("/");
   await expect(page.locator("#topology-name")).toHaveText(topology.name);
+  return { workspace, errors };
+}
+
+test("server panels automatically open both rack faces and follow the saved device override", async ({ page }, testInfo) => {
+  const { workspace, errors } = await serverRack(page);
+  const topology = workspace.topology;
   await page.locator('[data-edit-mode="all"]').click();
   await page.evaluate(() => {
     const { state, canvas } = window.lockFixture;
-    state.setRackDualFace("rack", true);
     canvas.camera = { x: 10, y: 10, zoom: .55 };
     canvas.invalidate();
     state.select("device", "server");
@@ -64,8 +69,37 @@ test("server panels follow both rack faces and the saved device override", async
   await setting.selectOption("both");
   await page.getByRole("button", { name: "UPDATE DEVICE RECORD" }).click();
   await expect.poll(() => workspace.topology.devices[0].rackDisplay).toBe("both");
-  await page.evaluate(() => window.lockFixture.state.setRackDualFace("rack", true));
   await expect.poll(panels).toHaveLength(2);
   expect(workspace.topology.devices).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
+
+test("reversed installation saves, reloads and undoes without changing rack allocation or port identities", async ({ page }) => {
+  const { workspace, errors } = await serverRack(page);
+  const before = workspace.topology.devices[0];
+  await page.evaluate(() => window.lockFixture.state.select("device", "server"));
+  const orientation = page.locator('[name="rackReversed"]');
+  await expect(orientation).toHaveAttribute("aria-disabled", "true");
+  await page.locator('[data-edit-mode="all"]').click();
+  await orientation.selectOption("reversed");
+  await page.getByRole("button", { name: "UPDATE DEVICE RECORD" }).click();
+  await expect.poll(() => workspace.topology.devices[0].rackReversed).toBe(true);
+  const panels = () => page.evaluate(() => window.lockFixture.canvas.deviceRectangles().map((box) =>
+    ({ rackFace: box.face, hardwareFace: box.scene.face })).sort((a, b) => a.rackFace.localeCompare(b.rackFace)));
+  const reversed = [{ rackFace: "front", hardwareFace: "rear" }, { rackFace: "rear", hardwareFace: "front" }];
+  await expect.poll(panels).toEqual(reversed);
+  expect(workspace.topology.devices[0]).toMatchObject({ rackId: before.rackId, rackUnit: before.rackUnit, rackFace: before.rackFace, ports: before.ports });
+  await page.locator("#diagram-canvas").focus();
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => workspace.topology.devices[0].rackReversed || false).toBe(false);
+  await page.keyboard.press("Control+Shift+z");
+  await expect.poll(() => workspace.topology.devices[0].rackReversed).toBe(true);
+  await page.waitForLoadState("networkidle");
+  await page.reload();
+  await expect.poll(panels).toEqual(reversed);
+  await page.evaluate(() => window.lockFixture.state.select("device", "server"));
+  await expect(orientation).toHaveValue("reversed");
+  await expect(page.locator(".hardware-panel-controls")).toContainText("rear on FRONT, front on REAR");
+  expect(workspace.topology.devices[0].ports).toEqual(before.ports);
   expect(errors).toEqual([]);
 });

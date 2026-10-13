@@ -30,7 +30,7 @@ import {
 import {
   findRackFaceLanding, layoutRackGroups, mountedDevicePosition, normalizeRackFace, oppositeRackFace, RackFace,
   RACK_DEVICE_INSET, RACK_FACE_GAP, RACK_HEADER_HEIGHT, RACK_UNIT_HEIGHT, RACK_WIDTH, usedRackUnits,
-  visibleRackFaces, showsBothRackFaces, isRackPlacementAvailable,
+  visibleRackFaces, showsBothRackFaces, isRackPlacementAvailable, installedHardwareFace,
 } from "./rack.js";
 import { SceneTileIndex } from "./scene-tiles.js";
 
@@ -462,8 +462,9 @@ export class CanvasEngine {
     if (!this.deviceBoxByID.has(device.id)) this.deviceBoxByID.set(device.id, deviceBox);
     this.deviceTiles.insert(deviceBox);
     const defaultFace = resolveModelFaceplate(device)?.defaultFace || "front";
+    const panel = face || this.state.deviceFaceplateFace?.(device.id, defaultFace) || defaultFace;
     const scene = buildFaceplateScene(device, deviceBox, {
-      face: face || this.state.deviceFaceplateFace?.(device.id, defaultFace) || defaultFace,
+      face: rack ? installedHardwareFace(device, panel) : panel,
     });
     deviceBox.scene = scene;
     this.faceplateSceneByDevice ||= new Map();

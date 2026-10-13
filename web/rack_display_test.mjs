@@ -25,7 +25,9 @@ test("servers show matching front and rear panels at the same U position", () =>
   const { engine, state, device } = fixture();
   const original = JSON.stringify(state.topology);
   let boxes = engine.deviceRectangles();
-  assert.equal(boxes.length, 1);
+  assert.equal(boxes.length, 2, "a server automatically opens both rack elevations");
+  state.setRackDualFace("rack", false); engine.sceneDirty = true;
+  boxes = engine.deviceRectangles();
   assert.equal(boxes[0].scene.face, "front");
   state.setRackFace("rack", "rear"); engine.sceneDirty = true;
   assert.equal(engine.deviceRectangles()[0].scene.face, "rear");
@@ -62,7 +64,8 @@ test("device display override can restrict a server to its mounting face", () =>
 });
 
 test("routing anchors replace portals with the first real socket and retain it", () => {
-  const { engine, device } = fixture();
+  const { engine, state, device } = fixture();
+  state.setRackDualFace("rack", false);
   engine.layoutScene();
   const portal = [...engine.routingPortBoxByID.values()].find((box) => box.portal);
   assert.ok(portal);
@@ -74,6 +77,26 @@ test("routing anchors replace portals with the first real socket and retain it",
   assert.equal(engine.routingPortBoxByID.get(portal.port.id), socket);
   engine.addVisibleDevice(device, null, { x: 3000, y: 100 }, "front");
   assert.equal(engine.routingPortBoxByID.get(portal.port.id), socket);
+});
+
+test("reversed installation swaps physical panels and socket anchors without changing mounting or cables", () => {
+  const { engine, state } = fixture();
+  state.topology.devices[0].rackReversed = true;
+  const saved = structuredClone(state.topology);
+  const boxes = engine.deviceRectangles();
+  assert.equal(boxes.length, 2);
+  for (const box of boxes) assert.equal(box.scene.face, box.face === "front" ? "rear" : "front");
+  const sockets = engine.portGeometry();
+  assert.ok(sockets.length > 0);
+  assert.ok(sockets.every((port) => port.deviceBox.face === "front"), "rear NICs must move to the front rack elevation");
+  for (const port of sockets) {
+    const anchor = engine.routingPortGeometry().find((item) => item.port.id === port.port.id);
+    assert.equal(anchor.centerX, port.centerX);
+    assert.equal(engine.hitPort({ x: port.centerX, y: port.centerY }).port.id, port.port.id);
+  }
+  const svg = buildSVGDocument(state.topology, engine);
+  assert.equal((svg.match(/data-layer="faceplate"/g) || []).length, 2);
+  assert.deepEqual(state.topology, saved);
 });
 
 test("cables use the panel containing the socket even when the other panel is the primary box", () => {
@@ -97,4 +120,14 @@ test("cables use the panel containing the socket even when the other panel is th
   const rear = engine.rackFaceBoxes.find((box) => box.face === "rear");
   const front = engine.rackFaceBoxes.find((box) => box.face === "front");
   assert.ok(Math.abs(track.sourceGutterX - rear.x) < Math.abs(track.sourceGutterX - front.x));
+  const previousPortIDs = [source.port.id, target.port.id];
+  state.topology.devices[0].rackReversed = true;
+  engine.sceneDirty = true;
+  const reversedPorts = engine.routingPortGeometry();
+  const reversedSource = reversedPorts.find((port) => port.port.id === source.port.id);
+  assert.equal(reversedSource.deviceBox.face, "front");
+  const reversedTrack = assignCableTracks({ links: [link], portBoxes: reversedPorts,
+    deviceBoxes: engine.routingDeviceBoxes, rackBoxes: engine.routingRackBoxes }).get("cable");
+  assert.deepEqual(reversedTrack.source, { x: reversedSource.centerX, y: reversedSource.centerY });
+  assert.deepEqual([link.sourcePortId, link.targetPortId], previousPortIDs);
 });

@@ -24,7 +24,7 @@ import {
   availablePatchPanelPorts, isRearPanelLink, panelMapAvailability, patchPanelDevices,
   planPatchPanelMapping, planRearPanelLinkUpdate, RearChannelType,
 } from "./patch-panels.js";
-import { normalizeRackFace, RackFace, showsBothRackFaces, usedRackUnits } from "./rack.js";
+import { installedHardwareFace, normalizeRackFace, RackFace, showsBothRackFaces, usedRackUnits } from "./rack.js";
 import { resolveModelFaceplate } from "./faceplate-models.js";
 import { defaultGroupInput, groupForLink, planLinkGroup } from "./link-groups.js";
 import { describeLinkGroupMembers } from "./link-group-display.js";
@@ -1095,11 +1095,12 @@ function renderDeviceInspector(deviceID) {
   const rackFace = normalizeRackFace(device.rackFace);
   const physicalProfile = resolveModelFaceplate(device);
   const followsRackFace = Boolean(rack && showsBothRackFaces(device));
-  const physicalFace = state.deviceFaceplateFace(device.id, physicalProfile?.defaultFace);
+  const selectedPanel = state.deviceFaceplateFace(device.id, physicalProfile?.defaultFace);
+  const physicalFace = rack ? installedHardwareFace(device, selectedPanel) : selectedPanel;
   const hardwareNotes = [...new Set([...(physicalProfile?.limitations || []), ...(physicalProfile?.catalogDiscrepancies || [])])];
   const physicalPanelMarkup = physicalProfile ? `
     <fieldset class="device-metadata-block hardware-panel-controls"><legend>HARDWARE PANEL</legend>
-      ${followsRackFace ? `<p>Hardware follows the rack face: front on FRONT, rear on REAR, and both in DUAL view.</p>` : `<div class="radio-row">${["front", "rear"].map((face) => `<label><input type="radio" name="hardwarePanel" value="${face}" ${physicalFace === face ? "checked" : ""}><span>${face.toUpperCase()}</span></label>`).join("")}</div>
+      ${followsRackFace ? `<p>Hardware follows the rack face${device.rackReversed ? " with reversed installation: rear on FRONT, front on REAR" : ": front on FRONT, rear on REAR"}, and both in DUAL view.</p>` : `<div class="radio-row">${["front", "rear"].map((face) => `<label><input type="radio" name="hardwarePanel" value="${face}" ${physicalFace === face ? "checked" : ""}><span>${face.toUpperCase()}</span></label>`).join("")}</div>
       <p>View this device's front or rear hardware. Connections on the opposite panel stay visible at its connection marker. This view is local to your session.</p>`}
       <p class="hardware-panel-evidence">${physicalProfile.fidelity === "schematic" ? "Schematic layout; hardware options are configurable." : physicalProfile.fidelity === "family" ? "Family layout; hardware options and connector positions may vary." : "Model-specific panel layout."}${/^https:\/\//.test(physicalProfile.source || "") ? ` <a href="${escapeHTML(physicalProfile.source)}" target="_blank" rel="noopener noreferrer">Hardware reference</a>` : ""}</p>
       ${physicalProfile.sku ? `<p>Drawn hardware: ${escapeHTML(physicalProfile.sku)}</p>` : ""}
@@ -1157,6 +1158,11 @@ function renderDeviceInspector(deviceID) {
       ${rack ? `<fieldset class="device-metadata-block"><legend>PHYSICAL MOUNTING</legend>
         <div><span>RACK FACE</span><div class="radio-row">${[RackFace.FRONT, RackFace.REAR].map((face) => `<label><input type="radio" name="rackFace" value="${face}" ${rackFace === face ? "checked" : ""}><span>${face.toUpperCase()}</span></label>`).join("")}</div></div>
         <p>Front and rear have independent U-space. Changing face keeps this device at U${device.rackUnit}.</p>
+        <label><span>INSTALLATION ORIENTATION</span><select name="rackReversed">
+          <option value="normal" ${!device.rackReversed ? "selected" : ""}>Normal</option>
+          <option value="reversed" ${device.rackReversed ? "selected" : ""}>Reversed (front / rear swapped)</option>
+        </select></label>
+        <p>Turn the device around in place. Its rack unit, mounting rails, port identities and cable connections stay the same.</p>
       </fieldset>` : ""}
       ${spanningTreeMarkup}
       <div class="inspector-actions"><button class="primary">UPDATE DEVICE RECORD</button><button id="delete-device" type="button" class="danger">DELETE</button></div>
@@ -1184,13 +1190,17 @@ function renderDeviceInspector(deviceID) {
       rackUnit: Number(form.get("locationRackUnit") || 0),
     };
     if (device.category === "Switch") next.stpPriority = Number(form.get("stpPriority") || 0);
-    if (rack) next.rackFace = String(form.get("rackFace") || RackFace.FRONT);
+    if (rack) {
+      next.rackFace = String(form.get("rackFace") || RackFace.FRONT);
+      next.rackReversed = form.get("rackReversed") === "reversed";
+    }
     next.rackDisplay = String(form.get("rackDisplay") || "");
     await updateFrom(() => api.updateDevice(state.topology.id, next), true, "Device record updated");
   });
   document.getElementById("delete-device").addEventListener("click", () => deleteDevice(device));
   document.querySelectorAll('input[name="hardwarePanel"]').forEach((input) => {
-    input.addEventListener("change", () => state.setDeviceFaceplateFace(device.id, input.value));
+    input.addEventListener("change", () => state.setDeviceFaceplateFace(device.id,
+      rack ? installedHardwareFace(device, input.value) : input.value));
   });
   document.querySelectorAll("[data-switch-system-member]").forEach((button) => {
     button.addEventListener("click", () => state.select("device", button.dataset.switchSystemMember));

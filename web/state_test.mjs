@@ -84,6 +84,38 @@ test("physical hardware panel views remain local and independent from rack mount
   assert.equal(state.deviceFaceplateFaces.size, 0);
 });
 
+test("racks auto-expand when both sides become visible, with session-local collapse", () => {
+  const state = new AppState();
+  const source = topology();
+  Object.assign(source.devices[0], { rackId: "rack-1", rackUnit: 2, rackFace: "front" });
+  state.setTopology(source);
+  assert.equal(state.isRackDualFace("rack-1"), false);
+  state.commit((map) => map.devices.push({ id: "rear-device", rackId: "rack-1", rackUnit: 4, rackFace: "rear", ports: [] }));
+  assert.equal(state.isRackDualFace("rack-1"), true);
+  state.setRackDualFace("rack-1", false);
+  state.setTopology(state.topology);
+  assert.equal(state.isRackDualFace("rack-1"), false, "refresh must respect manual collapse");
+  state.undo();
+  state.redo();
+  assert.equal(state.isRackDualFace("rack-1"), true, "restoring the second side must reveal it");
+  assert.equal(source.devices.length, 1, "view changes must not mutate the source map");
+});
+
+test("a server or explicit both-face device auto-expands its rack on load", () => {
+  for (const properties of [{ category: "Server" }, { rackDisplay: "both" }]) {
+    const state = new AppState();
+    const source = topology();
+    Object.assign(source.devices[0], { rackId: "rack-1", rackUnit: 2, ...properties });
+    state.setTopology(source);
+    assert.equal(state.isRackDualFace("rack-1"), true);
+    state.setAllRacksDualFace(false);
+    state.setTopology({ ...source, id: "another-map" });
+    assert.equal(state.isRackDualFace("rack-1"), true, "a different map gets its own default view");
+    state.setTopology({ ...source, devices: source.devices.map((item) => ({ ...item, rackDisplay: "mounted" })) });
+    assert.equal(state.isRackDualFace("rack-1"), false);
+  }
+});
+
 test("commit, undo, and redo preserve independent snapshots", () => {
   const state = new AppState();
   let mutationCalled = false;

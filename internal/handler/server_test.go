@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -867,6 +868,26 @@ func TestCreateDevicePreservesCatalogPortIndices(t *testing.T) {
 				t.Fatal("device creation replaced an existing endpoint ID")
 			}
 		})
+	}
+}
+
+func TestDeviceInstallationOrientationPersistsWithoutChangingConnections(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t)
+	topology := requestTopology(
+		t, handler, http.MethodPost, "/api/v1/topologies",
+		map[string]string{"name": "Reversed hardware", "template": "demo"}, http.StatusCreated,
+	)
+	device := topology.Devices[0]
+	device.RackReversed = true
+	path := "/api/v1/topologies/" + topology.ID
+	requestTopology(t, handler, http.MethodPut, path+"/devices/"+device.ID, device, http.StatusOK)
+	saved := requestTopology(t, handler, http.MethodGet, path, nil, http.StatusOK)
+	if !reflect.DeepEqual(saved.Devices[0], device) {
+		t.Fatal("saving installation orientation changed other device fields or lost the orientation")
+	}
+	if !reflect.DeepEqual(saved.Links, topology.Links) {
+		t.Fatal("reversing hardware changed cable endpoints or properties")
 	}
 }
 

@@ -20,6 +20,22 @@ export function showsBothRackFaces(device) {
   return device.rackDisplay === "both" || (!device.rackDisplay && device.category === "Server");
 }
 
+/** Resolve physical hardware independently of the rail plane used for mounting. */
+export function installedHardwareFace(device, face) {
+  return device.rackReversed ? oppositeRackFace(face) : normalizeRackFace(face);
+}
+
+/** Include both-sided equipment as well as separate devices on opposite rails. */
+export function racksWithBothFaces(topology) {
+  const faces = new Map();
+  for (const device of topology?.devices || []) {
+    if (!device.rackId || !(device.rackUnit > 0)) continue;
+    const mask = showsBothRackFaces(device) ? 3 : normalizeRackFace(device.rackFace) === RackFace.FRONT ? 1 : 2;
+    faces.set(device.rackId, (faces.get(device.rackId) || 0) | mask);
+  }
+  return new Set((topology?.racks || []).filter((rack) => faces.get(rack.id) === 3).map((rack) => rack.id));
+}
+
 export function visibleRackFaces(face, expanded) {
   return expanded
     ? [RackFace.FRONT, RackFace.REAR]

@@ -35,6 +35,29 @@ func TestDeviceRackDisplayRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDeviceReversedInstallationRoundTrip(t *testing.T) {
+	t.Parallel()
+	topology := mustDemo(t)
+	if topology.Devices[0].RackReversed {
+		t.Fatal("existing devices must default to normal installation")
+	}
+	topology.Devices[0].RackReversed = true
+	data, err := json.Marshal(topology)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Topology
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.Devices[0].RackReversed {
+		t.Fatal("reversed installation must survive a topology round trip")
+	}
+	if err := decoded.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestFaceplateInventoryRevisionJSON protects index revisions across saved topology round trips.
 func TestFaceplateInventoryRevisionJSON(t *testing.T) {
 	t.Parallel()
