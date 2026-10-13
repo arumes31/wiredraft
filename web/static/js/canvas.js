@@ -30,7 +30,7 @@ import {
 import {
   findRackFaceLanding, layoutRackGroups, mountedDevicePosition, normalizeRackFace, oppositeRackFace, RackFace,
   RACK_DEVICE_INSET, RACK_FACE_GAP, RACK_HEADER_HEIGHT, RACK_UNIT_HEIGHT, RACK_WIDTH, usedRackUnits,
-  visibleRackFaces, showsBothRackFaces,
+  visibleRackFaces, showsBothRackFaces, isRackPlacementAvailable,
 } from "./rack.js";
 import { SceneTileIndex } from "./scene-tiles.js";
 
@@ -2480,9 +2480,22 @@ export class CanvasEngine {
 
   contextMenu(event) {
     event.preventDefault();
-    if (!this.canEdit("cabling")) return;
-    const link = this.hitLink(this.screenToWorld(this.eventPoint(event)));
-    if (link) this.callbacks.onLinkDelete?.(link.link);
+    this.state.editLock?.checkExpiry();
+    const world = this.screenToWorld(this.eventPoint(event));
+    const link = this.hitLink(world);
+    if (link) {
+      if (this.canEdit("cabling")) this.callbacks.onLinkDelete?.(link.link);
+      return;
+    }
+    if (!this.canEdit("all") || !this.state.topology || this.hitDevice(world) || this.hitAnnotation(world)) return;
+    let target = { x: world.x, y: world.y };
+    const box = this.hitRack(world);
+    if (box) {
+      const rackUnit = box.rack.heightU - Math.floor((world.y - box.y - RACK_HEADER_HEIGHT) / RACK_UNIT_HEIGHT);
+      if (!isRackPlacementAvailable(this.state.topology, { faceplate: { unitsU: 1 } }, box.rack.id, rackUnit, box.face)) return;
+      target = { rackId: box.rack.id, rackUnit, rackFace: box.face };
+    }
+    this.callbacks.onDeviceCreateRequest?.(target, { x: event.clientX, y: event.clientY });
   }
 
   canEdit(capability) {

@@ -1,6 +1,19 @@
-import { isRackPlacementAvailable, normalizeRackFace, RACK_WIDTH, RACK_FACE_GAP } from "./rack.js";
+import { isRackPlacementAvailable, mountedDevicePosition, normalizeRackFace, RACK_WIDTH, RACK_FACE_GAP } from "./rack.js";
 import { applyPlacements, placementChanges } from "./placement-sync.js";
 import { faceplateDisplaySize } from "./faceplate-scene.js";
+
+/** Validate the full device height again at creation time, without displacing hardware. */
+export function newDevicePlacement(topology, device, target) {
+  if (!target.rackId) return { positionX: target.x, positionY: target.y };
+  const { rackId, rackUnit } = target;
+  const rackFace = normalizeRackFace(target.rackFace);
+  if (!isRackPlacementAvailable(topology, device, rackId, rackUnit, rackFace)) {
+    throw new Error(`This device does not fit at U${rackUnit}. Choose a smaller device or another free rack unit.`);
+  }
+  const rack = topology.racks.find((item) => item.id === rackId);
+  const position = mountedDevicePosition(rack, { ...device, rackUnit });
+  return { rackId, rackUnit, rackFace, positionX: position.x, positionY: position.y };
+}
 
 /** Plan the complete drop and release conflicting hardware without changing the map. */
 export function planRackReplacement(topology, devices) {
