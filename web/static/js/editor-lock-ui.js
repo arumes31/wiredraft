@@ -5,6 +5,7 @@ const cablingControls = [
   ".panel-rear-link-edit", "[data-edit-rear-link]", "#delete-link", "#reverse-link-direction", "#edit-link-group", "#leave-link-group",
 ].join(",");
 const equipmentControls = [
+  "#add-room-button", "#add-room-here-button", "#room-form", "#room-inspector-form",
   "#add-rack-button", "#add-device-button", "#add-server-button", "#add-patch-panel-button", "#edit-topology-button",
   "#delete-topology-button", "#import-button", "#import-file", "#rack-form", "#device-form", "#static-server-form",
   "#patch-panel-form", "#annotation-form", "#vlan-form", "#vlan-manager-list button", "#switch-system-form", "#firewall-cluster-form",

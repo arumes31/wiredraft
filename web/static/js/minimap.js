@@ -23,6 +23,7 @@ export class TopologyMinimap {
     const transform = this.transform(width, height);
     this.ctx.fillStyle = "#071012";
     this.ctx.fillRect(0, 0, width, height);
+    for (const room of this.engine.roomRectangles?.() || []) this.rect(room, transform, room.room.color, .2);
     for (const rack of this.engine.rackRectangles()) this.rect(rack, transform, rack.rack.color, .35);
     for (const device of this.engine.deviceRectangles()) this.rect(device, transform, "#80a1a4", .72);
     const viewport = this.engine.viewportWorldRect();

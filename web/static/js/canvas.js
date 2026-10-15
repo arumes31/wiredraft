@@ -1,3 +1,4 @@
+import { ROOM_HEADER, layoutRooms, roomConnections, roomForDevice, moveRoom } from "./rooms.js";
 import {
   assignCableTracks, CableMode, cableBezier, cableDashPattern, CABLE_OUTLINE_WIDTH, cableRole, distanceToRoute,
   orderedCableLinks, pointOnRoute, routeSegments, routesWithCrossingBridges, segmentIntersectsRectangle,
@@ -133,8 +134,8 @@ export class CanvasEngine {
     this.loop = this.loop.bind(this);
     this.graphicsProfileKey = "";
     this.onStateChange = ({ detail }) => {
-      const layoutChanged = ["topology", "layout", "rack-view", "device-view", "trace"].includes(detail?.kind);
-      const gestureSnapshot = this.drag?.snapshot || this.rackDrag?.snapshot || this.repatch?.snapshot;
+      const layoutChanged = ["topology", "layout", "rack-view", "room-view", "device-view", "trace"].includes(detail?.kind);
+      const gestureSnapshot = this.drag?.snapshot || this.rackDrag?.snapshot || this.roomDrag?.snapshot || this.repatch?.snapshot;
       if (gestureSnapshot && (gestureSnapshot.id !== this.state.topology?.id || gestureSnapshot.revision !== this.state.topology?.revision)) this.cancelInteraction(false);
       if (detail?.kind === "device-view") {
         this.cancelInteraction();
@@ -192,6 +193,13 @@ export class CanvasEngine {
     });
     this.canvas.addEventListener("wheel", (event) => this.wheel(event), { passive: false });
     this.canvas.addEventListener("contextmenu", (event) => this.contextMenu(event));
+    this.canvas.addEventListener("dblclick", (event) => {
+      const point = this.screenToWorld(this.eventPoint(event));
+      const box = this.hitRoom(point, true);
+      if (!box) return;
+      this.state.setRoomCollapsed(box.room.id, false);
+      this.focusRoom(box.room.id);
+    });
     window.addEventListener("keydown", (event) => {
       if (event.code === "Space" && !isFormField(event.target)) this.isSpaceDown = true;
       if (event.key === "Escape") {
@@ -230,7 +238,7 @@ export class CanvasEngine {
     const animationActive = graphicsAnimationActive(profile, {
       hasLinks: Boolean(topology?.links?.length),
       hasFocus: Boolean(hoverNeedsAnimation(this) || this.state.selection?.type === "link" || this.state.traceLinkIDs?.size),
-      isInteracting: Boolean(this.draft || this.linkDrag?.active || this.drag?.active || this.rackDrag?.active || this.pan || this.selectionBox),
+      isInteracting: Boolean(this.draft || this.linkDrag?.active || this.drag?.active || this.rackDrag?.active || this.roomDrag?.active || this.pan || this.selectionBox),
     });
     const frameInterval = profile.maxFPS > 0 ? 1000 / profile.maxFPS : Infinity;
     const deviceHoverInterval = deviceHoverFrameInterval(profile, this.hoveredDevice);
@@ -260,6 +268,7 @@ export class CanvasEngine {
     this.drawGrid(ctx, width, height, camera, profile);
     this.layoutScene();
     const viewport = this.viewportWorldRect(camera, width, height, 180);
+    this.drawRooms(ctx);
     const visibleRackBoxes = this.rackTiles.query(viewport);
     for (const rackBox of visibleRackBoxes) this.drawRack(ctx, rackBox);
     for (const box of this.shadowDeviceBoxes) {
@@ -267,6 +276,7 @@ export class CanvasEngine {
     }
     for (const box of this.deviceTiles.query(viewport)) this.drawDevice(ctx, box.device, time, box);
     this.drawLinks(ctx, time, !overlays, overlays);
+    this.drawRoomConnections(ctx);
     this.drawRackPortals(ctx);
     this.drawPortDescriptions(ctx);
     this.drawAnnotations(ctx, overlays);
@@ -311,6 +321,59 @@ export class CanvasEngine {
     }
     ctx.strokeStyle = "rgba(91, 122, 126, .14)";
     ctx.stroke();
+  }
+
+  roomRectangles() { this.layoutScene(); return this.roomBoxes || []; }
+
+  drawRooms(ctx) {
+    for (const box of this.roomBoxes || []) {
+      const { room, x, y, width, height } = box;
+      ctx.save();
+      ctx.fillStyle = "#0c2023"; ctx.globalAlpha = .65;
+      ctx.fillRect(x, y, width, height);
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = (this.state.selection?.type === "room" && this.state.selection.id === room.id ? 3 : 1.5) / this.camera.zoom;
+      ctx.strokeStyle = room.color;
+      ctx.strokeRect(x, y, width, height);
+      ctx.fillStyle = "#142e33"; ctx.fillRect(x, y, width, ROOM_HEADER);
+      ctx.fillStyle = "#e2f4f2"; ctx.textAlign = "left";
+      ctx.font = "600 28px sans-serif";
+      ctx.fillText(`${box.collapsed ? "▸" : "▾"}  ${room.name}`, x + 24, y + 42, width - 48);
+      ctx.font = "18px sans-serif"; ctx.fillStyle = "#8eb9bd";
+      ctx.fillText([room.building, room.floor].filter(Boolean).join(" · ") || "ROOM", x + 62, y + 76, width - 86);
+      if (box.collapsed) {
+        const connections = (this.roomBundles || []).filter(bundle => bundle.source === `room:${room.id}` || bundle.target === `room:${room.id}`).reduce((n, bundle) => n + bundle.linkIDs.length, 0);
+        ctx.fillText(`${box.rackCount} racks · ${box.deviceCount} devices · ${connections} cables`, x + 24, y + 143, width - 48);
+      }
+      ctx.restore();
+    }
+  }
+
+  drawRoomConnections(ctx) {
+    if (!this.roomBundles?.length) return;
+    ctx.save();
+    ctx.strokeStyle = "#42d9c8"; ctx.fillStyle = "#c6f5ef";
+    ctx.lineWidth = 2 / this.camera.zoom; ctx.font = "20px sans-serif"; ctx.textAlign = "center";
+    for (const { from, to, linkIDs } of this.roomBundles || []) {
+      const middle = (from.x + to.x) / 2;
+      ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(middle, from.y);
+      ctx.lineTo(middle, to.y); ctx.lineTo(to.x, to.y); ctx.stroke();
+      ctx.fillText(`${linkIDs.length} cable${linkIDs.length === 1 ? "" : "s"}`, middle, (from.y + to.y) / 2 - 12);
+    }
+    ctx.restore();
+  }
+
+  hitRoom(point, headerOnly = false) {
+    return [...this.roomRectangles()].reverse().find(box => point.x >= box.x && point.x <= box.x + box.width &&
+      point.y >= box.y && point.y <= box.y + (headerOnly ? ROOM_HEADER : box.height));
+  }
+
+  focusRoom(id) {
+    const box = this.roomRectangles().find(item => item.room.id === id);
+    if (!box) return;
+    this.camera.zoom = Math.max(.1, Math.min(1.5, (this.width - 100) / box.width, (this.height - 100) / box.height));
+    this.centerOn(box.x + box.width / 2, box.y + box.height / 2);
+    this.callbacks.onPointer?.(this.pointerWorld, this.camera.zoom);
   }
 
   setTool(tool) {
@@ -532,6 +595,8 @@ export class CanvasEngine {
     this.patchPanelPathLinkIDsByLink = new Map();
     this.vlanByID = new Map();
     this.orderedLinks = [];
+    this.roomBoxes = [];
+    this.roomBundles = [];
     const topology = this.state.topology;
     if (!topology) {
       this.routingChanges = { full: true, changedDeviceIDs: new Set(), obstacleBounds: [] };
@@ -630,7 +695,51 @@ export class CanvasEngine {
         this.groupLinkIDsByLink.set(linkID, memberLinkIDs);
       }
     }
-    this.orderedLinks = orderedCableLinks(topology);
+    const collapsed = new Set(this.state.collapsedRoomIDs || []);
+    // Tracing a cable reveals its equipment, just as tracing reveals hidden rack faces.
+    for (const link of topology.links || []) {
+      if (!this.state.traceLinkIDs?.has(link.id)) continue;
+      for (const device of topology.devices) {
+        if (device.ports.some(port => port.id === link.sourcePortId || port.id === link.targetPortId)) collapsed.delete(roomForDevice(topology, device));
+      }
+    }
+    this.roomBoxes = layoutRooms(topology, this.rackBoxes, this.deviceBoxes, collapsed);
+    const hiddenDevices = new Set(topology.devices.filter(device => collapsed.has(roomForDevice(topology, device))).map(device => device.id));
+    const visibleRack = box => !collapsed.has(box.rack.roomId);
+    const visibleDevice = box => !hiddenDevices.has(box.device.id);
+    this.rackBoxes = this.rackBoxes.filter(visibleRack);
+    this.rackFaceBoxes = this.rackFaceBoxes.filter(visibleRack);
+    this.routingRackBoxes = this.routingRackBoxes.filter(visibleRack);
+    this.rackPortalMarkers = this.rackPortalMarkers.filter(visibleRack);
+    this.rackTiles.clear();
+    for (const box of this.rackFaceBoxes) this.rackTiles.insert(box);
+    this.deviceBoxes = this.deviceBoxes.filter(visibleDevice);
+    this.shadowDeviceBoxes = this.shadowDeviceBoxes.filter(visibleDevice);
+    this.routingDeviceBoxes = this.routingDeviceBoxes.filter(visibleDevice);
+    this.portBoxes = this.portBoxes.filter(visibleDevice);
+    this.routingPortBoxes = this.routingPortBoxes.filter(visibleDevice);
+    this.deviceTiles.clear();
+    for (const box of this.deviceBoxes) this.deviceTiles.insert(box);
+    for (const id of hiddenDevices) { this.deviceBoxByID.delete(id); this.faceplateSceneByDevice.delete(id); this.portBoxesByDevice.delete(id); }
+    for (const [id, box] of this.routingPortBoxByID) if (!visibleDevice(box)) this.routingPortBoxByID.delete(id);
+    for (const [id, box] of this.portBoxByID) if (!visibleDevice(box)) this.portBoxByID.delete(id);
+    const connections = roomConnections(topology, collapsed);
+    this.orderedLinks = orderedCableLinks(topology).filter(link => !connections.hiddenLinkIDs.has(link.id));
+    const endpoint = key => {
+      const index = key.indexOf(":");
+      const id = key.slice(index + 1);
+      return key.startsWith("room:") ? this.roomBoxes.find(box => box.room.id === id)
+        : this.deviceBoxByID.get(id) || this.routingDeviceBoxes.find(box => box.device.id === id);
+    };
+    this.roomBundles = connections.bundles.flatMap(bundle => {
+      const source = endpoint(bundle.source), target = endpoint(bundle.target);
+      if (!source || !target) return [];
+      const from = { x: source.x + source.width / 2, y: source.y + (source.collapsed ? 140 : source.height / 2) };
+      const to = { x: target.x + target.width / 2, y: target.y + (target.collapsed ? 140 : target.height / 2) };
+      from.x = to.x >= from.x ? source.x + source.width : source.x;
+      to.x = to.x >= from.x ? target.x : target.x + target.width;
+      return [{ ...bundle, from, to }];
+    });
     for (const link of topology.links || []) {
       const source = this.routingPortBoxByID.get(link.sourcePortId);
       const target = this.routingPortBoxByID.get(link.targetPortId);
@@ -2136,6 +2245,26 @@ export class CanvasEngine {
       return;
     }
     if (event.button !== 0) return;
+    const bundle = (this.roomBundles || []).find(({ from, to }) => {
+      const middle = (from.x + to.x) / 2;
+      return [{ x1: from.x, y1: from.y, x2: middle, y2: from.y },
+        { x1: middle, y1: from.y, x2: middle, y2: to.y },
+        { x1: middle, y1: to.y, x2: to.x, y2: to.y }].some(line => distanceToLineSegment(world, line) <= 8 / this.camera.zoom);
+    });
+    if (bundle) { this.state.select("link", bundle.linkIDs[0]); this.state.setTrace(bundle.linkIDs); return; }
+    const roomHeader = this.hitRoom(world, true);
+    if (roomHeader && (!this.activeTool || this.activeTool === "select")) {
+      this.state.select("room", roomHeader.room.id);
+      this.selectedDevices.clear();
+      if (world.x < roomHeader.x + 60) {
+        this.state.setRoomCollapsed(roomHeader.room.id, !roomHeader.collapsed);
+      } else if (this.canEdit("all")) {
+        this.roomDrag = { id: roomHeader.room.id, start: world, startScreen: screen, active: false,
+          dx: 0, dy: 0, snapshot: structuredClone(this.state.topology) };
+        this.canvas.style.cursor = "grabbing";
+      }
+      return;
+    }
     const rackFaceControl = this.hitRackFaceControl(world);
     if (rackFaceControl) {
       if (rackFaceControl.action === "dual") {
@@ -2235,6 +2364,8 @@ export class CanvasEngine {
       }
       return;
     }
+    const room = this.hitRoom(world);
+    if (room) { this.state.select("room", room.room.id); return; }
     this.state.select(null, null);
     this.selectedDevices.clear();
     if (emptyCanvasAction(event.shiftKey) === EmptyCanvasAction.SELECT) {
@@ -2257,6 +2388,17 @@ export class CanvasEngine {
     this.callbacks.onPointer?.(world, this.camera.zoom);
     this.hoveredLink = null;
     this.hoveredDevice = null;
+    if (this.roomDrag) {
+      const drag = this.roomDrag;
+      if (!drag.active && screenDistance(screen, drag.startScreen) < DRAG_ACTIVATION_DISTANCE) return;
+      drag.active = true;
+      const dx = Math.round((world.x - drag.start.x) / GRID) * GRID;
+      const dy = Math.round((world.y - drag.start.y) / GRID) * GRID;
+      moveRoom(this.state.topology, drag.id, dx - drag.dx, dy - drag.dy);
+      drag.dx = dx; drag.dy = dy;
+      this.state.emit("layout");
+      return;
+    }
     if (this.repatch) {
       if (screenDistance(screen, this.repatch.startScreen) >= DRAG_ACTIVATION_DISTANCE) this.repatch.active = true;
       this.updateRepatchTarget(world);
@@ -2359,6 +2501,18 @@ export class CanvasEngine {
   pointerUp(event) {
     this.checkEditGesture();
     this.invalidate();
+    if (this.roomDrag) {
+      const drag = this.roomDrag;
+      moveRoom(this.state.topology, drag.id, -drag.dx, -drag.dy);
+      this.roomDrag = null;
+      if (drag.active && (drag.dx || drag.dy)) {
+        if (this.callbacks.onRoomUpdate) this.callbacks.onRoomUpdate(drag.id, drag.dx, drag.dy);
+        else this.state.commit(topology => moveRoom(topology, drag.id, drag.dx, drag.dy));
+      }
+      this.canvas.style.cursor = "default";
+      if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+      return;
+    }
     const wasDrag = this.drag;
     if (this.repatch) {
       this.updateRepatchTarget(this.screenToWorld(this.eventPoint(event)));
@@ -2490,6 +2644,8 @@ export class CanvasEngine {
     }
     if (!this.canEdit("all") || !this.state.topology || this.hitDevice(world) || this.hitAnnotation(world)) return;
     let target = { x: world.x, y: world.y };
+    const room = this.hitRoom(world);
+    if (room && !room.collapsed) target.roomId = room.room.id;
     const box = this.hitRack(world);
     if (box) {
       const rackUnit = box.rack.heightU - Math.floor((world.y - box.y - RACK_HEADER_HEIGHT) / RACK_UNIT_HEIGHT);
@@ -2505,11 +2661,13 @@ export class CanvasEngine {
 
   checkEditGesture() {
     this.state.editLock?.checkExpiry();
-    if (((this.drag || this.rackDrag || this.annotationDraft) && !this.canEdit("all")) ||
+    if (((this.drag || this.rackDrag || this.roomDrag || this.annotationDraft) && !this.canEdit("all")) ||
         ((this.draft || this.linkDrag || this.repatch) && !this.canEdit("cabling"))) this.cancelInteraction();
   }
 
   cancelInteraction(restore = true) {
+    if (restore && this.roomDrag) moveRoom(this.state.topology, this.roomDrag.id, -this.roomDrag.dx, -this.roomDrag.dy);
+    this.roomDrag = null;
     // Restore only previewed geometry; keep inspector drafts and unrelated data intact.
     if (restore && this.drag) {
       for (const [id, original] of this.drag.originals) {
@@ -2665,6 +2823,7 @@ export class CanvasEngine {
     this.resize();
     const ids = new Set(deviceIDs);
     for (const device of this.state.topology?.devices || []) {
+      if (ids.has(device.id)) this.state.setRoomCollapsed(roomForDevice(this.state.topology, device), false);
       if (ids.has(device.id) && device.rackId) this.state.setRackDualFace(device.rackId, true);
     }
     const boxes = this.deviceRectangles().filter((box) => ids.has(box.device.id));
@@ -2680,7 +2839,7 @@ export class CanvasEngine {
 
   worldBounds() {
     this.layoutScene();
-    const boxes = [...this.rackBoxes, ...this.deviceBoxes];
+    const boxes = [...(this.roomBoxes || []), ...this.rackBoxes, ...this.deviceBoxes];
     if (!boxes.length) return { x: 0, y: 0, width: 800, height: 500 };
     const routePoints = this.state.topology
       ? [...this.cableTrackPlan().tracks.values()].flatMap(({ route }) => route.points || [])

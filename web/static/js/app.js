@@ -6,6 +6,7 @@ import { CanvasEngine } from "./canvas.js";
 import { nextCanvasTool } from "./canvas-interactions.js";
 import { defaultCableProperties } from "./cable-defaults.js";
 import { repatchEndpointLabel } from "./link-repatch.js";
+import { assignRoom, removeRoom, roomMembers, moveRoom } from "./rooms.js";
 import {
   GRAPHICS_STORAGE_KEY, GraphicsMode, graphicsProfileSummary, normalizeGraphicsMode,
 } from "./graphics-quality.js";
@@ -99,6 +100,7 @@ const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state
   onRackPlacementRequest: requestRackPlacement,
   onDeviceCreateRequest: openDeviceContextMenu,
   onRackUpdate: (rack, snapshot) => savePlacements(snapshot, "racks", [rack]),
+  onRoomUpdate: (roomID, dx, dy) => updateRoomFrom(topology => moveRoom(topology, roomID, dx, dy)),
   onLinkCreate: createLink,
   onLinkRepatch: requestCableRepatch,
   onLinkDelete: deleteLink,
@@ -113,7 +115,7 @@ const canvas = new CanvasEngine(document.getElementById("diagram-canvas"), state
 const notifications = new ToastQueue(elements.toast);
 api.setMutationGuard((path, method, body) => {
   editLock.checkExpiry();
-  const before = structuredClone(canvas.drag?.snapshot || canvas.rackDrag?.snapshot || state.topology);
+  const before = structuredClone(canvas.drag?.snapshot || canvas.rackDrag?.snapshot || canvas.roomDrag?.snapshot || state.topology);
   const capability = requiredRequestCapability(path, method, body, before);
   if (capability && !editLock.allows(capability)) {
     const error = new Error(lockedEditMessage(capability));
@@ -130,7 +132,7 @@ api.setMutationGuard((path, method, body) => {
 const minimap = new TopologyMinimap(elements["topology-minimap"], canvas, state);
 const autosave = new AutosaveController(async (_reason, version) => {
   // Keep autosave pending while a gesture or another write owns the current revision.
-  if (topologyWrites.pending || canvas.drag || canvas.rackDrag) return false;
+  if (topologyWrites.pending || canvas.drag || canvas.rackDrag || canvas.roomDrag) return false;
   return topologyWrites.run(() => saveTopologySnapshot(version));
 }, { storage: globalThis.localStorage });
 let pendingAnnotationPoint = null;
@@ -138,6 +140,7 @@ let pendingRepatch = null;
 let pendingRackPlacement = null;
 let pendingDeviceTarget = null;
 let deviceContextTarget = null;
+let pendingRoomPoint = null;
 let catalogModulePromise = null;
 let catalogModule = null;
 let exportModulePromise = null;
@@ -197,7 +200,7 @@ state.addEventListener("change", ({ detail }) => {
   if (detail.kind === "analysis" || detail.kind === "topology") renderAnalysis();
   if (["trace", "topology"].includes(detail.kind)) renderTraceSession();
   if (["rack-view", "topology"].includes(detail.kind)) renderDualFaceControls();
-  if (detail.kind === "rack-view") renderInspector();
+  if (["rack-view", "room-view"].includes(detail.kind)) renderInspector();
   if (detail.kind === "topology" && elements["resources-dialog"]?.open) renderResources();
   if (detail.kind === "topology" && elements["photo-dialog"]?.open) renderPhotoManager();
 });
@@ -670,6 +673,7 @@ function renderNavigator() {
     search.dataset.mapId = state.topology.id;
   }
   renderTopologyTree(elements["topology-tree"], state.topology, state.selection, (type, id) => {
+    if (type === "room") { state.select("room", id); canvas.focusRoom(id); return; }
     if (type === "device") {
       state.select("device", id);
       canvas.focusDevices([id]);
@@ -791,6 +795,7 @@ function renderInspector() {
   }
   if (selection.type === "port") renderPortInspector(selection.id);
   if (selection.type === "rack") renderRackInspector(selection.id);
+  if (selection.type === "room") { renderRoomInspector(selection.id); editorLockUI.refresh(elements["inspector-content"]); return; }
   if (selection.type === "device") renderDeviceInspector(selection.id);
   if (selection.type === "link") renderLinkInspector(selection.id);
   if (selection.type === "annotation") renderAnnotationInspector(selection.id);
@@ -1004,6 +1009,114 @@ async function handlePlanCommentAction(event) {
   toast(deleteID ? "Comment removed from plan" : thread?.resolved ? "Comment reopened" : "Comment resolved");
 }
 
+function roomSelectMarkup(roomID = "") {
+  return `<label><span>ROOM ASSIGNMENT</span><select name="roomId"><option value="">Unassigned</option>${(state.topology.rooms || []).map(room => `<option value="${escapeHTML(room.id)}" ${room.id === roomID ? "selected" : ""}>${escapeHTML(room.name)}</option>`).join("")}</select></label>`;
+}
+
+/** Apply the room intent and persist it together, after earlier writes have settled. */
+function updateRoomFrom(mutator) {
+  const topologyID = state.topology.id;
+  return topologyWrites.run(async () => {
+    if (state.topology?.id !== topologyID) return false;
+    // A queued room action must not save another gesture's uncommitted preview.
+    canvas.cancelInteraction();
+    if (!requireEdit("all") || !state.commit(mutator)) return false;
+    autosave.markDirty();
+    const version = autosave.version;
+    const topology = await api.replaceTopology(structuredClone(state.topology));
+    receiveTopology(topology, { submittedVersion: version });
+    if (version === autosave.version && !pendingPlacements.size) autosave.markSaved();
+    queueAnalysis();
+    return true;
+  }).catch(async error => {
+    showError(error);
+    if (isRevisionConflict(error) && state.topology?.id === topologyID) {
+      try { receiveTopology(await api.getTopology(topologyID)); } catch { /* Keep the recovery draft if refresh also fails. */ }
+    }
+    return false;
+  });
+}
+
+function openRoomDialog(point = null) {
+  if (!requireEdit("all")) return;
+  const viewport = canvas.viewportWorldRect();
+  pendingRoomPoint = { x: point?.x ?? viewport.x + 80, y: point?.y ?? viewport.y + 80, topologyID: state.topology.id };
+  document.getElementById("room-form").reset();
+  document.getElementById("room-dialog").showModal();
+}
+
+async function createRoom(event) {
+  event.preventDefault();
+  if (!requireEdit("all") || pendingRoomPoint?.topologyID !== state.topology.id) return;
+  const form = new FormData(event.currentTarget);
+  const room = { id: crypto.randomUUID(), name: String(form.get("name")).trim(), building: String(form.get("building")).trim(),
+    floor: String(form.get("floor")).trim(), color: String(form.get("color")),
+    positionX: Math.round(pendingRoomPoint.x), positionY: Math.round(pendingRoomPoint.y), width: 1800, height: 1200 };
+  if (!room.name) return;
+  const button = event.currentTarget.querySelector("button.primary");
+  if (button.disabled) return;
+  button.disabled = true;
+  let saved;
+  try { saved = await updateRoomFrom(topology => { topology.rooms ||= []; topology.rooms.push(room); }); }
+  finally { button.disabled = false; }
+  if (!saved) return;
+  document.getElementById("room-dialog").close();
+  state.select("room", room.id);
+  requestAnimationFrame(() => { canvas.resize(); canvas.focusRoom(room.id); });
+  toast("Room added · Assign equipment in the inspector");
+}
+
+function renderRoomInspector(roomID) {
+  const room = state.topology.rooms?.find(item => item.id === roomID);
+  if (!room) return;
+  const members = roomMembers(state.topology, roomID);
+  const collapsed = state.collapsedRoomIDs.has(roomID);
+  const memberRows = (items, collection) => items.map(item => {
+    const other = state.topology.rooms?.find(candidate => candidate.id === item.roomId && candidate.id !== roomID);
+    return `<label class="check-row"><input type="checkbox" name="${collection}" value="${escapeHTML(item.id)}" ${item.roomId === roomID ? "checked" : ""}><span>${escapeHTML(item.name)}${other ? ` · ${escapeHTML(other.name)}` : ""}</span></label>`;
+  }).join("");
+  elements["inspector-content"].innerHTML = `
+    <div class="inspector-title"><p class="eyebrow">ROOM</p><h3>${escapeHTML(room.name)}</h3><p>${members.racks.length} RACKS · ${members.devices.length} DEVICES</p></div>
+    <div class="inspector-actions"><button type="button" id="toggle-room" aria-expanded="${!collapsed}">${collapsed ? "EXPAND ROOM" : "COLLAPSE ROOM"}</button><button type="button" id="focus-room">FIT ROOM</button></div>
+    <form id="room-inspector-form" class="inspector-form">
+      <label><span>ROOM NAME</span><input name="name" maxlength="120" required value="${escapeHTML(room.name)}"></label>
+      <label><span>BUILDING</span><input name="building" maxlength="120" value="${escapeHTML(room.building || "")}"></label>
+      <label><span>FLOOR</span><input name="floor" maxlength="120" value="${escapeHTML(room.floor || "")}"></label>
+      <label><span>OUTLINE COLOR</span><input name="color" type="color" value="${escapeHTML(room.color)}"></label>
+      <div class="room-size-fields"><label><span>MINIMUM WIDTH</span><input name="width" type="number" min="600" max="100000" required value="${room.width}"></label><label><span>MINIMUM HEIGHT</span><input name="height" type="number" min="300" max="100000" required value="${room.height}"></label></div>
+      <fieldset class="device-metadata-block"><legend>RACKS</legend><div class="checklist">${memberRows(state.topology.racks || [], "racks") || "No racks yet"}</div></fieldset>
+      <fieldset class="device-metadata-block"><legend>FREE DEVICES</legend><div class="checklist">${memberRows(state.topology.devices.filter(device => !device.rackId), "devices") || "No free devices"}</div></fieldset>
+      <p class="room-help">New members are placed inside this room. Rack devices inherit their rack's room. The outline grows to fit all members.</p>
+      <div class="inspector-actions"><button class="primary">UPDATE ROOM</button><button type="button" id="delete-room" class="danger">REMOVE ROOM</button></div>
+      <p class="room-help">Removing the room keeps its equipment and cables. Undo is available.</p>
+    </form>`;
+  document.getElementById("toggle-room").addEventListener("click", () => state.setRoomCollapsed(roomID, !state.collapsedRoomIDs.has(roomID)));
+  document.getElementById("focus-room").addEventListener("click", () => canvas.focusRoom(roomID));
+  document.getElementById("delete-room").addEventListener("click", async () => {
+    if (!requireEdit("all")) return;
+    if (await updateRoomFrom(topology => removeRoom(topology, roomID))) { state.select(null, null); toast("Room removed · Equipment and cables kept · Undo is available"); }
+  });
+  document.getElementById("room-inspector-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!requireEdit("all")) return;
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name")).trim();
+    if (!name) return;
+    if (await updateRoomFrom(topology => {
+      Object.assign(topology.rooms.find(item => item.id === roomID), { name, building: String(form.get("building")).trim(), floor: String(form.get("floor")).trim(),
+        color: String(form.get("color")), width: Number(form.get("width")), height: Number(form.get("height")) });
+      for (const collection of ["racks", "devices"]) {
+        const selected = new Set(form.getAll(collection));
+        for (const item of topology[collection] || []) {
+          if (collection === "devices" && item.rackId) continue;
+          if (selected.has(item.id)) assignRoom(topology, collection, item.id, roomID);
+          else if (item.roomId === roomID) assignRoom(topology, collection, item.id, "");
+        }
+      }
+    })) toast("Room updated");
+  });
+}
+
 function renderRackInspector(rackID) {
   const rack = (state.topology.racks || []).find((item) => item.id === rackID);
   if (!rack) return;
@@ -1018,6 +1131,7 @@ function renderRackInspector(rackID) {
     <div class="rack-face-inspector"><span>RACK FACE WORKSPACE</span><div class="radio-row">${[RackFace.FRONT, RackFace.REAR].map((item) => `<label><input type="radio" name="rackViewFace" value="${item}" ${face === item ? "checked" : ""}><span>${item.toUpperCase()}</span></label>`).join("")}</div><button id="toggle-dual-face" type="button" class="secondary" aria-pressed="${dualFace}">${dualFace ? "CLOSE DUAL-FACE EDIT" : "OPEN DUAL-FACE EDIT"}</button><p>Dual-face edit shows both elevations in parallel. Drop a device on the exact front or rear rail, then cable its visible ports normally. This view is local to your session.</p></div>
     <form id="rack-inspector-form" class="inspector-form">
       <label><span>RACK NAME</span><input name="name" maxlength="120" value="${escapeHTML(rack.name)}" required></label>
+      ${roomSelectMarkup(rack.roomId)}
       <label><span>RACK HEIGHT</span><input name="heightU" type="number" min="6" max="48" value="${rack.heightU}" required></label>
       <label><span>FRAME COLOR</span><input name="color" type="color" value="${rack.color}"></label>
       <div class="inspector-actions"><button class="primary">UPDATE RACK</button><button id="delete-rack" type="button" class="danger">DELETE</button></div>
@@ -1029,6 +1143,14 @@ function renderRackInspector(rackID) {
     next.name = String(form.get("name"));
     next.heightU = Number(form.get("heightU"));
     next.color = String(form.get("color"));
+    if (String(form.get("roomId") || "") !== (rack.roomId || "")) {
+      if (!requireEdit("all")) return;
+      await updateRoomFrom(topology => {
+        Object.assign(topology.racks.find(item => item.id === rackID), next);
+        assignRoom(topology, "racks", rackID, String(form.get("roomId") || ""));
+      });
+      return;
+    }
     await updateFrom(() => api.updateRack(state.topology.id, next), true, "Rack updated");
   });
   document.getElementById("delete-rack").addEventListener("click", () => deleteRack(rack));
@@ -1126,6 +1248,7 @@ function renderDeviceInspector(deviceID) {
     <div class="metric-grid"><span>HEIGHT<b>${device.faceplate.unitsU}U</b></span><span>PORTS<b>${device.ports.length}</b></span><span>PATCHED<b>${connected}</b></span><span>LOCATION<b>${escapeHTML(location)}</b></span></div>
     ${physicalPanelMarkup}
     <form id="device-inspector-form" class="inspector-form">
+      ${rack ? `<p>ROOM · ${escapeHTML(state.topology.rooms?.find(room => room.id === rack.roomId)?.name || "Unassigned")} (inherited from rack)</p>` : roomSelectMarkup(device.roomId)}
       <fieldset class="device-metadata-block"><legend>IDENTITY</legend>
         <label><span>DISPLAY NAME</span><input name="name" maxlength="120" value="${escapeHTML(device.name)}" required></label>
         <label><span>MODEL</span><input name="model" maxlength="120" value="${escapeHTML(device.model)}"></label>
@@ -1195,6 +1318,14 @@ function renderDeviceInspector(deviceID) {
       next.rackReversed = form.get("rackReversed") === "reversed";
     }
     next.rackDisplay = String(form.get("rackDisplay") || "");
+    if (!rack && String(form.get("roomId") || "") !== (device.roomId || "")) {
+      if (!requireEdit("all")) return;
+      await updateRoomFrom(topology => {
+        Object.assign(topology.devices.find(item => item.id === deviceID), next);
+        assignRoom(topology, "devices", deviceID, String(form.get("roomId") || ""));
+      });
+      return;
+    }
     await updateFrom(() => api.updateDevice(state.topology.id, next), true, "Device record updated");
   });
   document.getElementById("delete-device").addEventListener("click", () => deleteDevice(device));
@@ -1591,6 +1722,13 @@ function bindControls() {
   document.getElementById("navigator-toggle").addEventListener("click", toggleNavigator);
   document.querySelectorAll("[data-canvas-tool]").forEach((button) => button.addEventListener("click", () => selectCanvasTool(button.dataset.canvasTool)));
   document.getElementById("add-rack-button").addEventListener("click", openRackDialog);
+  document.getElementById("add-room-button").addEventListener("click", () => openRoomDialog());
+  document.getElementById("room-form").addEventListener("submit", createRoom);
+  document.getElementById("add-room-here-button").addEventListener("click", () => {
+    const target = deviceContextTarget;
+    document.getElementById("device-context-menu").hidePopover();
+    if (target?.topologyID === state.topology.id && !target.rackId) openRoomDialog(target);
+  });
   document.getElementById("add-device-button").addEventListener("click", () => openDeviceDialog().catch(showError));
   document.getElementById("add-server-button").addEventListener("click", openStaticServerDialog);
   document.getElementById("add-patch-panel-button").addEventListener("click", () => openPatchPanelDialog().catch(showError));
@@ -1818,12 +1956,12 @@ async function saveNow() {
 }
 
 async function saveTopologySnapshot(submittedVersion) {
-  if (!state.topology || canvas.drag || canvas.rackDrag || pendingPlacements.size) return false;
+  if (!state.topology || canvas.drag || canvas.rackDrag || canvas.roomDrag || pendingPlacements.size) return false;
   const topologyID = state.topology.id;
   try {
     const topology = await api.replaceTopology(structuredClone(state.topology));
     receiveTopology(topology, { submittedVersion });
-    return !pendingPlacements.size && !canvas.drag && !canvas.rackDrag;
+    return !pendingPlacements.size && !canvas.drag && !canvas.rackDrag && !canvas.roomDrag;
   } catch (error) {
     if (isRevisionConflict(error)) {
       receiveTopology(await api.getTopology(topologyID));
@@ -2047,6 +2185,7 @@ function deviceTargetLabel(target) {
 function openDeviceContextMenu(target, screen) {
   const menu = document.getElementById("device-context-menu");
   deviceContextTarget = { ...target, topologyID: state.topology.id };
+  document.getElementById("add-room-here-button").hidden = Boolean(target.rackId);
   document.getElementById("device-context-location").textContent = deviceTargetLabel(target);
   menu.showPopover();
   menu.style.left = `${Math.max(8, Math.min(screen.x, window.innerWidth - menu.offsetWidth - 8))}px`;
@@ -2837,6 +2976,11 @@ function receiveTopology(topology, { remember = false, submittedVersion } = {}) 
     return;
   }
   if (topology.revision === state.topology.revision && drafts?.hasPending(topology.id)) return;
+  if (canvas.roomDrag) {
+    if (topology.revision === state.topology.revision) return;
+    canvas.cancelInteraction();
+    toast("Room move cancelled because the shared map changed");
+  }
   const gesture = canvas.drag || canvas.rackDrag;
   const preview = gesture?.snapshot?.id === topology.id
     ? [

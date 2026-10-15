@@ -44,8 +44,29 @@ func (t Topology) Validate() error {
 		return errors.New("topology revision must be positive")
 	}
 
+	roomIDs := make(map[string]struct{}, len(t.Rooms))
+	for _, room := range t.Rooms {
+		if err := room.Validate(); err != nil {
+			return err
+		}
+		if _, exists := roomIDs[room.ID]; exists {
+			return fmt.Errorf("duplicate room id %q", room.ID)
+		}
+		roomIDs[room.ID] = struct{}{}
+	}
+	validateRoomID := func(id string) error {
+		if id != "" {
+			if _, exists := roomIDs[id]; !exists {
+				return fmt.Errorf("unknown room %q", id)
+			}
+		}
+		return nil
+	}
 	rackByID := make(map[string]Rack, len(t.Racks))
 	for _, rack := range t.Racks {
+		if err := validateRoomID(rack.RoomID); err != nil {
+			return err
+		}
 		if err := rack.Validate(); err != nil {
 			return fmt.Errorf("validating rack %q: %w", rack.Name, err)
 		}
@@ -76,6 +97,9 @@ func (t Topology) Validate() error {
 	}
 	placements := make(map[string][]placement, len(t.Racks))
 	for _, device := range t.Devices {
+		if err := validateRoomID(device.RoomID); err != nil {
+			return err
+		}
 		if err := device.Validate(vlanIDs); err != nil {
 			return fmt.Errorf("validating device %q: %w", device.Name, err)
 		}

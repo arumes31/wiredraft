@@ -32,6 +32,7 @@
       <button id="fit-button">FIT MAP</button>
       <button id="dual-face-all-button" type="button" aria-pressed="false" title="Show front and rear elevations for every rack" disabled>EXPAND ALL</button>
       <button id="add-rack-button">+ RACK</button>
+      <button id="add-room-button">+ ROOM</button>
       <button id="add-device-button">+ DEVICE</button>
       <button id="add-server-button">+ SERVER</button>
       <button id="add-patch-panel-button">+ PANEL</button>
@@ -274,6 +275,7 @@
   <div id="device-context-menu" class="canvas-context-menu" popover="manual" aria-label="Add hardware at this position">
     <p id="device-context-location"></p>
     <button type="button" id="add-device-here-button">ADD DEVICE HERE</button>
+    <button type="button" id="add-room-here-button">ADD ROOM HERE</button>
   </div>
 
   <dialog id="device-dialog" class="panel-dialog" aria-labelledby="device-dialog-title">
@@ -295,6 +297,17 @@
       </div>
       <div id="catalog-profile-summary" class="catalog-profile-summary"></div>
       <footer><button type="button" id="catalog-import-button" class="secondary">IMPORT PROFILE</button><button type="button" class="secondary" data-close="device-dialog">CANCEL</button><button value="install" class="primary">PLACE DEVICE</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="room-dialog" class="panel-dialog" aria-labelledby="room-dialog-title">
+    <form id="room-form">
+      <header><div><p class="eyebrow">TOPOLOGY AREA</p><h2 id="room-dialog-title">ADD ROOM</h2></div><button type="button" class="dialog-close" data-close="room-dialog" aria-label="Close room dialog">×</button></header>
+      <label><span>ROOM NAME</span><input name="name" maxlength="120" required placeholder="Server room"></label>
+      <div class="form-grid"><label><span>BUILDING</span><input name="building" maxlength="120"></label><label><span>FLOOR</span><input name="floor" maxlength="120"></label></div>
+      <label><span>OUTLINE COLOR</span><input name="color" type="color" value="#42d9c8"></label>
+      <p class="dialog-note">Assign racks and free devices in the room inspector. Drag the room header to move its contents together.</p>
+      <footer><button type="button" class="secondary" data-close="room-dialog">CANCEL</button><button class="primary">ADD ROOM</button></footer>
     </form>
   </dialog>
 

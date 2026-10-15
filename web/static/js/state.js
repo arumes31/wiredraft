@@ -18,6 +18,7 @@ export class AppState extends EventTarget {
     this.deviceFaceplateFaces = new Map();
     this.dualFaceRackIDs = new Set();
     this.automaticDualFaceRackIDs = new Set();
+    this.collapsedRoomIDs = new Set();
     this.history = [];
     this.future = [];
   }
@@ -25,6 +26,7 @@ export class AppState extends EventTarget {
   /** Replace the map snapshot and retain local views only for live entities. */
   setTopology(topology, { remember = false } = {}) {
     if (this.topology?.id !== topology?.id) {
+      this.collapsedRoomIDs = new Set();
       this.dualFaceRackIDs = new Set();
       this.automaticDualFaceRackIDs = new Set();
     }
@@ -77,6 +79,12 @@ export class AppState extends EventTarget {
 
   rackFace(rackID) {
     return this.rackFaces.get(rackID) === "rear" ? "rear" : "front";
+  }
+
+  setRoomCollapsed(roomID, collapsed) {
+    if (collapsed) this.collapsedRoomIDs.add(roomID);
+    else this.collapsedRoomIDs.delete(roomID);
+    this.emit("room-view");
   }
 
   setRackFace(rackID, face) {
@@ -165,6 +173,7 @@ export class AppState extends EventTarget {
     const { type, id } = this.selection;
     let exists = false;
     if (type === "rack") exists = (this.topology.racks || []).some((item) => item.id === id);
+    if (type === "room") exists = (this.topology.rooms || []).some((item) => item.id === id);
     if (type === "device") exists = this.topology.devices.some((item) => item.id === id);
     if (type === "link") exists = this.topology.links.some((item) => item.id === id);
     if (type === "port") exists = this.topology.devices.some((device) => device.ports.some((item) => item.id === id));

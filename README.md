@@ -129,6 +129,10 @@ The published runtime image is `FROM scratch`, contains only the statically link
 
 ### Rack and hardware planning
 
+Choose **All unlocked → + Room**, or right-click an empty canvas position and choose **Add room here**, to create a room with a name, building, floor and outline color. Select its racks and free devices in the room inspector, then choose **Update room**. Rack-mounted devices inherit their rack's room. You can also change room assignment in a rack or free device's inspector; equipment created by right-clicking inside a room joins it automatically.
+
+Drag a room's header to move its equipment together. Its outline grows to contain its members, including dual rack elevations. The header arrow or **Collapse room** hides the contents and shows bundled external cables; click a bundle to trace its cables and reveal the equipment. Double-click the header to expand and fit the room. Collapse is local to the session and works in read-only mode. Room changes save immediately and support undo/redo. **Remove room** keeps its equipment and cables. Rooms are included in JSON backups and diagram exports.
+
 Racks open in **Dual** view automatically when equipment is visible on both sides, including servers with front and rear panels. You can still collapse a rack manually; live refreshes keep that choice. A newly occupied second side opens automatically again.
 
 For hardware installed backwards, select the device and set **Physical mounting → Installation orientation → Reversed**, then **Update device record**. The hardware panels and socket positions swap while rack allocation, port IDs and cable connections are preserved. The orientation is saved with the device and included in exports.

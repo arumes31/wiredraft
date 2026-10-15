@@ -477,6 +477,7 @@ func (s *Server) deleteRack(w http.ResponseWriter, request *http.Request) {
 			}
 			device.PositionX, device.PositionY = mountedDevicePosition(rack, *device)
 			device.RackID = ""
+			device.RoomID = rack.RoomID
 			device.RackUnit = 0
 			device.RackFace = ""
 		}
