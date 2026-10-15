@@ -196,15 +196,17 @@ type FaceplateSpec struct {
 
 // Room groups racks and free equipment on the topology canvas.
 type Room struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Building  string  `json:"building,omitempty"`
-	Floor     string  `json:"floor,omitempty"`
-	Color     string  `json:"color"`
-	PositionX float64 `json:"positionX"`
-	PositionY float64 `json:"positionY"`
-	Width     float64 `json:"width"`
-	Height    float64 `json:"height"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Building     string  `json:"building,omitempty"`
+	Floor        string  `json:"floor,omitempty"`
+	Color        string  `json:"color"`
+	PositionX    float64 `json:"positionX"`
+	PositionY    float64 `json:"positionY"`
+	Width        float64 `json:"width"`
+	Height       float64 `json:"height"`
+	Padding      float64 `json:"padding,omitempty"`
+	EquipmentGap float64 `json:"equipmentGap,omitempty"`
 }
 
 // Rack is a movable whole-unit equipment enclosure on the topology canvas.

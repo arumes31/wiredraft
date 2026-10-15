@@ -201,6 +201,37 @@ assert.equal(rackJitterEngine.state.history.length, 0);
 assert.equal(rackUpdates, 0, "a jitter-only rack click must not persist an update");
 
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+test("manual rack dragging preserves displayed placement and blocks overlap without moving neighbours", () => {
+  const rack = { id: "r", roomId: "room", positionX: 0, positionY: 0, heightU: 6 };
+  const neighbour = { id: "other", roomId: "room", positionX: 3000, positionY: 0, heightU: 6 };
+  const mounted = { id: "mounted", rackId: "r", positionX: 30, positionY: 100 };
+  let point = { x: 1100, y: 30 };
+  const engine = Object.create(CanvasEngine.prototype);
+  Object.assign(engine, {
+    canvas: { setPointerCapture() {}, hasPointerCapture: () => false, style: {} },
+    state: { topology: { racks: [rack, neighbour], devices: [mounted], rooms: [{ id: "room" }], links: [] },
+      history: [], future: [], select(type, id) { this.selection = { type, id }; }, emit() {} },
+    callbacks: {}, camera: { zoom: 1 }, activeTool: "select", selectedDevices: new Set(),
+    deviceBoxes: [], rackBoxes: [{ rack, x: 1000, y: 0, width: 750, height: 684 }, { rack: neighbour, x: 3000, y: 0, width: 750, height: 684 }],
+    invalidate() {}, eventPoint: () => point, screenToWorld: p => p,
+    hitRackFaceControl: () => null, hitAnnotation: () => null, hitPort: () => null, hitLink: () => null, hitDevice: () => null,
+    hitRack: () => ({ rack, x: 1000, y: 0, width: 750, height: 684 }), roomRectangles: () => [],
+  });
+  engine.pointerDown({ button: 0, pointerId: 1, preventDefault() {} });
+  point = { x: 1200, y: 30 };
+  engine.pointerMove({});
+  assert.equal(rack.positionX, 1100, "a visually shifted rack continues from its displayed origin");
+  assert.equal(mounted.positionX, 1130, "stored mounted offsets follow the actual rack displacement");
+  point = { x: 2700, y: 30 };
+  engine.pointerMove({});
+  assert.equal(rack.positionX, 1100, "an overlapping proposal keeps the last valid position");
+  assert.equal(neighbour.positionX, 3000);
+  assert.equal(engine.canvas.style.cursor, "not-allowed");
+  engine.pointerUp({ pointerId: 1 });
+  assert.equal(rack.roomId, "room");
+  assert.equal(rack.positionX, 1100);
+});
+
 let navigationFlush = null;
 let navigationFrames = 0;
 globalThis.requestAnimationFrame = (callback) => {

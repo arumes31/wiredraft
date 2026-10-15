@@ -73,7 +73,16 @@ test("right-click creates a room at the pointer and hardware inherits the room",
   await page.locator("#device-model").selectOption("EX2300-24T");
   await page.getByRole("button", { name: "PLACE DEVICE", exact: true }).click();
   await expect.poll(() => workspace.topology.devices.length).toBe(3);
+  await expect(page.locator("#device-dialog")).toBeHidden();
   expect(workspace.topology.devices.at(-1).roomId).toBe(workspace.topology.rooms[0].id);
+  await rightClick({ x: 1400, y: 1000 });
+  await page.locator("#add-rack-here-button").click();
+  await page.locator('#rack-form [name="name"]').fill("Room rack");
+  await page.locator('#rack-form [name="heightU"]').selectOption("6");
+  await page.locator('#rack-form button.primary').click();
+  await expect(page.locator("#rack-dialog")).toBeHidden();
+  await expect.poll(() => workspace.topology.racks.length).toBe(2);
+  expect(workspace.topology.racks.at(-1).roomId).toBe(workspace.topology.rooms[0].id);
 });
 
 test("room headers expand on double click and cancelled movement restores all members", async ({ page }) => {
@@ -146,7 +155,7 @@ test("rooms group equipment, move together, collapse locally, and persist with u
   const header = await page.evaluate(() => {
     const { canvas } = window.lockFixture;
     const box = canvas.roomRectangles()[0], rect = canvas.canvas.getBoundingClientRect();
-    return { x: rect.x + canvas.camera.x + (box.x + 300) * canvas.camera.zoom,
+    return { x: rect.x + canvas.camera.x + (box.x + box.width * .7) * canvas.camera.zoom,
       y: rect.y + canvas.camera.y + (box.y + 40) * canvas.camera.zoom, zoom: canvas.camera.zoom };
   });
   await page.mouse.move(header.x, header.y);

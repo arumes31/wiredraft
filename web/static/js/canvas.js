@@ -2361,7 +2361,8 @@ export class CanvasEngine {
           start: world,
           startScreen: screen,
           active: false,
-          original: { x: rack.rack.positionX, y: rack.rack.positionY },
+          original: { x: rack.x - (rack.primary === false ? RACK_WIDTH + RACK_FACE_GAP : 0), y: rack.y },
+          bounds: { width: rack.expanded ? RACK_WIDTH * 2 + RACK_FACE_GAP : RACK_WIDTH, height: rack.height },
           snapshot: structuredClone(this.state.topology),
           roomBoxes: this.state.topology.rooms?.length ? [...this.roomRectangles()] : [],
         };
@@ -2428,14 +2429,25 @@ export class CanvasEngine {
       if (!rack) return;
       const dx = world.x - this.rackDrag.start.x;
       const dy = world.y - this.rackDrag.start.y;
-      rack.positionX = Math.round((this.rackDrag.original.x + dx) / GRID) * GRID;
-      rack.positionY = Math.round((this.rackDrag.original.y + dy) / GRID) * GRID;
+      const positionX = Math.round((this.rackDrag.original.x + dx) / GRID) * GRID;
+      const positionY = Math.round((this.rackDrag.original.y + dy) / GRID) * GRID;
+      const bounds = this.rackDrag.bounds;
+      if (bounds && this.rackBoxes?.some(box => box.rack.id !== rack.id &&
+        positionX < box.x + box.width + RACK_FACE_GAP && positionX + bounds.width + RACK_FACE_GAP > box.x &&
+        positionY < box.y + box.height + RACK_FACE_GAP && positionY + bounds.height + RACK_FACE_GAP > box.y)) {
+        this.canvas.style.cursor = "not-allowed";
+        return;
+      }
+      this.canvas.style.cursor = "grabbing";
+      rack.positionX = positionX;
+      rack.positionY = positionY;
+      const originalRack = this.rackDrag.snapshot.racks.find(item => item.id === rack.id);
       for (const device of this.state.topology.devices) {
         if (device.rackId !== rack.id) continue;
         const original = this.rackDrag.snapshot.devices.find(item => item.id === device.id);
         if (!original) continue;
-        device.positionX = original.positionX + rack.positionX - this.rackDrag.original.x;
-        device.positionY = original.positionY + rack.positionY - this.rackDrag.original.y;
+        device.positionX = original.positionX + rack.positionX - originalRack.positionX;
+        device.positionY = original.positionY + rack.positionY - originalRack.positionY;
       }
       this.state.emit("topology");
       return;
@@ -2458,6 +2470,7 @@ export class CanvasEngine {
           x: Math.round((original.x + dx) / GRID) * GRID,
           y: Math.round((original.y + dy) / GRID) * GRID,
         };
+        if (original.device.rackId) device.roomId = roomForDevice(this.state.topology, original.device);
         device.rackId = "";
         device.rackUnit = 0;
         device.rackFace = "";
@@ -2533,7 +2546,7 @@ export class CanvasEngine {
         if (!device || device.rackId || wasDrag.invalidIDs.has(id)) continue;
         const { width, height } = faceplateDisplaySize(device);
         const point = { x: device.positionX + width / 2, y: device.positionY + height / 2 };
-        assignRoom(this.state.topology, "devices", id, roomAtPoint(wasDrag.roomBoxes, point), { snap: true });
+        if (!device.roomId) assignRoom(this.state.topology, "devices", id, roomAtPoint(wasDrag.roomBoxes, point));
       }
       this.state.emit("layout");
     }
@@ -2554,7 +2567,7 @@ export class CanvasEngine {
     } else if (this.rackDrag) {
       const rack = this.state.topology.racks.find((item) => item.id === this.state.selection?.id);
       if (this.rackDrag.active) {
-        if (rack) assignRoom(this.state.topology, "racks", rack.id, roomAtPoint(this.rackDrag.roomBoxes, this.pointerWorld), { snap: true });
+        if (rack && !rack.roomId) assignRoom(this.state.topology, "racks", rack.id, roomAtPoint(this.rackDrag.roomBoxes, this.pointerWorld));
         this.state.emit("layout");
         this.state.editLock?.recordChange(this.rackDrag.snapshot, this.state.topology);
         this.state.history.push(this.rackDrag.snapshot);

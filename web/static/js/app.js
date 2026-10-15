@@ -6,7 +6,7 @@ import { CanvasEngine } from "./canvas.js";
 import { nextCanvasTool } from "./canvas-interactions.js";
 import { defaultCableProperties } from "./cable-defaults.js";
 import { repatchEndpointLabel } from "./link-repatch.js";
-import { assignRoom, removeRoom, roomMembers, moveRoom } from "./rooms.js";
+import { arrangeRoom, assignRoom, leaveRoom, removeRoom, roomMembers, moveRoom, roomSpacing } from "./rooms.js";
 import {
   GRAPHICS_STORAGE_KEY, GraphicsMode, graphicsProfileSummary, normalizeGraphicsMode,
 } from "./graphics-quality.js";
@@ -139,6 +139,7 @@ let pendingAnnotationPoint = null;
 let pendingRepatch = null;
 let pendingRackPlacement = null;
 let pendingDeviceTarget = null;
+let pendingRackTarget = null;
 let deviceContextTarget = null;
 let pendingRoomPoint = null;
 let catalogModulePromise = null;
@@ -1009,8 +1010,19 @@ async function handlePlanCommentAction(event) {
   toast(deleteID ? "Comment removed from plan" : thread?.resolved ? "Comment reopened" : "Comment resolved");
 }
 
+/** Offer room assignment and a deliberate exit for equipment already in a room. */
 function roomSelectMarkup(roomID = "") {
-  return `<label><span>ROOM ASSIGNMENT</span><select name="roomId"><option value="">Unassigned</option>${(state.topology.rooms || []).map(room => `<option value="${escapeHTML(room.id)}" ${room.id === roomID ? "selected" : ""}>${escapeHTML(room.name)}</option>`).join("")}</select></label>`;
+  return `<label><span>ROOM ASSIGNMENT</span><select name="roomId"><option value="">Unassigned</option>${(state.topology.rooms || []).map(room => `<option value="${escapeHTML(room.id)}" ${room.id === roomID ? "selected" : ""}>${escapeHTML(room.name)}</option>`).join("")}</select></label>${roomID ? '<button id="leave-room" type="button">MOVE OUT OF ROOM</button>' : ""}`;
+}
+
+/** Bind an explicit room exit without applying other unsaved inspector edits. */
+function bindRoomExit(collection, id) {
+  document.getElementById("leave-room")?.addEventListener("click", async () => {
+    if (await updateRoomFrom(topology => leaveRoom(topology, collection, id))) {
+      canvas.fit();
+      toast("Moved out of room · Undo is available");
+    }
+  });
 }
 
 /** Apply the room intent and persist it together, after earlier writes have settled. */
@@ -1051,7 +1063,8 @@ async function createRoom(event) {
   const form = new FormData(event.currentTarget);
   const room = { id: crypto.randomUUID(), name: String(form.get("name")).trim(), building: String(form.get("building")).trim(),
     floor: String(form.get("floor")).trim(), color: String(form.get("color")),
-    positionX: Math.round(pendingRoomPoint.x), positionY: Math.round(pendingRoomPoint.y), width: 1800, height: 1200 };
+    positionX: Math.round(pendingRoomPoint.x), positionY: Math.round(pendingRoomPoint.y), width: 1800, height: 1200,
+    padding: roomSpacing({}).padding, equipmentGap: roomSpacing({}).gap };
   if (!room.name) return;
   const button = event.currentTarget.querySelector("button.primary");
   if (button.disabled) return;
@@ -1072,6 +1085,7 @@ function renderRoomInspector(roomID) {
   if (!room) return;
   const members = roomMembers(state.topology, roomID);
   const collapsed = state.collapsedRoomIDs.has(roomID);
+  const spacing = roomSpacing(room);
   const memberRows = (items, collection) => items.map(item => {
     const other = state.topology.rooms?.find(candidate => candidate.id === item.roomId && candidate.id !== roomID);
     return `<label class="check-row"><input type="checkbox" name="${collection}" value="${escapeHTML(item.id)}" ${item.roomId === roomID ? "checked" : ""}><span>${escapeHTML(item.name)}${other ? ` · ${escapeHTML(other.name)}` : ""}</span></label>`;
@@ -1085,14 +1099,27 @@ function renderRoomInspector(roomID) {
       <label><span>FLOOR</span><input name="floor" maxlength="120" value="${escapeHTML(room.floor || "")}"></label>
       <label><span>OUTLINE COLOR</span><input name="color" type="color" value="${escapeHTML(room.color)}"></label>
       <div class="room-size-fields"><label><span>MINIMUM WIDTH</span><input name="width" type="number" min="600" max="100000" required value="${room.width}"></label><label><span>MINIMUM HEIGHT</span><input name="height" type="number" min="300" max="100000" required value="${room.height}"></label></div>
+      <div class="room-size-fields"><label><span>WALL CLEARANCE</span><input name="padding" type="number" min="10" max="2000" step="10" required value="${spacing.padding}"></label><label><span>AUTO-ARRANGE GAP</span><input name="equipmentGap" type="number" min="90" max="2000" step="10" required value="${spacing.gap}"></label></div>
+      <button id="arrange-room" type="button">ARRANGE EQUIPMENT</button>
+      <p class="room-help">Arrange puts racks in a row and free devices below, using the spacing above and visible rack faces. Values are canvas units. Other changes apply with Update room.</p>
       <fieldset class="device-metadata-block"><legend>RACKS</legend><div class="checklist">${memberRows(state.topology.racks || [], "racks") || "No racks yet"}</div></fieldset>
       <fieldset class="device-metadata-block"><legend>FREE DEVICES</legend><div class="checklist">${memberRows(state.topology.devices.filter(device => !device.rackId), "devices") || "No free devices"}</div></fieldset>
-      <p class="room-help">Drop racks or free devices into a room to assign and snap them into place. Mounted devices inherit their rack's room. The outline fits all members, keeping the minimum size above.</p>
+      <p class="room-help">New equipment snaps into the room. Drag existing members freely: their room assignment and manual positions stay unchanged, and the outline grows to fit. Use Move out of room in the equipment inspector to leave. Mounted devices follow their rack.</p>
       <div class="inspector-actions"><button class="primary">UPDATE ROOM</button><button type="button" id="delete-room" class="danger">REMOVE ROOM</button></div>
       <p class="room-help">Removing the room keeps its equipment and cables. Undo is available.</p>
     </form>`;
   document.getElementById("toggle-room").addEventListener("click", () => state.setRoomCollapsed(roomID, !state.collapsedRoomIDs.has(roomID)));
   document.getElementById("focus-room").addEventListener("click", () => canvas.focusRoom(roomID));
+  document.getElementById("arrange-room").addEventListener("click", async () => {
+    const form = document.getElementById("room-inspector-form");
+    if (!form.reportValidity()) return;
+    const spacing = { padding: Number(form.elements.padding.value), equipmentGap: Number(form.elements.equipmentGap.value) };
+    const rackWidths = new Map(canvas.rackRectangles().map(box => [box.rack.id, box.width]));
+    if (await updateRoomFrom(topology => {
+      Object.assign(topology.rooms.find(item => item.id === roomID), spacing);
+      arrangeRoom(topology, roomID, rackWidths);
+    })) { canvas.focusRoom(roomID); toast("Room equipment arranged · Undo is available"); }
+  });
   document.getElementById("delete-room").addEventListener("click", async () => {
     if (!requireEdit("all")) return;
     if (await updateRoomFrom(topology => removeRoom(topology, roomID))) { state.select(null, null); toast("Room removed · Equipment and cables kept · Undo is available"); }
@@ -1105,7 +1132,8 @@ function renderRoomInspector(roomID) {
     if (!name) return;
     if (await updateRoomFrom(topology => {
       Object.assign(topology.rooms.find(item => item.id === roomID), { name, building: String(form.get("building")).trim(), floor: String(form.get("floor")).trim(),
-        color: String(form.get("color")), width: Number(form.get("width")), height: Number(form.get("height")) });
+        color: String(form.get("color")), width: Number(form.get("width")), height: Number(form.get("height")),
+        padding: Number(form.get("padding")), equipmentGap: Number(form.get("equipmentGap")) });
       for (const collection of ["racks", "devices"]) {
         const selected = new Set(form.getAll(collection));
         for (const item of topology[collection] || []) {
@@ -1118,6 +1146,7 @@ function renderRoomInspector(roomID) {
   });
 }
 
+/** Edit rack metadata, room membership and session-local elevation views. */
 function renderRackInspector(rackID) {
   const rack = (state.topology.racks || []).find((item) => item.id === rackID);
   if (!rack) return;
@@ -1155,6 +1184,7 @@ function renderRackInspector(rackID) {
     await updateFrom(() => api.updateRack(state.topology.id, next), true, "Rack updated");
   });
   document.getElementById("delete-rack").addEventListener("click", () => deleteRack(rack));
+  bindRoomExit("racks", rackID);
   document.querySelectorAll('input[name="rackViewFace"]').forEach((input) => {
     input.addEventListener("change", () => state.setRackFace(rack.id, input.value));
   });
@@ -1330,6 +1360,7 @@ function renderDeviceInspector(deviceID) {
     await updateFrom(() => api.updateDevice(state.topology.id, next), true, "Device record updated");
   });
   document.getElementById("delete-device").addEventListener("click", () => deleteDevice(device));
+  if (!rack) bindRoomExit("devices", deviceID);
   document.querySelectorAll('input[name="hardwarePanel"]').forEach((input) => {
     input.addEventListener("change", () => state.setDeviceFaceplateFace(device.id,
       rack ? installedHardwareFace(device, input.value) : input.value));
@@ -1651,6 +1682,7 @@ function renderRearPanelLinkInspector(link, source, target) {
   document.getElementById("delete-link").addEventListener("click", () => deleteLink(link));
 }
 
+/** Connect workspace actions, creation dialogs and keyboard-accessible context menus. */
 function bindControls() {
   document.getElementById("inventory-search").addEventListener("input", renderNavigator);
   document.getElementById("duplicate-topology-button").addEventListener("click", openDuplicateTopologyDialog);
@@ -1723,7 +1755,12 @@ function bindControls() {
   });
   document.getElementById("navigator-toggle").addEventListener("click", toggleNavigator);
   document.querySelectorAll("[data-canvas-tool]").forEach((button) => button.addEventListener("click", () => selectCanvasTool(button.dataset.canvasTool)));
-  document.getElementById("add-rack-button").addEventListener("click", openRackDialog);
+  document.getElementById("add-rack-button").addEventListener("click", () => openRackDialog());
+  document.getElementById("add-rack-here-button").addEventListener("click", () => {
+    const target = deviceContextTarget;
+    document.getElementById("device-context-menu").hidePopover();
+    if (target && !target.rackId) openRackDialog(target);
+  });
   document.getElementById("add-room-button").addEventListener("click", () => openRoomDialog());
   document.getElementById("room-form").addEventListener("submit", createRoom);
   document.getElementById("add-room-here-button").addEventListener("click", () => {
@@ -1784,6 +1821,7 @@ function bindControls() {
     if (!deviceMenu.contains(event.target)) deviceMenu.hidePopover();
   });
   elements["rack-form"].addEventListener("submit", installRack);
+  elements["rack-dialog"].addEventListener("close", () => { pendingRackTarget = null; });
   const rackColorSource = document.getElementById("rack-color-source");
   const rackColorInput = elements["rack-form"].elements.namedItem("color");
   rackColorSource.addEventListener("change", () => {
@@ -2158,7 +2196,10 @@ function closeExportMenu() {
   elements["export-menu"].querySelector("summary")?.focus();
 }
 
-function openRackDialog() {
+/** Open rack creation at the chosen canvas point or at the usual toolbar position. */
+function openRackDialog(target = null) {
+  if (!requireEdit("all") || (target && target.topologyID !== state.topology.id)) return;
+  pendingRackTarget = target;
   const racks = state.topology?.racks || [];
   const source = document.getElementById("rack-color-source");
   source.replaceChildren(new Option("Choose a rack…", ""), ...racks.map((rack) =>
@@ -2167,18 +2208,37 @@ function openRackDialog() {
   elements["rack-dialog"].showModal();
 }
 
+/** Create a rack at the requested point, arranging new room members once. */
 async function installRack(event) {
   event.preventDefault();
+  if (!requireEdit("all")) return;
+  const target = pendingRackTarget, topologyID = state.topology.id;
   const form = new FormData(event.currentTarget);
   const index = (state.topology.racks || []).length;
   const rack = {
-    id: "", name: String(form.get("name")), heightU: Number(form.get("heightU")),
-    color: String(form.get("color")), positionX: 80 + index * 900,
-    positionY: 80,
+    id: crypto.randomUUID(), name: String(form.get("name")), heightU: Number(form.get("heightU")),
+    color: String(form.get("color")), positionX: Math.round(target?.x ?? 80 + index * 900),
+    positionY: Math.round(target?.y ?? 80),
   };
-  await updateFrom(() => api.createRack(state.topology.id, rack), true, "Rack placed");
-  elements["rack-dialog"].close();
-  requestAnimationFrame(() => canvas.fit());
+  const button = event.currentTarget.querySelector("button.primary");
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const topology = await updateFrom(() => {
+      if (state.topology.id !== topologyID || (target && target.topologyID !== topologyID)) throw new Error("The map changed. Choose the rack position again.");
+      if (target?.roomId) {
+        const placement = structuredClone(state.topology);
+        placement.racks ||= []; placement.racks.push(rack);
+        assignRoom(placement, "racks", rack.id, target.roomId);
+      }
+      return api.createRack(topologyID, rack);
+    }, true, "Rack placed");
+    if (topology) {
+      elements["rack-dialog"].close();
+      state.select("rack", rack.id);
+      requestAnimationFrame(() => canvas.fit());
+    }
+  } finally { button.disabled = false; }
 }
 
 function deviceTargetLabel(target) {
@@ -2187,10 +2247,12 @@ function deviceTargetLabel(target) {
     : `CANVAS · X ${Math.round(target.x)} · Y ${Math.round(target.y)}`;
 }
 
+/** Open the creation menu at the requested location, limiting rack slots to devices. */
 function openDeviceContextMenu(target, screen) {
   const menu = document.getElementById("device-context-menu");
   deviceContextTarget = { ...target, topologyID: state.topology.id };
   document.getElementById("add-room-here-button").hidden = Boolean(target.rackId);
+  document.getElementById("add-rack-here-button").hidden = Boolean(target.rackId);
   document.getElementById("device-context-location").textContent = deviceTargetLabel(target);
   menu.showPopover();
   menu.style.left = `${Math.max(8, Math.min(screen.x, window.innerWidth - menu.offsetWidth - 8))}px`;

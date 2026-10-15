@@ -35,7 +35,8 @@ test("collapsed rooms hide equipment, preserve cables and export labeled aggrega
   assert.equal(engine.rackRectangles().length, 0);
   assert.equal(engine.deviceRectangles().length, 1);
   assert.equal(engine.roomBundles.length, 1);
-  assert.equal(engine.hitRoom({ x: 100, y: 30 }).room.id, "room");
+  const room = engine.roomRectangles()[0];
+  assert.equal(engine.hitRoom({ x: room.x + 100, y: room.y + 30 }).room.id, "room");
   assert.equal(engine.portGeometry().some(port => port.device.id === device.id), false);
   const svg = buildSVGDocument(state.topology, engine);
   assert.match(svg, /data-entity="room"/);
