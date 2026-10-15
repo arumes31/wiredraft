@@ -58,6 +58,7 @@ test("diagnostics show build details and PDF exports multiple pages", async ({ p
   await expect(page.locator("#diagnostics-content")).toContainText("fixture-build");
   await expect(page.locator("#diagnostics-content")).not.toContainText("example.test");
   await page.locator('[data-close="about-dialog"]').last().click();
+  await expect(page.locator("#account-menu")).not.toHaveAttribute("open", "");
   await page.locator("#export-menu summary").click();
   await page.locator("#pdf-tiled-button").click();
   const download = page.waitForEvent("download");

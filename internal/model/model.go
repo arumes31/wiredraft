@@ -194,8 +194,22 @@ type FaceplateSpec struct {
 	InventoryRevision uint32 `json:"inventoryRevision,omitempty"`
 }
 
+// Room groups racks and free equipment on the topology canvas.
+type Room struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Building  string  `json:"building,omitempty"`
+	Floor     string  `json:"floor,omitempty"`
+	Color     string  `json:"color"`
+	PositionX float64 `json:"positionX"`
+	PositionY float64 `json:"positionY"`
+	Width     float64 `json:"width"`
+	Height    float64 `json:"height"`
+}
+
 // Rack is a movable whole-unit equipment enclosure on the topology canvas.
 type Rack struct {
+	RoomID    string  `json:"roomId,omitempty"`
 	ID        string  `json:"id"`
 	Name      string  `json:"name"`
 	PositionX float64 `json:"positionX"`
@@ -227,6 +241,7 @@ type DeviceLocation struct {
 
 // Device is a rack-mounted or edge network appliance.
 type Device struct {
+	RoomID       string         `json:"roomId,omitempty"`
 	ID           string         `json:"id"`
 	Name         string         `json:"name"`
 	Category     DeviceCategory `json:"category"`
@@ -423,6 +438,7 @@ type ShareGrant struct {
 
 // Topology is the persisted root aggregate.
 type Topology struct {
+	Rooms              []Room              `json:"rooms,omitempty"`
 	ID                 string              `json:"id"`
 	Name               string              `json:"name"`
 	OrganizationID     string              `json:"organizationId"`

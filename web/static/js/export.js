@@ -515,6 +515,14 @@ export function buildSVGDocument(topology, engine) {
   const parts = [`<svg id="topology-map" data-export-version="2" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">`,
     `<style>text{font-family:'DIN Condensed',sans-serif}.name{font-size:14px;font-weight:bold;letter-spacing:1px}.model{font-size:9px}.port{fill:#091012;stroke:#60757a;stroke-width:1}.port-label{font-family:'Bahnschrift Condensed',sans-serif;font-weight:700;text-anchor:middle;dominant-baseline:middle}</style>`,
     `<rect width="100%" height="100%" fill="#0a0f11"/>`];
+  for (const box of engine.roomRectangles?.() || []) {
+    const x = box.x + offsetX, y = box.y + offsetY;
+    parts.push(`<g data-entity="room" data-room-id="${escapeXML(box.room.id)}"><title>${escapeXML(box.room.name)}</title><rect x="${x}" y="${y}" width="${box.width}" height="${box.height}" fill="#0c2023" stroke="${escapeXML(box.room.color)}" stroke-width="2"/><rect x="${x}" y="${y}" width="${box.width}" height="100" fill="#142e33"/><text x="${x + 24}" y="${y + 42}" fill="#e2f4f2" font-size="28">${escapeXML(box.room.name)}</text><text x="${x + 24}" y="${y + 76}" fill="#8eb9bd" font-size="18">${escapeXML([box.room.building, box.room.floor].filter(Boolean).join(" · "))}</text>${box.collapsed ? `<text x="${x + 24}" y="${y + 143}" fill="#8eb9bd" font-size="18">${box.rackCount} racks · ${box.deviceCount} devices</text>` : ""}</g>`);
+  }
+  for (const { from, to, linkIDs } of engine.roomBundles || []) {
+    const middle = (from.x + to.x) / 2 + offsetX;
+    parts.push(`<g data-layer="room-connection"><path d="M${from.x + offsetX} ${from.y + offsetY}H${middle}V${to.y + offsetY}H${to.x + offsetX}" fill="none" stroke="#42d9c8" stroke-width="2"/><text x="${middle}" y="${(from.y + to.y) / 2 + offsetY - 12}" fill="#c6f5ef" text-anchor="middle" font-size="20">${linkIDs.length} cables</text></g>`);
+  }
   for (const box of rackBoxes) {
     const x = box.x + offsetX; const y = box.y + offsetY;
     parts.push(`<g data-entity="rack" data-rack-id="${escapeXML(box.rack.id)}" data-name="${escapeXML(box.rack.name)}"><title>${escapeXML(box.rack.name)} · ${box.rack.heightU}U rack</title>`);

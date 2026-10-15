@@ -13,6 +13,26 @@ function topology() {
   };
 }
 
+test("room collapse is a local view, survives refreshes, and resets for another map", () => {
+  const state = new AppState();
+  const source = { ...topology(), rooms: [{ id: "room", name: "Office" }] };
+  state.setTopology(source);
+  state.select("room", "room");
+  state.setRoomCollapsed("room", true);
+  assert.equal(state.history.length, 0);
+  assert.deepEqual(state.topology, source);
+  state.setTopology(source);
+  assert.equal(state.collapsedRoomIDs.has("room"), true);
+  assert.equal(state.selection.type, "room");
+  state.commit(topology => { topology.rooms = []; });
+  state.ensureSelection();
+  assert.equal(state.selection, null);
+  state.undo();
+  assert.equal(state.topology.rooms.length, 1);
+  state.setTopology({ ...source, id: "another-map" });
+  assert.equal(state.collapsedRoomIDs.size, 0);
+});
+
 test("topology state clones inputs and reports typed changes", () => {
   const state = new AppState();
   const changes = [];

@@ -116,7 +116,8 @@ test("container and release builds embed minified modules before Go compilation"
   assert.match(dockerfile, /^FROM --platform=\$BUILDPLATFORM node:24\.[^\s]+@sha256:[0-9a-f]{64} AS frontend/m);
   assert.match(dockerfile, /RUN npm ci --ignore-scripts/);
   assert.match(dockerfile, /RUN npm run minify:js/);
-  assert.match(dockerfile, /COPY --from=frontend \/app\/\.quality-data\/minified-js\/ \/app\/web\/static\/js\//);
+  assert.match(dockerfile, /FROM scratch AS minified-js\s+COPY --from=frontend \/app\/\.quality-data\/minified-js\/ \//);
+  assert.match(dockerfile, /COPY --from=minified-js \/ \/app\/web\/static\/js\//);
   assert.match(dockerfile, /rm -f web\/static\/js\/manifest\.json/);
   assert.ok(
     dockerfile.indexOf("COPY --from=frontend") < dockerfile.indexOf("go build"),
@@ -147,4 +148,20 @@ test("container and release builds embed minified modules before Go compilation"
   assert.match(qualityWorkflow, /served_bytes >= source_bytes/);
   assert.match(localCI, /Container health and minified assets/);
   assert.match(localCI, /Container app\.js does not match the locked minification output/);
+});
+
+test("every image workflow prepares and consumes the minified module tree before building", async () => {
+  for (const [file, job] of [["supply-chain.yml", "container"], ["quality.yml", "container-smoke"], ["security.yml", "container"]]) {
+    const workflow = await readFile(`.github/workflows/${file}`, "utf8");
+    const imageJob = workflow.split(`\n  ${job}:`)[1]?.split(/\n  [a-z][\w-]*:/)[0];
+    assert.ok(imageJob, `${file} must retain its image job`);
+    assert.match(imageJob, /actions\/setup-node@[0-9a-f]{40}/);
+    assert.match(imageJob, /package-manager-cache: false/);
+    assert.match(imageJob, /npm ci --ignore-scripts/);
+    assert.match(imageJob, /xargs -0 -n1 node --check/);
+    const prepare = imageJob.indexOf("npm run minify:js");
+    const build = imageJob.indexOf("uses: docker/build-push-action@");
+    assert.ok(prepare >= 0 && prepare < build, `${file} must minify before Docker starts`);
+    assert.match(imageJob, /build-contexts: minified-js=\.\/\.quality-data\/minified-js/);
+  }
 });

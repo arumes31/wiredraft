@@ -4,7 +4,10 @@ import { faceplateDisplaySize } from "./faceplate-scene.js";
 
 /** Validate the full device height again at creation time, without displacing hardware. */
 export function newDevicePlacement(topology, device, target) {
-  if (!target.rackId) return { positionX: target.x, positionY: target.y };
+  if (!target.rackId) {
+    if (target.roomId && !topology.rooms?.some(room => room.id === target.roomId)) throw new Error("This room was removed. Choose another position.");
+    return { positionX: target.x, positionY: target.y, ...(target.roomId ? { roomId: target.roomId } : {}) };
+  }
   const { rackId, rackUnit } = target;
   const rackFace = normalizeRackFace(target.rackFace);
   if (!isRackPlacementAvailable(topology, device, rackId, rackUnit, rackFace)) {

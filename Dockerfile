@@ -6,10 +6,14 @@ COPY scripts/minify-js.mjs scripts/minify-js.mjs
 COPY web/static/js web/static/js
 RUN npm run minify:js
 
+# CI overrides this stage with its prepared minified-js build context.
+FROM scratch AS minified-js
+COPY --from=frontend /app/.quality-data/minified-js/ /
+
 FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS builder
 WORKDIR /app
 COPY . .
-COPY --from=frontend /app/.quality-data/minified-js/ /app/web/static/js/
+COPY --from=minified-js / /app/web/static/js/
 ARG TARGETOS
 ARG TARGETARCH
 ARG WIREDRAFT_BUILD_REVISION=development

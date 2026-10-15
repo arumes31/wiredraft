@@ -21,6 +21,46 @@ function fixture(rackDisplay) {
   return { engine, state, device };
 }
 
+test("collapsed rooms hide equipment, preserve cables and export labeled aggregate connections", () => {
+  const { engine, state, device } = fixture();
+  state.topology.rooms = [{ id: "room", name: "Server room", positionX: 0, positionY: 0, width: 1800, height: 1200, color: "#42d9c8" }];
+  state.topology.racks[0].roomId = "room";
+  const other = structuredClone(device);
+  Object.assign(other, { id: "other", rackId: "", rackUnit: 0, positionX: 3000, positionY: 100 });
+  other.ports.forEach((port, index) => { port.id = `other-${index}`; port.deviceId = "other"; });
+  state.topology.devices.push(other);
+  state.topology.links.push({ id: "external", sourcePortId: device.ports[0].id, targetPortId: other.ports[0].id, cableType: "Cat6", vlanIds: [] });
+  const original = structuredClone(state.topology);
+  state.setRoomCollapsed("room", true); engine.sceneDirty = true;
+  assert.equal(engine.rackRectangles().length, 0);
+  assert.equal(engine.deviceRectangles().length, 1);
+  assert.equal(engine.roomBundles.length, 1);
+  assert.equal(engine.hitRoom({ x: 100, y: 30 }).room.id, "room");
+  assert.equal(engine.portGeometry().some(port => port.device.id === device.id), false);
+  const svg = buildSVGDocument(state.topology, engine);
+  assert.match(svg, /data-entity="room"/);
+  assert.match(svg, /data-layer="room-connection"/);
+  assert.doesNotMatch(svg, /data-device-id="server"/);
+  assert.deepEqual(state.topology, original);
+  state.setTrace(["external"]); engine.sceneDirty = true;
+  assert.equal(engine.rackRectangles().length, 1, "trace reveals the room's rack");
+  assert.equal(engine.deviceRectangles().length, 3, "both rack faces are visible again");
+});
+
+test("collapsed room connections remain visible when the remote rack face is hidden", () => {
+  const { engine, state, device } = fixture("mounted");
+  const free = structuredClone(device);
+  Object.assign(free, { id: "free", roomId: "room", rackId: "", rackUnit: 0, positionX: 2100, positionY: 200 });
+  free.ports.forEach((port, index) => { port.id = `free-${index}`; port.deviceId = "free"; });
+  state.topology.rooms = [{ id: "room", name: "Office", positionX: 2000, positionY: 0, width: 1800, height: 1200, color: "#42d9c8" }];
+  state.topology.devices.push(free);
+  state.topology.links.push({ id: "external", sourcePortId: free.ports[0].id, targetPortId: device.ports[0].id, cableType: "Cat6", vlanIds: [] });
+  state.setRoomCollapsed("room", true); engine.sceneDirty = true;
+  assert.equal(engine.deviceRectangles().length, 0);
+  assert.equal(engine.roomBundles.length, 1, "the bundle reaches the rack's hidden-face marker");
+  assert.match(buildSVGDocument(state.topology, engine), /data-layer="room-connection"/);
+});
+
 test("servers show matching front and rear panels at the same U position", () => {
   const { engine, state, device } = fixture();
   const original = JSON.stringify(state.topology);
