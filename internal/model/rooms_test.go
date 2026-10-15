@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestRoomMembershipAndPersistence checks JSON room membership and rejects invalid room references.
 func TestRoomMembershipAndPersistence(t *testing.T) {
 	topology, err := NewDemo()
 	if err != nil {
@@ -61,6 +62,7 @@ func TestRoomMembershipAndPersistence(t *testing.T) {
 	}
 }
 
+// TestRoomSpacing checks default-compatible zero values, custom spacing and validation limits.
 func TestRoomSpacing(t *testing.T) {
 	t.Parallel()
 	id, err := NewID()

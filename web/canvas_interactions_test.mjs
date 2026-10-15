@@ -260,6 +260,44 @@ test("manual rack dragging preserves displayed placement and blocks overlap with
   assert.equal(rack.positionX, 1100);
 });
 
+for (const { name, moves, roomId, positionX } of [
+  { name: "a rejected move into a room", moves: [1100, 3200], positionX: 1000 },
+  { name: "only rejected moves", moves: [3200], positionX: 0 },
+  { name: "a rejected move into another room", moves: [2200, 7200], roomId: "first" },
+  { name: "an accepted room drop", moves: [2200], roomId: "first" },
+]) {
+  test(`rack room assignment follows the last accepted pointer after ${name}`, () => {
+    const rack = { id: "moving", positionX: 0, positionY: 0, heightU: 6 };
+    const neighbours = [3000, 7000].map((x, index) => ({ id: `other-${index}`, roomId: index ? "second" : "first",
+      positionX: x, positionY: 0, heightU: 6 }));
+    const rooms = [2000, 6000].map((x, index) => ({ id: index ? "second" : "first", positionX: x, positionY: 0, width: 3000, height: 1800 }));
+    let point = { x: 100, y: 30 }, saved;
+    const engine = Object.create(CanvasEngine.prototype);
+    Object.assign(engine, {
+      canvas: { setPointerCapture() {}, hasPointerCapture: () => false, style: {} },
+      state: { topology: { racks: [rack, ...neighbours], devices: [], rooms, links: [] }, history: [], future: [],
+        select(type, id) { this.selection = { type, id }; }, emit() {} },
+      callbacks: { onRackUpdate: item => { saved = item; } },
+      camera: { zoom: 1 }, activeTool: "select", selectedDevices: new Set(), deviceBoxes: [],
+      rackBoxes: neighbours.map(rack => ({ rack, x: rack.positionX, y: 0, width: 750, height: 684 })),
+      invalidate() {}, eventPoint: () => point, screenToWorld: p => p,
+      hitRackFaceControl: () => null, hitAnnotation: () => null, hitPort: () => null, hitLink: () => null, hitDevice: () => null,
+      hitRack: () => ({ rack, x: 0, y: 0, width: 750, height: 684 }),
+      roomRectangles: () => rooms.map(room => ({ room, x: room.positionX, y: 0, width: room.width, height: room.height })),
+    });
+    engine.pointerDown({ button: 0, pointerId: 1, preventDefault() {} });
+    for (const x of moves) {
+      point = { x, y: 30 };
+      engine.pointerMove({});
+    }
+    engine.pointerUp({ pointerId: 1 });
+    assert.equal(rack.roomId, roomId);
+    assert.equal(saved.roomId, roomId, "persist the same room as the accepted placement");
+    if (positionX !== undefined) assert.equal(rack.positionX, positionX);
+    assert.deepEqual(neighbours.map(rack => rack.positionX), [3000, 7000]);
+  });
+}
+
 let navigationFlush = null;
 let navigationFrames = 0;
 globalThis.requestAnimationFrame = (callback) => {

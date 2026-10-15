@@ -1057,6 +1057,7 @@ function openRoomDialog(point = null) {
   document.getElementById("room-dialog").showModal();
 }
 
+/** Create and save a room at the dialog's captured point with default equipment spacing. */
 async function createRoom(event) {
   event.preventDefault();
   if (!requireEdit("all") || pendingRoomPoint?.topologyID !== state.topology.id) return;
@@ -1086,6 +1087,7 @@ function renderRoomInspector(roomID) {
   const members = roomMembers(state.topology, roomID);
   const collapsed = state.collapsedRoomIDs.has(roomID);
   const spacing = roomSpacing(room);
+  /** Render assignment checkboxes, identifying equipment that belongs to another room. */
   const memberRows = (items, collection) => items.map(item => {
     const other = state.topology.rooms?.find(candidate => candidate.id === item.roomId && candidate.id !== roomID);
     return `<label class="check-row"><input type="checkbox" name="${collection}" value="${escapeHTML(item.id)}" ${item.roomId === roomID ? "checked" : ""}><span>${escapeHTML(item.name)}${other ? ` · ${escapeHTML(other.name)}` : ""}</span></label>`;

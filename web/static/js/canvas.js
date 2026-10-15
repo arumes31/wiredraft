@@ -2382,7 +2382,7 @@ export class CanvasEngine {
     }
   }
 
-  /** Update navigation, cabling or drag placement from the current pointer position. */
+  /** Update gestures, retaining the last accepted rack pointer when overlap blocks a move. */
   pointerMove(event) {
     this.checkEditGesture();
     this.invalidate();
@@ -2440,6 +2440,7 @@ export class CanvasEngine {
       this.canvas.style.cursor = "grabbing";
       rack.positionX = positionX;
       rack.positionY = positionY;
+      this.rackDrag.acceptedPointer = { ...world };
       const originalRack = this.rackDrag.snapshot.racks.find(item => item.id === rack.id);
       for (const device of this.state.topology.devices) {
         if (device.rackId !== rack.id) continue;
@@ -2522,7 +2523,7 @@ export class CanvasEngine {
     this.canvas.style.cursor = this.hitRepatchHandle(world) ? "grab" : faceControl || this.hoveredAnnotation || this.hoveredPort || this.hoveredLink || this.hoveredDevice ? "pointer" : this.draft ? "crosshair" : rackHeader ? "grab" : "default";
   }
 
-  /** Commit completed gestures, assigning free devices by their individual body centers. */
+  /** Commit gestures, assigning devices by body center and racks by their last accepted pointer. */
   pointerUp(event) {
     this.checkEditGesture();
     this.invalidate();
@@ -2566,7 +2567,9 @@ export class CanvasEngine {
     } else if (this.rackDrag) {
       const rack = this.state.topology.racks.find((item) => item.id === this.state.selection?.id);
       if (this.rackDrag.active) {
-        if (rack && !rack.roomId) assignRoom(this.state.topology, "racks", rack.id, roomAtPoint(this.rackDrag.roomBoxes, this.pointerWorld));
+        if (rack && !rack.roomId && this.rackDrag.acceptedPointer) {
+          assignRoom(this.state.topology, "racks", rack.id, roomAtPoint(this.rackDrag.roomBoxes, this.rackDrag.acceptedPointer));
+        }
         this.state.emit("layout");
         this.state.editLock?.recordChange(this.rackDrag.snapshot, this.state.topology);
         this.state.history.push(this.rackDrag.snapshot);

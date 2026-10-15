@@ -8,6 +8,7 @@ import (
 	"wiredraft/internal/model"
 )
 
+// TestRoomsPersistThroughTopologyAPI checks room spacing and membership survive an API round trip.
 func TestRoomsPersistThroughTopologyAPI(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
