@@ -44,12 +44,12 @@ func TestRoomMembershipAndPersistence(t *testing.T) {
 		func(top *Topology) { top.Rooms[0].Name = " " },
 		func(top *Topology) { top.Rooms[0].Color = "red" },
 	} {
-		copy, err := topology.Clone()
+		cloned, err := topology.Clone()
 		if err != nil {
 			t.Fatal(err)
 		}
-		change(&copy)
-		if copy.Validate() == nil {
+		change(&cloned)
+		if cloned.Validate() == nil {
 			t.Fatal("invalid room accepted")
 		}
 	}
