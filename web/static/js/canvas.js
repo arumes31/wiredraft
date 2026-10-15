@@ -2245,6 +2245,9 @@ export class CanvasEngine {
       return;
     }
     if (event.button !== 0) return;
+    // Selection can reveal native inspector inputs beneath the held pointer.
+    event.preventDefault();
+    this.canvas.focus?.({ preventScroll: true });
     const bundle = (this.roomBundles || []).find(({ from, to }) => {
       const middle = (from.x + to.x) / 2;
       return [{ x1: from.x, y1: from.y, x2: middle, y2: from.y },

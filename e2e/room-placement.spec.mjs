@@ -32,8 +32,13 @@ async function dragEquipment(page, type, id, target, cancel = false) {
     const screen = point => ({ x: rect.x + canvas.camera.x + point.x * zoom, y: rect.y + canvas.camera.y + point.y * zoom });
     return { start: screen(start), end: screen(target) };
   }, { type, id, target });
+  // A newly revealed color input under the pointer must not consume Escape in WebKit.
+  const nativeControl = cancel ? await page.addStyleTag({ content: `#selection-inspector input[type="color"] {
+    position: fixed; left: ${points.start.x - 20}px; top: ${points.start.y - 20}px; width: 100px; height: 40px;
+  }` }) : null;
   await page.mouse.move(points.start.x, points.start.y);
   await page.mouse.down();
+  if (cancel) await expect(page.locator("#selection-inspector")).toBeVisible();
   await page.mouse.move(points.end.x, points.end.y, { steps: 8 });
   if (cancel) {
     await expect.poll(() => page.evaluate(type => Boolean(window.lockFixture.canvas[type === "rack" ? "rackDrag" : "drag"]?.active), type)).toBe(true);
@@ -41,6 +46,7 @@ async function dragEquipment(page, type, id, target, cancel = false) {
     await expect.poll(() => page.evaluate(type => window.lockFixture.canvas[type === "rack" ? "rackDrag" : "drag"] === null, type)).toBe(true);
   }
   await page.mouse.up();
+  await nativeControl?.evaluate(style => style.remove());
 }
 
 test("racks and devices move to negative coordinates, persist, and cancel cleanly", async ({ page }) => {
