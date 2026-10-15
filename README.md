@@ -180,6 +180,8 @@ To create a rack, choose **All unlocked**, then **+ Rack**. Enter its name and c
 - Local password and TOTP authentication, optional single-tenant Microsoft Entra ID login, one-use recovery codes, opaque host-bound sessions, global user identities with multi-organization grants, and administrator management for users and organizations.
 - Strict JSON decoding, request size limits, same-origin and CSRF enforcement, security headers, structured logs, database transactions, and graceful shutdown.
 - Embedded native ES-module frontend with no runtime Node.js dependency; release builds minify modules before `go:embed` compilation.
+
+The GHCR publishing, container health, and image security workflows prepare and syntax-check the minified JavaScript tree before starting Docker. They pass that output through a [named build context](https://docs.docker.com/build/ci/github-actions/named-contexts/), so the image embeds those exact files. The container health check compares the served `app.js` with the prepared output. Standalone Docker builds generate the same module tree automatically.
 - Responsive controls, keyboard-visible focus, reduced-motion support, adaptive graphics quality, bounded frame rates, and suspended rendering for hidden canvases.
 
 ## Workspace guide
