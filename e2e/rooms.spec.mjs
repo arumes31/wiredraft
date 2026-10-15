@@ -12,6 +12,7 @@ test("room edits survive immediate equipment updates with autosave disabled", as
   await page.locator("#add-room-button").click();
   await page.locator('#room-form [name="name"]').fill("Office");
   await page.locator('#room-form button.primary').click();
+  await expect(page.locator("#room-dialog")).toBeHidden();
   await page.evaluate(() => window.lockFixture.state.select("device", "device-1"));
   await page.locator('#device-inspector-form [name="name"]').fill("Updated printer");
   await page.getByRole("button", { name: "UPDATE DEVICE RECORD" }).click();
