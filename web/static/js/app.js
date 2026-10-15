@@ -1654,6 +1654,7 @@ function bindControls() {
   document.getElementById("inventory-search").addEventListener("input", renderNavigator);
   document.getElementById("duplicate-topology-button").addEventListener("click", openDuplicateTopologyDialog);
   document.getElementById("about-button").addEventListener("click", async () => {
+    elements["account-menu"].open = false;
     try {
       const { showDiagnostics } = await import("./diagnostics.js");
       await showDiagnostics(api, { topology: state.topology, connection: document.getElementById("connection-status").dataset.state,
