@@ -1066,6 +1066,7 @@ async function createRoom(event) {
   toast("Room added · Assign equipment in the inspector");
 }
 
+/** Render room metadata, minimum dimensions, and equipment assignments. */
 function renderRoomInspector(roomID) {
   const room = state.topology.rooms?.find(item => item.id === roomID);
   if (!room) return;
@@ -1912,6 +1913,7 @@ async function openAdministration(section) {
   window.location.assign(`/admin.html#${section}`);
 }
 
+/** Toggle the navigator while keeping its reopen control and focus state accessible. */
 function toggleNavigator() {
   const collapsed = elements.workspace.classList.toggle("navigator-collapsed");
   const button = document.getElementById("navigator-toggle");

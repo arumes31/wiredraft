@@ -15,6 +15,7 @@ export class TopologyWriteQueue {
   }
 }
 
+/** Normalize optional placement fields before comparing or replaying a drag. */
 function position(item, collection) {
   return Object.fromEntries(placementFields[collection].map((field) => [field, field === "rackFace"
     ? (item?.rackId ? item.rackFace || "front" : "")

@@ -2334,7 +2334,6 @@ export class CanvasEngine {
         occupiedLandings: new Map(),
         snapshot: structuredClone(this.state.topology),
         roomBoxes: this.state.topology.rooms?.length ? [...this.roomRectangles()] : [],
-        offset: { x: world.x - device.x, y: world.y - device.y },
       };
       for (const selectedID of this.selectedDevices) {
         const selected = this.state.topology.devices.find((item) => item.id === selectedID);
@@ -2508,6 +2507,7 @@ export class CanvasEngine {
     this.canvas.style.cursor = this.hitRepatchHandle(world) ? "grab" : faceControl || this.hoveredAnnotation || this.hoveredPort || this.hoveredLink || this.hoveredDevice ? "pointer" : this.draft ? "crosshair" : rackHeader ? "grab" : "default";
   }
 
+  /** Commit completed gestures, assigning free devices by their individual body centers. */
   pointerUp(event) {
     this.checkEditGesture();
     this.invalidate();
@@ -2528,7 +2528,8 @@ export class CanvasEngine {
       for (const id of wasDrag.originals.keys()) {
         const device = this.state.topology.devices.find(item => item.id === id);
         if (!device || device.rackId || wasDrag.invalidIDs.has(id)) continue;
-        const point = { x: device.positionX + wasDrag.offset.x, y: device.positionY + wasDrag.offset.y };
+        const { width, height } = faceplateDisplaySize(device);
+        const point = { x: device.positionX + width / 2, y: device.positionY + height / 2 };
         assignRoom(this.state.topology, "devices", id, roomAtPoint(wasDrag.roomBoxes, point), { snap: true });
       }
       this.state.emit("layout");
@@ -2686,6 +2687,7 @@ export class CanvasEngine {
         ((this.draft || this.linkDrag || this.repatch) && !this.canEdit("cabling"))) this.cancelInteraction();
   }
 
+  /** Cancel the active gesture and optionally restore its previewed geometry. */
   cancelInteraction(restore = true) {
     if (restore && this.roomDrag) moveRoom(this.state.topology, this.roomDrag.id, -this.roomDrag.dx, -this.roomDrag.dy);
     this.roomDrag = null;

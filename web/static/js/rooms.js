@@ -30,6 +30,7 @@ export function roomAtPoint(boxes, point) {
     point.y >= box.y && point.y <= box.y + box.height)?.room.id || "";
 }
 
+/** Measure free device bodies or reserve both elevations of a rack for room placement. */
 function equipmentBounds(item, collection) {
   const size = collection === "racks" ? { ...rackBounds(item), width: RACK_WIDTH * 2 + RACK_FACE_GAP }
     : faceplateDisplaySize(item);

@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { mockLockWorkspace } from "./editor-lock-fixture.mjs";
 
+/** Open a room fixture containing mounted and free equipment at a desktop viewport. */
 async function openWorkspace(page) {
   const workspace = await mockLockWorkspace(page);
   const topology = workspace.topology;
@@ -16,6 +17,7 @@ async function openWorkspace(page) {
   return workspace;
 }
 
+/** Drag rendered equipment between world points, optionally cancelling with Escape. */
 async function dragEquipment(page, type, id, target, cancel = false) {
   const points = await page.evaluate(({ type, id, target }) => {
     const { canvas } = window.lockFixture;
@@ -33,7 +35,11 @@ async function dragEquipment(page, type, id, target, cancel = false) {
   await page.mouse.move(points.start.x, points.start.y);
   await page.mouse.down();
   await page.mouse.move(points.end.x, points.end.y, { steps: 8 });
-  if (cancel) await page.keyboard.press("Escape");
+  if (cancel) {
+    await expect.poll(() => page.evaluate(type => Boolean(window.lockFixture.canvas[type === "rack" ? "rackDrag" : "drag"]?.active), type)).toBe(true);
+    await page.locator("#diagram-canvas").press("Escape");
+    await expect.poll(() => page.evaluate(type => window.lockFixture.canvas[type === "rack" ? "rackDrag" : "drag"] === null, type)).toBe(true);
+  }
   await page.mouse.up();
 }
 
