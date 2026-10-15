@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { roomForDevice, roomMembers, moveRoom, assignRoom, removeRoom, roomConnections, layoutRooms, roomAtPoint, ROOM_PADDING, ROOM_HEADER } from "./static/js/rooms.js";
+import { arrangeRoom, leaveRoom, roomSpacing, roomForDevice, roomMembers, moveRoom, assignRoom, removeRoom, roomConnections, layoutRooms, roomAtPoint, ROOM_PADDING, ROOM_HEADER, ROOM_EQUIPMENT_GAP } from "./static/js/rooms.js";
 import { rackBounds, RACK_WIDTH, RACK_FACE_GAP } from "./static/js/rack.js";
 import { hardwareCatalog, instantiateProfile } from "./static/js/catalog.js";
 
@@ -69,7 +69,7 @@ test("multiple racks snap into a negative room with space for both elevations an
   assert.equal(first.positionX, room.positionX + ROOM_PADDING);
   assert.equal(first.positionY, room.positionY + ROOM_HEADER + ROOM_PADDING);
   assert.equal(second.positionY, first.positionY);
-  assert.ok(second.positionX >= first.positionX + RACK_WIDTH * 2 + RACK_FACE_GAP + ROOM_PADDING);
+  assert.ok(second.positionX >= first.positionX + RACK_WIDTH * 2 + RACK_FACE_GAP + ROOM_EQUIPMENT_GAP);
   assert.equal(top.devices[0].positionX - before.devices[0].positionX, first.positionX - before.racks[0].positionX);
   assert.equal(roomForDevice(top, top.devices[0]), room.id);
   assert.deepEqual(top.links, before.links);
@@ -88,14 +88,14 @@ test("room snapping clears collisions with devices already in the room and prese
   Object.assign(top.devices[1], { positionX: ROOM_PADDING, positionY: ROOM_HEADER + ROOM_PADDING });
   top.racks[0].roomId = "";
   assignRoom(top, "racks", "r", room.id);
-  assert.ok(top.racks[0].positionX >= top.devices[1].positionX + 690 + ROOM_PADDING);
+  assert.ok(top.racks[0].positionX >= top.devices[1].positionX + 690 + ROOM_EQUIPMENT_GAP);
   top.devices.push({ id: "new", positionX: -500, positionY: -500, faceplate: { unitsU: 4 } });
   assignRoom(top, "devices", "new", room.id);
   const added = top.devices.at(-1);
-  assert.ok(added.positionY >= top.racks[0].positionY + rackBounds(top.racks[0]).height + ROOM_PADDING);
+  assert.ok(added.positionY >= top.racks[0].positionY + rackBounds(top.racks[0]).height + ROOM_EQUIPMENT_GAP);
   added.positionY = top.devices[1].positionY;
   assignRoom(top, "devices", "new", room.id, { snap: true });
-  assert.ok(added.positionY >= top.devices[1].positionY + 100 + ROOM_PADDING);
+  assert.ok(added.positionY >= top.devices[1].positionY + 100 + ROOM_EQUIPMENT_GAP);
   added.positionX = -1200; added.positionY = -800;
   assignRoom(top, "devices", "new", "", { snap: true });
   assert.equal(added.roomId, "");
@@ -121,6 +121,56 @@ test("sequential device drops leave clearance around the actual access point bod
     assignRoom(top, "devices", device.id, "a", { snap: true });
   }
   const [first, second, third] = top.devices;
-  assert.ok(second.positionY >= first.positionY + 345 + ROOM_PADDING);
-  assert.ok(third.positionY >= second.positionY + 100 + ROOM_PADDING);
+  assert.ok(second.positionY >= first.positionY + 345 + ROOM_EQUIPMENT_GAP);
+  assert.ok(third.positionY >= second.positionY + 100 + ROOM_EQUIPMENT_GAP);
+});
+
+test("existing members retain manual positions and their outline supplies wall clearance", () => {
+  const top = fixture();
+  Object.assign(top.racks[0], { positionX: -4000, positionY: -2000 });
+  const before = structuredClone(top);
+  assignRoom(top, "racks", "r", "a");
+  assert.deepEqual(top, before);
+  const outline = layoutRooms(top, [{ rack: top.racks[0], ...rackBounds(top.racks[0]) }], [])[0];
+  assert.equal(outline.x, -4000 - ROOM_PADDING);
+  assert.equal(outline.y, -2000 - ROOM_PADDING - ROOM_HEADER);
+  assert.deepEqual(roomSpacing({}), { padding: 240, gap: 180 });
+  assert.deepEqual(roomSpacing({ padding: 0, equipmentGap: 0 }), { padding: 240, gap: 180 });
+});
+
+test("explicit arrange uses room spacing, preserves mounted offsets and keeps unrelated equipment", () => {
+  const top = fixture();
+  Object.assign(top.rooms[0], { padding: 360, equipmentGap: 260 });
+  top.racks.push({ id: "second", roomId: "a", positionX: -4000, positionY: -2000, heightU: 12 });
+  const before = structuredClone(top);
+  arrangeRoom(top, "a");
+  assert.equal(top.racks[0].positionX, 360);
+  assert.equal(top.racks[0].positionY, ROOM_HEADER + 360);
+  assert.equal(top.racks[1].positionX, 360 + 1590 + 260);
+  assert.equal(top.racks[1].positionY, top.racks[0].positionY);
+  assert.equal(top.devices[0].positionX - before.devices[0].positionX, top.racks[0].positionX - before.racks[0].positionX);
+  assert.equal(top.devices[0].positionY - before.devices[0].positionY, top.racks[0].positionY - before.racks[0].positionY);
+  assert.ok(top.devices[1].positionY >= top.racks[1].positionY + rackBounds(top.racks[1]).height + 260);
+  assert.deepEqual(top.devices[2], before.devices[2]);
+  assert.deepEqual(top.links, before.links);
+  const outline = layoutRooms(top, top.racks.map(rack => ({ rack, ...rackBounds(rack), width: 1590 })), [])[0];
+  assert.equal(outline.x + outline.width, top.racks[1].positionX + 1590 + 360);
+  arrangeRoom(top, "a", new Map([["r", 750], ["second", 1590]]));
+  assert.equal(top.racks[1].positionX, 360 + 750 + 260, "the gap follows the currently visible rack width");
+});
+
+test("explicit room exit moves beyond the room, avoids other equipment and preserves mounted offsets", () => {
+  const top = fixture(), before = structuredClone(top);
+  leaveRoom(top, "devices", "d");
+  assert.deepEqual(top, before, "mounted devices cannot leave independently of their rack");
+  leaveRoom(top, "racks", "r");
+  assert.equal(top.racks[0].roomId, "");
+  assert.ok(top.racks[0].positionX >= 1800 + ROOM_EQUIPMENT_GAP);
+  assert.equal(roomForDevice(top, top.devices[0]), "");
+  assert.equal(top.devices[0].positionX - before.devices[0].positionX, top.racks[0].positionX - before.racks[0].positionX);
+  assert.deepEqual(top.links, before.links);
+  assert.deepEqual(top.devices.slice(1), before.devices.slice(1));
+  leaveRoom(top, "devices", "f");
+  assert.equal(top.devices[1].roomId, "");
+  assert.ok(top.devices[1].positionX > 1800);
 });

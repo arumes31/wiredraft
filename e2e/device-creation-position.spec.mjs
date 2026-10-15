@@ -32,6 +32,34 @@ async function chooseDevice(page) {
   await page.locator("#device-model").selectOption("EX2300-24T");
 }
 
+test("right-click adds racks at negative coordinates and cancelling clears the pending point", async ({ page }) => {
+  const workspace = await setup(page);
+  await page.evaluate(() => {
+    const { canvas } = window.lockFixture;
+    canvas.camera = { x: 400, y: 250, zoom: .3 }; canvas.invalidate();
+  });
+  await rightClick(page, { x: -500, y: -300 });
+  await page.locator("#add-rack-here-button").click();
+  await page.locator('#rack-form [name="name"]').fill("Negative rack");
+  await page.locator('#rack-form button.primary').click();
+  await expect(page.locator("#rack-dialog")).toBeHidden();
+  await expect.poll(() => workspace.topology.racks.length).toBe(2);
+  expect(workspace.topology.racks[1]).toMatchObject({ positionX: -500, positionY: -300, name: "Negative rack" });
+  await page.evaluate(() => {
+    const { canvas } = window.lockFixture;
+    canvas.camera = { x: 400, y: 250, zoom: .3 }; canvas.invalidate();
+  });
+  await rightClick(page, { x: -800, y: -500 });
+  await page.locator("#add-rack-here-button").click();
+  await page.locator("#rack-form").getByRole("button", { name: "CANCEL", exact: true }).click();
+  await page.locator("#add-rack-button").click();
+  await page.locator('#rack-form [name="name"]').fill("Toolbar rack");
+  await page.locator('#rack-form button.primary').click();
+  await expect(page.locator("#rack-dialog")).toBeHidden();
+  await expect.poll(() => workspace.topology.racks.length).toBe(3);
+  expect(workspace.topology.racks[2]).toMatchObject({ positionX: 1880, positionY: 80, name: "Toolbar rack" });
+});
+
 test("right-click adds hardware at the clicked world position and supports undo", async ({ page }) => {
   const workspace = await setup(page);
   const errors = [];

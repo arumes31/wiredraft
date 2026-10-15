@@ -8,6 +8,7 @@ import (
 	"wiredraft/internal/model"
 )
 
+// TestRoomsPersistThroughTopologyAPI checks room spacing and membership survive an API round trip.
 func TestRoomsPersistThroughTopologyAPI(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
@@ -16,7 +17,10 @@ func TestRoomsPersistThroughTopologyAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	topology.Rooms = []model.Room{{ID: id, Name: "Server room", Color: "#42d9c8", Width: 1800, Height: 1200}}
+	topology.Rooms = []model.Room{{
+		ID: id, Name: "Server room", Color: "#42d9c8", Width: 1800, Height: 1200,
+		Padding: 360, EquipmentGap: 260,
+	}}
 	topology.Devices[0].RoomID = id
 	path := "/api/v1/topologies/" + topology.ID
 	requestTopology(t, handler, http.MethodPut, path, topology, http.StatusOK)

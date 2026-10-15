@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { hardwareCatalog, instantiateProfile } from "../web/static/js/catalog.js";
 
+/** Create an isolated API fixture that records writes and returns cloned topology snapshots. */
 export function createLockWorkspace() {
   const devices = ["Source", "Target"].map((name, index) => {
     const device = instantiateProfile(hardwareCatalog.find((profile) => profile.model === "EX2300-24T"), name, { x: 100, y: 200 + index * 250 });
@@ -16,6 +17,7 @@ export function createLockWorkspace() {
   return {
     writes,
     get topology() { return structuredClone(topology); },
+    /** Apply supported API writes or serve actual frontend assets with test-only canvas access. */
     async respond(path, method = "GET", input) {
       if (path === "/api/v1/auth/status") return { json: { authenticated: true, role: "guest", username: "Fixture",
         organizationIds: ["guest"], availableOrganizations: [{ id: "guest", name: "Guest" }] } };
@@ -25,6 +27,7 @@ export function createLockWorkspace() {
         if (method !== "GET") {
           writes.push({ path, method, input });
           if (path.endsWith("/links") && method === "POST") topology.links.push({ ...input, id: `link-${writes.length}` });
+          else if (path.endsWith("/racks") && method === "POST") topology.racks.push({ ...input, id: input.id || `rack-${writes.length}` });
           else if (path.endsWith("/devices") && method === "POST") topology.devices.push({ ...input, id: `device-new-${writes.length}` });
           else if (path.includes("/links/") && method === "DELETE") topology.links = topology.links.filter((link) => link.id !== path.split("/").at(-1));
           else if (path.includes("/devices/") && method === "PUT") topology.devices = topology.devices.map((device) => device.id === input.id ? input : device);

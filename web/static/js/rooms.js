@@ -2,7 +2,13 @@ import { rackBounds, RACK_WIDTH, RACK_FACE_GAP } from "./rack.js";
 import { faceplateDisplaySize } from "./faceplate-scene.js";
 
 export const ROOM_HEADER = 100;
-export const ROOM_PADDING = 60;
+export const ROOM_PADDING = 240;
+export const ROOM_EQUIPMENT_GAP = 180;
+
+/** Read optional room spacing while preserving defaults for existing maps. */
+export function roomSpacing(room) {
+  return { padding: room.padding || ROOM_PADDING, gap: room.equipmentGap || ROOM_EQUIPMENT_GAP };
+}
 
 export function roomForDevice(topology, device) {
   return device.rackId ? (topology.racks || []).find(rack => rack.id === device.rackId)?.roomId || "" : device.roomId || "";
@@ -37,7 +43,7 @@ function equipmentBounds(item, collection) {
   return { ...size, x: item.positionX, y: item.positionY };
 }
 
-/** Arrange racks in a row and free devices below them, reserving both rack faces. */
+/** Place newly assigned equipment; existing members move only on an explicit arrange request. */
 export function assignRoom(topology, collection, id, roomID, { snap = false } = {}) {
   const item = topology[collection]?.find(candidate => candidate.id === id);
   if (!item || (collection === "devices" && item.rackId)) return;
@@ -47,27 +53,73 @@ export function assignRoom(topology, collection, id, roomID, { snap = false } = 
   if (roomID && !room) return;
   item.roomId = roomID;
   if (!room) return;
+  const { padding, gap } = roomSpacing(room);
   const members = roomMembers(topology, roomID);
   const occupied = [...members.racks.filter(rack => rack !== item).map(rack => equipmentBounds(rack, "racks")),
     ...members.devices.filter(device => device !== item && !device.rackId).map(device => equipmentBounds(device, "devices"))];
-  const left = room.positionX + ROOM_PADDING, top = room.positionY + ROOM_HEADER + ROOM_PADDING;
+  const left = room.positionX + padding, top = room.positionY + ROOM_HEADER + padding;
   const size = equipmentBounds(item, collection);
   const candidate = { x: changed ? left : Math.max(left, Math.round(item.positionX / 10) * 10),
     y: changed ? top : Math.max(top, Math.round(item.positionY / 10) * 10), width: size.width, height: size.height };
-  if (changed && collection === "devices") candidate.y = Math.max(top, ...occupied.map(box => box.y + box.height + ROOM_PADDING));
+  if (changed && collection === "devices") candidate.y = Math.max(top, ...occupied.map(box => box.y + box.height + gap));
   while (true) {
-    const collisions = occupied.filter(box => candidate.x < box.x + box.width + ROOM_PADDING &&
-      candidate.x + candidate.width + ROOM_PADDING > box.x && candidate.y < box.y + box.height + ROOM_PADDING &&
-      candidate.y + candidate.height + ROOM_PADDING > box.y);
+    const collisions = occupied.filter(box => candidate.x < box.x + box.width + gap &&
+      candidate.x + candidate.width + gap > box.x && candidate.y < box.y + box.height + gap &&
+      candidate.y + candidate.height + gap > box.y);
     if (!collisions.length) break;
-    if (collection === "racks") candidate.x = Math.max(...collisions.map(box => box.x + box.width + ROOM_PADDING));
-    else candidate.y = Math.max(...collisions.map(box => box.y + box.height + ROOM_PADDING));
+    if (collection === "racks") candidate.x = Math.max(...collisions.map(box => box.x + box.width + gap));
+    else candidate.y = Math.max(...collisions.map(box => box.y + box.height + gap));
   }
+  moveEquipment(topology, collection, item, candidate);
+}
+
+/** Move a rack together with stored mounted-device coordinates. */
+function moveEquipment(topology, collection, item, candidate) {
   const dx = candidate.x - item.positionX, dy = candidate.y - item.positionY;
   item.positionX += dx; item.positionY += dy;
   if (collection === "racks") for (const device of topology.devices || []) {
-    if (device.rackId === id) { device.positionX += dx; device.positionY += dy; }
+    if (device.rackId === item.id) { device.positionX += dx; device.positionY += dy; }
   }
+}
+
+/** Explicitly arrange room contents with independent wall and equipment clearance. */
+export function arrangeRoom(topology, roomID, rackWidths = new Map()) {
+  const room = topology.rooms?.find(item => item.id === roomID);
+  if (!room) return;
+  const { padding, gap } = roomSpacing(room), members = roomMembers(topology, roomID);
+  const left = room.positionX + padding, top = room.positionY + ROOM_HEADER + padding;
+  let x = left, bottom = top;
+  for (const rack of members.racks) {
+    const size = equipmentBounds(rack, "racks");
+    moveEquipment(topology, "racks", rack, { x, y: top });
+    x += (rackWidths.get(rack.id) || size.width) + gap;
+    bottom = Math.max(bottom, top + size.height + gap);
+  }
+  for (const device of members.devices.filter(item => !item.rackId)) {
+    moveEquipment(topology, "devices", device, { x: left, y: bottom });
+    bottom += equipmentBounds(device, "devices").height + gap;
+  }
+}
+
+/** Deliberately detach equipment and place it beyond its former room, keeping cables attached. */
+export function leaveRoom(topology, collection, id) {
+  const item = topology[collection]?.find(candidate => candidate.id === id);
+  const room = topology.rooms?.find(candidate => candidate.id === item?.roomId);
+  if (!room || (collection === "devices" && item.rackId)) return;
+  const rackBoxes = (topology.racks || []).map(rack => ({ rack, ...equipmentBounds(rack, "racks") }));
+  const deviceBoxes = topology.devices.filter(device => !device.rackId).map(device => ({ device, ...equipmentBounds(device, "devices") }));
+  const outline = layoutRooms(topology, rackBoxes, deviceBoxes).find(box => box.room === room);
+  const { gap } = roomSpacing(room), size = equipmentBounds(item, collection);
+  const occupied = [...rackBoxes.filter(box => box.rack !== item), ...deviceBoxes.filter(box => box.device !== item)];
+  let x = outline.x + outline.width + gap;
+  while (true) {
+    const collisions = occupied.filter(box => x < box.x + box.width + gap && x + size.width + gap > box.x &&
+      item.positionY < box.y + box.height + gap && item.positionY + size.height + gap > box.y);
+    if (!collisions.length) break;
+    x = Math.max(...collisions.map(box => box.x + box.width + gap));
+  }
+  item.roomId = "";
+  moveEquipment(topology, collection, item, { x, y: item.positionY });
 }
 
 export function removeRoom(topology, roomID) {
@@ -80,13 +132,14 @@ export function removeRoom(topology, roomID) {
 /** Fit the outline to rendered equipment, including expanded rear elevations. */
 export function layoutRooms(topology, rackBoxes, deviceBoxes, collapsed = new Set()) {
   return (topology.rooms || []).map(room => {
+    const { padding } = roomSpacing(room);
     const members = roomMembers(topology, room.id);
     const boxes = [...rackBoxes.filter(box => box.rack.roomId === room.id),
       ...deviceBoxes.filter(box => !box.device.rackId && box.device.roomId === room.id)];
-    const x = Math.min(room.positionX, ...boxes.map(box => box.x - ROOM_PADDING));
-    const y = Math.min(room.positionY, ...boxes.map(box => box.y - ROOM_HEADER - ROOM_PADDING));
-    const right = Math.max(room.positionX + room.width, ...boxes.map(box => box.x + box.width + ROOM_PADDING));
-    const bottom = Math.max(room.positionY + room.height, ...boxes.map(box => box.y + box.height + ROOM_PADDING));
+    const x = Math.min(room.positionX, ...boxes.map(box => box.x - padding));
+    const y = Math.min(room.positionY, ...boxes.map(box => box.y - ROOM_HEADER - padding));
+    const right = Math.max(room.positionX + room.width, ...boxes.map(box => box.x + box.width + padding));
+    const bottom = Math.max(room.positionY + room.height, ...boxes.map(box => box.y + box.height + padding));
     return { room, x, y, width: collapsed.has(room.id) ? 720 : right - x,
       height: collapsed.has(room.id) ? 180 : bottom - y, collapsed: collapsed.has(room.id),
       rackCount: members.racks.length, deviceCount: members.devices.length };
