@@ -1,6 +1,44 @@
 import { test, expect } from "@playwright/test";
 import { mockLockWorkspace } from "./editor-lock-fixture.mjs";
 
+test("left-drag pans zoomed room gaps between racks and rack faces in every edit mode", async ({ page }) => {
+  const workspace = await mockLockWorkspace(page), topology = workspace.topology;
+  topology.rooms = [{ id: "room", name: "Server room", positionX: 0, positionY: 0, width: 3800, height: 5000, color: "#42d9c8" }];
+  Object.assign(topology.racks[0], { roomId: "room", positionX: 240, positionY: 340, heightU: 42 });
+  topology.racks.push({ id: "second", name: "Second rack", roomId: "room", positionX: 2010, positionY: 340, heightU: 42, color: "#304348" });
+  Object.assign(topology.devices[0], { rackId: "rack", rackUnit: 2, rackFace: "front" });
+  await workspace.respond("/api/v1/topologies/lock-map", "PUT", topology);
+  await page.setViewportSize({ width: 1700, height: 1000 });
+  await page.goto("/");
+  await expect(page.locator("#topology-name")).toHaveText(topology.name);
+  await page.evaluate(() => window.lockFixture.state.setAllRacksDualFace(true));
+  const writes = workspace.writes.length;
+  for (const mode of ["read-only", "cabling", "all"]) {
+    await page.locator(`[data-edit-mode="${mode}"]`).click();
+    for (const x of [1035, 1920]) {
+      const start = await page.evaluate(x => {
+        const { canvas } = window.lockFixture;
+        canvas.camera = { x: 350 - x * .8, y: 400 - 2000 * .8, zoom: .8 };
+        canvas.invalidate();
+        const world = { x, y: 2000 }, room = canvas.hitRoom(world);
+        const rect = canvas.canvas.getBoundingClientRect();
+        return { x: rect.x + 350, y: rect.y + 400, camera: { ...canvas.camera },
+          roomID: room?.room.id, rackID: canvas.hitRack(world)?.rack.id, header: Boolean(canvas.hitRoom(world, true)) };
+      }, x);
+      expect(start).toMatchObject({ roomID: "room", rackID: undefined, header: false });
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x + 90, start.y + 60, { steps: 6 });
+      await page.mouse.up();
+      await expect.poll(() => page.evaluate(() => ({ ...window.lockFixture.canvas.camera }))).toEqual({
+        ...start.camera, x: start.camera.x + 90, y: start.camera.y + 60,
+      });
+      expect(await page.evaluate(() => window.lockFixture.state.topology)).toEqual(topology);
+    }
+  }
+  expect(workspace.writes).toHaveLength(writes);
+});
+
 test("room edits survive immediate equipment updates with autosave disabled", async ({ page }) => {
   const workspace = await mockLockWorkspace(page);
   await page.goto("/");

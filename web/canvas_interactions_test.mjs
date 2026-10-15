@@ -200,6 +200,34 @@ rackJitterEngine.pointerUp({ pointerId: 9 });
 assert.equal(rackJitterEngine.state.history.length, 0);
 assert.equal(rackUpdates, 0, "a jitter-only rack click must not persist an update");
 
+test("empty room interiors pan the view in locked mode while keeping equipment unchanged", () => {
+  const room = { id: "room", positionX: 0, positionY: 0, width: 3000, height: 5000 };
+  const topology = { rooms: [room], racks: [{ id: "rack", roomId: "room", positionX: 240, positionY: 340 }], devices: [], links: [] };
+  const before = structuredClone(topology);
+  let point = { x: 1100, y: 2000 };
+  const engine = Object.create(CanvasEngine.prototype);
+  Object.assign(engine, {
+    canvas: { setPointerCapture() {}, hasPointerCapture: () => false, style: {} },
+    state: { topology, history: [], editLock: { allows: () => false, checkExpiry() {} },
+      select(type, id) { this.selection = { type, id }; } },
+    callbacks: {}, camera: { x: 20, y: 30, zoom: 2 }, activeTool: "select", selectedDevices: new Set(["previous"]),
+    invalidate() {}, eventPoint: () => point, screenToWorld: p => p,
+    roomRectangles: () => [{ room, x: 0, y: 0, width: 3000, height: 5000 }],
+    hitRackFaceControl: () => null, hitAnnotation: () => null, hitPort: () => null,
+    hitLink: () => null, hitDevice: () => null, hitRack: () => null,
+  });
+  engine.pointerDown({ button: 0, pointerId: 1, preventDefault() {} });
+  point = { x: 1180, y: 2050 };
+  engine.pointerMove({});
+  assert.deepEqual(engine.camera, { x: 100, y: 80, zoom: 2 });
+  assert.deepEqual(engine.state.selection, { type: "room", id: "room" });
+  assert.equal(engine.selectedDevices.size, 0);
+  engine.pointerUp({ pointerId: 1 });
+  assert.equal(engine.pan, null);
+  assert.deepEqual(topology, before);
+  assert.equal(engine.state.history.length, 0);
+});
+
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 test("manual rack dragging preserves displayed placement and blocks overlap without moving neighbours", () => {
   const rack = { id: "r", roomId: "room", positionX: 0, positionY: 0, heightU: 6 };

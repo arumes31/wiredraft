@@ -2371,8 +2371,7 @@ export class CanvasEngine {
       return;
     }
     const room = this.hitRoom(world);
-    if (room) { this.state.select("room", room.room.id); return; }
-    this.state.select(null, null);
+    this.state.select(room ? "room" : null, room?.room.id ?? null);
     this.selectedDevices.clear();
     if (emptyCanvasAction(event.shiftKey) === EmptyCanvasAction.SELECT) {
       this.selectionBox = { start: world, end: world };
