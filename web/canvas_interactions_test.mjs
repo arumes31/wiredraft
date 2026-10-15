@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import test from "node:test";
 
 import { EmptyCanvasAction, emptyCanvasAction, nextCanvasTool } from "./static/js/canvas-interactions.js";
 import { CanvasEngine } from "./static/js/canvas.js";
@@ -226,5 +227,33 @@ try {
 } finally {
   globalThis.requestAnimationFrame = originalRequestAnimationFrame;
 }
+
+test("mixed-height group drops assign rooms by each device center, independent of the grab offset", () => {
+  for (const grabY of [20, 350]) {
+    const topology = { racks: [], links: [], rooms: [
+      { id: "upper", positionX: 0, positionY: 0, width: 1800, height: 300 },
+      { id: "lower", positionX: 0, positionY: 300, width: 1800, height: 600 },
+    ], devices: [
+      { id: "short", positionX: 1000, positionY: 100, faceplate: { unitsU: 1 } },
+      { id: "tall", positionX: 1000, positionY: 200, faceplate: { unitsU: 4 } },
+    ] };
+    const snapshot = structuredClone(topology);
+    let saved;
+    const engine = Object.create(CanvasEngine.prototype);
+    Object.assign(engine, {
+      canvas: { style: {}, hasPointerCapture: () => false },
+      state: { topology, history: [], future: [], emit() {} },
+      callbacks: { onDevicesUpdate: devices => { saved = devices; } },
+      invalidate() {},
+      drag: { active: true, snapshot, offset: { x: 80, y: grabY }, invalidIDs: new Set(), occupiedLandings: new Map(),
+        originals: new Map(snapshot.devices.map(device => [device.id, { device, width: 690, height: device.faceplate.unitsU * 100 }])),
+        roomBoxes: topology.rooms.map(room => ({ room, x: room.positionX, y: room.positionY, width: room.width, height: room.height })) },
+    });
+    engine.pointerUp({ pointerId: 1 });
+    assert.deepEqual(topology.devices.map(device => device.roomId), ["upper", "lower"]);
+    assert.deepEqual(saved.map(device => device.roomId), ["upper", "lower"]);
+    assert.deepEqual(engine.state.history, [snapshot]);
+  }
+});
 
 console.log("canvas interaction checks passed");

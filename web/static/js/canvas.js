@@ -1,4 +1,4 @@
-import { ROOM_HEADER, layoutRooms, roomConnections, roomForDevice, moveRoom } from "./rooms.js";
+import { ROOM_HEADER, layoutRooms, roomConnections, roomForDevice, moveRoom, assignRoom, roomAtPoint } from "./rooms.js";
 import {
   assignCableTracks, CableMode, cableBezier, cableDashPattern, CABLE_OUTLINE_WIDTH, cableRole, distanceToRoute,
   orderedCableLinks, pointOnRoute, routeSegments, routesWithCrossingBridges, segmentIntersectsRectangle,
@@ -2245,6 +2245,9 @@ export class CanvasEngine {
       return;
     }
     if (event.button !== 0) return;
+    // Selection can reveal native inspector inputs beneath the held pointer.
+    event.preventDefault();
+    this.canvas.focus?.({ preventScroll: true });
     const bundle = (this.roomBundles || []).find(({ from, to }) => {
       const middle = (from.x + to.x) / 2;
       return [{ x1: from.x, y1: from.y, x2: middle, y2: from.y },
@@ -2333,6 +2336,7 @@ export class CanvasEngine {
         invalidIDs: new Set(),
         occupiedLandings: new Map(),
         snapshot: structuredClone(this.state.topology),
+        roomBoxes: this.state.topology.rooms?.length ? [...this.roomRectangles()] : [],
       };
       for (const selectedID of this.selectedDevices) {
         const selected = this.state.topology.devices.find((item) => item.id === selectedID);
@@ -2359,6 +2363,7 @@ export class CanvasEngine {
           active: false,
           original: { x: rack.rack.positionX, y: rack.rack.positionY },
           snapshot: structuredClone(this.state.topology),
+          roomBoxes: this.state.topology.rooms?.length ? [...this.roomRectangles()] : [],
         };
         this.canvas.style.cursor = "grabbing";
       }
@@ -2423,8 +2428,15 @@ export class CanvasEngine {
       if (!rack) return;
       const dx = world.x - this.rackDrag.start.x;
       const dy = world.y - this.rackDrag.start.y;
-      rack.positionX = Math.max(0, Math.round((this.rackDrag.original.x + dx) / GRID) * GRID);
-      rack.positionY = Math.max(0, Math.round((this.rackDrag.original.y + dy) / GRID) * GRID);
+      rack.positionX = Math.round((this.rackDrag.original.x + dx) / GRID) * GRID;
+      rack.positionY = Math.round((this.rackDrag.original.y + dy) / GRID) * GRID;
+      for (const device of this.state.topology.devices) {
+        if (device.rackId !== rack.id) continue;
+        const original = this.rackDrag.snapshot.devices.find(item => item.id === device.id);
+        if (!original) continue;
+        device.positionX = original.positionX + rack.positionX - this.rackDrag.original.x;
+        device.positionY = original.positionY + rack.positionY - this.rackDrag.original.y;
+      }
       this.state.emit("topology");
       return;
     }
@@ -2443,8 +2455,8 @@ export class CanvasEngine {
         const device = this.state.topology.devices.find((item) => item.id === id);
         if (!device) continue;
         const proposed = {
-          x: Math.max(0, Math.round((original.x + dx) / GRID) * GRID),
-          y: Math.max(0, Math.round((original.y + dy) / GRID) * GRID),
+          x: Math.round((original.x + dx) / GRID) * GRID,
+          y: Math.round((original.y + dy) / GRID) * GRID,
         };
         device.rackId = "";
         device.rackUnit = 0;
@@ -2498,6 +2510,7 @@ export class CanvasEngine {
     this.canvas.style.cursor = this.hitRepatchHandle(world) ? "grab" : faceControl || this.hoveredAnnotation || this.hoveredPort || this.hoveredLink || this.hoveredDevice ? "pointer" : this.draft ? "crosshair" : rackHeader ? "grab" : "default";
   }
 
+  /** Commit completed gestures, assigning free devices by their individual body centers. */
   pointerUp(event) {
     this.checkEditGesture();
     this.invalidate();
@@ -2514,6 +2527,16 @@ export class CanvasEngine {
       return;
     }
     const wasDrag = this.drag;
+    if (wasDrag?.active) {
+      for (const id of wasDrag.originals.keys()) {
+        const device = this.state.topology.devices.find(item => item.id === id);
+        if (!device || device.rackId || wasDrag.invalidIDs.has(id)) continue;
+        const { width, height } = faceplateDisplaySize(device);
+        const point = { x: device.positionX + width / 2, y: device.positionY + height / 2 };
+        assignRoom(this.state.topology, "devices", id, roomAtPoint(wasDrag.roomBoxes, point), { snap: true });
+      }
+      this.state.emit("layout");
+    }
     if (this.repatch) {
       this.updateRepatchTarget(this.screenToWorld(this.eventPoint(event)));
       const { plan, snapshot, active } = this.repatch;
@@ -2531,6 +2554,8 @@ export class CanvasEngine {
     } else if (this.rackDrag) {
       const rack = this.state.topology.racks.find((item) => item.id === this.state.selection?.id);
       if (this.rackDrag.active) {
+        if (rack) assignRoom(this.state.topology, "racks", rack.id, roomAtPoint(this.rackDrag.roomBoxes, this.pointerWorld), { snap: true });
+        this.state.emit("layout");
         this.state.editLock?.recordChange(this.rackDrag.snapshot, this.state.topology);
         this.state.history.push(this.rackDrag.snapshot);
         this.state.history = this.state.history.slice(-50);
@@ -2562,7 +2587,7 @@ export class CanvasEngine {
           if (landing) proposed.push({ ...device, rackId: landing.rack.id, rackUnit: landing.rackUnit,
             rackFace: landing.rackFace, positionX: landing.position.x, positionY: landing.position.y });
           else if (!wasDrag.invalidIDs.has(id)) proposed.push(structuredClone(device));
-          for (const field of ["positionX", "positionY", "rackId", "rackUnit", "rackFace"]) device[field] = original.device[field];
+          for (const field of ["positionX", "positionY", "rackId", "rackUnit", "rackFace", "roomId"]) device[field] = original.device[field];
         }
         this.state.emit("topology");
         this.callbacks.onRackPlacementRequest?.(proposed, wasDrag.snapshot);
@@ -2575,7 +2600,7 @@ export class CanvasEngine {
           const device = this.state.topology.devices.find((item) => item.id === id);
           if (device && wasDrag.invalidIDs.has(id)) {
             const original = wasDrag.originals.get(id).device;
-            for (const field of ["positionX", "positionY", "rackId", "rackUnit", "rackFace"]) device[field] = original[field];
+            for (const field of ["positionX", "positionY", "rackId", "rackUnit", "rackFace", "roomId"]) device[field] = original[field];
           }
           if (device) {
             this.state.editLock?.recordChange(wasDrag.snapshot, this.state.topology);
@@ -2665,6 +2690,7 @@ export class CanvasEngine {
         ((this.draft || this.linkDrag || this.repatch) && !this.canEdit("cabling"))) this.cancelInteraction();
   }
 
+  /** Cancel the active gesture and optionally restore its previewed geometry. */
   cancelInteraction(restore = true) {
     if (restore && this.roomDrag) moveRoom(this.state.topology, this.roomDrag.id, -this.roomDrag.dx, -this.roomDrag.dy);
     this.roomDrag = null;
@@ -2673,7 +2699,7 @@ export class CanvasEngine {
       for (const [id, original] of this.drag.originals) {
         const device = this.state.topology?.devices.find((item) => item.id === id);
         if (!device) continue;
-        for (const key of ["positionX", "positionY", "rackId", "rackUnit", "rackFace"]) {
+        for (const key of ["positionX", "positionY", "rackId", "rackUnit", "rackFace", "roomId"]) {
           if (key in original.device) device[key] = original.device[key];
           else delete device[key];
         }
@@ -2683,6 +2709,11 @@ export class CanvasEngine {
       const original = this.rackDrag.snapshot.racks.find((item) => item.id === this.state.selection?.id);
       const rack = this.state.topology?.racks.find((item) => item.id === original?.id);
       if (rack) { rack.positionX = original.positionX; rack.positionY = original.positionY; }
+      for (const device of this.state.topology?.devices || []) {
+        if (device.rackId !== original?.id) continue;
+        const before = this.rackDrag.snapshot.devices.find(item => item.id === device.id);
+        if (before) { device.positionX = before.positionX; device.positionY = before.positionY; }
+      }
     }
     this.draft = null; this.linkDrag = null; this.repatch = null; this.drag = null; this.rackDrag = null; this.rackDropPreview = null;
     this.pan = null; this.selectionBox = null; this.annotationDraft = null; this.mode = CableMode.IDLE;

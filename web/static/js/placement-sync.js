@@ -1,6 +1,6 @@
 const placementFields = {
-  devices: ["positionX", "positionY", "rackId", "rackUnit", "rackFace"],
-  racks: ["positionX", "positionY"],
+  devices: ["positionX", "positionY", "rackId", "rackUnit", "rackFace", "roomId"],
+  racks: ["positionX", "positionY", "roomId"],
 };
 
 /** Serialize saves through their response handling, so each write sees the latest revision. */
@@ -15,10 +15,11 @@ export class TopologyWriteQueue {
   }
 }
 
+/** Normalize optional placement fields before comparing or replaying a drag. */
 function position(item, collection) {
   return Object.fromEntries(placementFields[collection].map((field) => [field, field === "rackFace"
     ? (item?.rackId ? item.rackFace || "front" : "")
-    : item?.[field] ?? (field === "rackId" ? "" : 0)]));
+    : item?.[field] ?? (["rackId", "roomId"].includes(field) ? "" : 0)]));
 }
 
 function samePosition(left, right) {
