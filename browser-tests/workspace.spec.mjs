@@ -8,6 +8,36 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#loading-skeleton")).toBeHidden();
 });
 
+test("navigator can reopen with pointer and keyboard after collapse at desktop widths", async ({ page }, testInfo) => {
+  const toggle = page.getByRole("button", { name: "Collapse navigator", exact: true });
+  for (const width of [1440, 1000]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await toggle.click();
+    const reopen = page.getByRole("button", { name: "Open navigator", exact: true });
+    await expect(reopen).toBeVisible();
+    await expect(reopen).toHaveAttribute("aria-expanded", "false");
+    expect(await page.locator("#topology-navigator").evaluate(element => element.inert)).toBe(true);
+    const box = await reopen.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThan(width);
+    const tools = await page.locator(".canvas-tools").boundingBox();
+    expect(box.x + box.width).toBeLessThan(tools.x);
+    await page.screenshot({ path: testInfo.outputPath(`navigator-collapsed-${width}.png`) });
+    await reopen.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await toggle.press("Enter");
+    await expect(reopen).toBeVisible();
+    await reopen.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(await page.locator("#topology-navigator").evaluate(element => element.inert)).toBe(false);
+  }
+  await toggle.click();
+  await page.setViewportSize({ width: 740, height: 900 });
+  await expect(page.locator("#navigator-toggle")).toBeHidden();
+  expect((await page.locator("#diagram-canvas").boundingBox()).width).toBeGreaterThan(700);
+  await page.screenshot({ path: testInfo.outputPath("navigator-mobile.png") });
+});
+
 test("installed search selects inventory and preserves collapsed groups after clearing", async ({ page }) => {
   const group = page.locator('#topology-tree details[data-tree-key="free"]');
   await group.locator("summary").click();

@@ -1086,7 +1086,7 @@ function renderRoomInspector(roomID) {
       <div class="room-size-fields"><label><span>MINIMUM WIDTH</span><input name="width" type="number" min="600" max="100000" required value="${room.width}"></label><label><span>MINIMUM HEIGHT</span><input name="height" type="number" min="300" max="100000" required value="${room.height}"></label></div>
       <fieldset class="device-metadata-block"><legend>RACKS</legend><div class="checklist">${memberRows(state.topology.racks || [], "racks") || "No racks yet"}</div></fieldset>
       <fieldset class="device-metadata-block"><legend>FREE DEVICES</legend><div class="checklist">${memberRows(state.topology.devices.filter(device => !device.rackId), "devices") || "No free devices"}</div></fieldset>
-      <p class="room-help">New members are placed inside this room. Rack devices inherit their rack's room. The outline grows to fit all members.</p>
+      <p class="room-help">Drop racks or free devices into a room to assign and snap them into place. Mounted devices inherit their rack's room. The outline fits all members, keeping the minimum size above.</p>
       <div class="inspector-actions"><button class="primary">UPDATE ROOM</button><button type="button" id="delete-room" class="danger">REMOVE ROOM</button></div>
       <p class="room-help">Removing the room keeps its equipment and cables. Undo is available.</p>
     </form>`;
@@ -1917,6 +1917,8 @@ function toggleNavigator() {
   const button = document.getElementById("navigator-toggle");
   button.setAttribute("aria-expanded", String(!collapsed));
   button.title = collapsed ? "Open navigator" : "Collapse navigator";
+  button.setAttribute("aria-label", button.title);
+  document.getElementById("topology-navigator").inert = collapsed;
   requestAnimationFrame(() => canvas.resize());
 }
 
@@ -2985,7 +2987,8 @@ function receiveTopology(topology, { remember = false, submittedVersion } = {}) 
   const gesture = canvas.drag || canvas.rackDrag;
   const preview = gesture?.snapshot?.id === topology.id
     ? [
-      ...placementChanges(gesture.snapshot, "devices", state.topology.devices.filter((device) => canvas.drag?.originals.has(device.id))),
+      ...placementChanges(gesture.snapshot, "devices", state.topology.devices.filter((device) => canvas.drag?.originals.has(device.id) ||
+        (canvas.rackDrag && device.rackId === state.selection?.id))),
       ...placementChanges(gesture.snapshot, "racks", (state.topology.racks || []).filter((rack) => canvas.rackDrag && rack.id === state.selection?.id)),
     ] : [];
   let next = topology;
@@ -3062,6 +3065,10 @@ function requestRackPlacement(devices, snapshot) {
 /** Commit one whole drop, retrying revision races without replaying stale device records. */
 async function savePlacements(snapshot, collection, items) {
   const changes = placementChanges(snapshot, collection, items);
+  if (collection === "racks") {
+    const rackIDs = new Set(items.map(item => item.id));
+    changes.push(...placementChanges(snapshot, "devices", state.topology.devices.filter(device => rackIDs.has(device.rackId))));
+  }
   if (!changes.length) return;
   const previous = [...pendingPlacements].find((batch) => batch.topologyID === snapshot.id);
   const batch = { topologyID: snapshot.id, changes, keepDirty: previous?.keepDirty ?? autosave.isDirty };

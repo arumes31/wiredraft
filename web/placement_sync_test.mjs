@@ -57,6 +57,21 @@ test("queued writes wait for response handling and recover after rejection", asy
   assert.deepEqual(order, ["first", "second"]);
 });
 
+test("room membership persists with negative drops and rejects competing room assignments", () => {
+  const before = snapshot();
+  for (const collection of ["racks", "devices"]) {
+    const item = { ...before[collection][0], positionX: -500, positionY: -1000, roomId: "room" };
+    const changes = placementChanges(before, collection, [item]);
+    const after = applyPlacements(before, changes, { checkConflicts: true });
+    assert.equal(after[collection][0].roomId, "room");
+    assert.equal(after[collection][0].positionX, -500);
+    const detached = placementChanges(after, collection, [{ ...item, roomId: "" }]);
+    assert.equal(applyPlacements(after, detached)[collection][0].roomId, "");
+    const remote = snapshot(); remote[collection][0].roomId = "other";
+    assert.throws(() => applyPlacements(remote, changes, { checkConflicts: true }), /moved in another session/);
+  }
+});
+
 test("deferring autosave during a drag retains the unsaved flag", async () => {
   let dragging = true;
   const autosave = new AutosaveController(async () => !dragging, { storage: { getItem: () => null } });
