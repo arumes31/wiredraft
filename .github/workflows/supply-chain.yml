@@ -145,3 +145,26 @@ jobs:
           cache-to: type=gha,mode=max,scope=ghcr-image
           provenance: mode=max
           sbom: true
+
+  release:
+    name: Release verified artifacts
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [artifacts, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Create release after publication and quality gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'Preserving existing release and release notes.'
+            exit 0
+          fi
+          args=(--verify-tag --generate-notes --title "$TAG")
+          if [[ "$TAG" == *-* ]]; then args+=(--prerelease); fi
+          gh release create "$TAG" "${args[@]}"
