@@ -33,9 +33,9 @@ const (
 	secondFactorFailureTTL = 24 * time.Hour
 
 	// Guest sessions require no credentials, so both their total number and
-	// their creation rate per client are bounded.
-	maxGuestSessions        = 1024
-	maxGuestSessionsPerHost = 10
+	// their creation rate per client are bounded unless configured otherwise.
+	defaultMaxGuestSessions        = 1024
+	defaultMaxGuestSessionsPerHost = 10
 
 	// Expired state is swept at most once per interval; lookups check expiry
 	// individually so a sweep is never required for correctness.
@@ -74,6 +74,8 @@ type Manager struct {
 	guestEnabled      bool
 	cookieSecure      bool
 	trustedProxies    []netip.Prefix
+	maxGuestSessions  int
+	maxGuestPerHost   int
 	dummyPasswordHash string
 	sessions          map[string]Session
 	challenges        map[string]pendingChallenge
@@ -180,6 +182,8 @@ func newManager(
 		guestEnabled:      config.GuestEnabled,
 		cookieSecure:      config.CookieSecure,
 		trustedProxies:    slices.Clone(config.TrustedProxies),
+		maxGuestSessions:  positiveOr(config.MaxGuestSessions, defaultMaxGuestSessions),
+		maxGuestPerHost:   positiveOr(config.MaxGuestSessionsPerClient, defaultMaxGuestSessionsPerHost),
 		sessions:          make(map[string]Session),
 		challenges:        make(map[string]pendingChallenge),
 		loginAttempts:     make(map[string]loginAttempt),
@@ -542,7 +546,7 @@ func (m *Manager) NewGuestSession(remote string) (Session, error) {
 		return Session{}, ErrForbidden
 	}
 	m.pruneLocked(now)
-	if m.activeLoginAttemptLocked(attemptKey, now).Failures >= maxGuestSessionsPerHost {
+	if m.activeLoginAttemptLocked(attemptKey, now).Failures >= m.maxGuestPerHost {
 		return Session{}, ErrRateLimited
 	}
 	guestSessions := 0
@@ -551,7 +555,7 @@ func (m *Manager) NewGuestSession(remote string) (Session, error) {
 			guestSessions++
 		}
 	}
-	if guestSessions >= maxGuestSessions {
+	if guestSessions >= m.maxGuestSessions {
 		return Session{}, ErrRateLimited
 	}
 	m.reserveLoginAttemptLocked(attemptKey, now)
@@ -1088,6 +1092,13 @@ func userView(user persistedUser) UserView {
 }
 
 func normalizeUsername(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
+
+func positiveOr(value, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	return fallback
+}
 
 func remoteHost(value string) string {
 	value = strings.TrimSpace(value)

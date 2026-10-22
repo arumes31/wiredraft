@@ -95,6 +95,7 @@ func run(args []string) error {
 		AdminUsername: cfg.AdminUsername, AdminPassword: cfg.AdminPassword,
 		AdminTOTPSecret: cfg.AdminTOTPSecret, GuestEnabled: cfg.GuestEnabled,
 		CookieSecure: cfg.CookieSecure, TrustedProxies: cfg.TrustedProxies,
+		MaxGuestSessions: cfg.MaxGuestSessions, MaxGuestSessionsPerClient: cfg.MaxGuestSessionsPerClient,
 		SecretKey: secretKey, PreviousSecretKeys: previousSecretKeys,
 	}, authOrganizations)
 	if err != nil {

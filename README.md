@@ -78,7 +78,7 @@ Accounts are global: a user may be granted one, several, or all organizations. T
 
 Open **Identity Control > Administration** for the dedicated user and organization management area. Search or filter the Users directory, then choose **Manage** to edit access or sign-in settings. **Add user** shows only the fields needed for local/TOTP or Microsoft Entra accounts. The Organizations directory links to everyone with effective access, including administrators and global grants. Use **Back to workspace** to return to the remembered map.
 
-Guest access is disabled by default. Set `WIREDRAFT_GUEST_ENABLED=true` before startup to let anonymous visitors open the shared Guest workspace with read/write access; existing Guest maps are kept while it is disabled. Guest sessions are limited to 10 new sessions per client address every 5 minutes and 1024 live sessions in total.
+Guest access is disabled by default. Set `WIREDRAFT_GUEST_ENABLED=true` before startup to let anonymous visitors open the shared Guest workspace with read/write access; existing Guest maps are kept while it is disabled. Guest sessions are limited to 10 new sessions per client address every 5 minutes and 1024 live sessions in total (`WIREDRAFT_GUEST_SESSIONS_PER_CLIENT`, `WIREDRAFT_GUEST_SESSION_LIMIT`).
 
 ## Run the GHCR image
 
@@ -346,6 +346,8 @@ WireDraft reads environment variables first and lets command-line flags override
 | `WIREDRAFT_ADMIN_TOTP_SECRET` | — | empty | Optional Base32 TOTP secret; empty starts QR enrollment on first login |
 | `WIREDRAFT_GUEST_ENABLED` | — | `false` | Enables anonymous guest-workspace login with read/write access to the Guest organization |
 | `WIREDRAFT_COOKIE_SECURE` | — | `true` | Sends the session cookie only over HTTPS; set `false` only for plain-HTTP local evaluation |
+| `WIREDRAFT_GUEST_SESSION_LIMIT` | — | `1024` | Maximum number of live Guest sessions |
+| `WIREDRAFT_GUEST_SESSIONS_PER_CLIENT` | — | `10` | New Guest sessions allowed per client address every 5 minutes |
 | `WIREDRAFT_TRUSTED_PROXIES` | — | empty | Comma-separated reverse-proxy IPs or CIDRs whose `X-Forwarded-For` header identifies the client for login and guest throttling |
 | `WIREDRAFT_AUTH_SECRET_KEY_FILE` | — | empty | Optional file with a 32-byte base64 or hex key that encrypts TOTP secrets instead of the key stored in PostgreSQL |
 | `WIREDRAFT_AUTH_PREVIOUS_SECRET_KEY_FILE` | — | empty | Previous TOTP encryption key, read only while rotating `WIREDRAFT_AUTH_SECRET_KEY_FILE` |

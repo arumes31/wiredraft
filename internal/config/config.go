@@ -14,26 +14,28 @@ import (
 
 // Config contains all process-level runtime configuration.
 type Config struct {
-	Port                  int
-	DatabaseURL           string
-	MediaDir              string
-	LogLevel              string
-	LogFormat             string
-	AdminUsername         string
-	AdminPassword         string
-	AdminTOTPSecret       string
-	GuestEnabled          bool
-	CookieSecure          bool
-	TrustedProxies        []netip.Prefix
-	SecretKeyFile         string
-	PreviousSecretKeyFile string
-	EntraEnabled          bool
-	EntraTenantID         string
-	EntraClientID         string
-	EntraSecretFile       string
-	EntraRedirectURL      string
-	Healthcheck           bool
-	HealthcheckURL        string
+	Port                      int
+	DatabaseURL               string
+	MediaDir                  string
+	LogLevel                  string
+	LogFormat                 string
+	AdminUsername             string
+	AdminPassword             string
+	AdminTOTPSecret           string
+	GuestEnabled              bool
+	CookieSecure              bool
+	TrustedProxies            []netip.Prefix
+	MaxGuestSessions          int
+	MaxGuestSessionsPerClient int
+	SecretKeyFile             string
+	PreviousSecretKeyFile     string
+	EntraEnabled              bool
+	EntraTenantID             string
+	EntraClientID             string
+	EntraSecretFile           string
+	EntraRedirectURL          string
+	Healthcheck               bool
+	HealthcheckURL            string
 }
 
 // Parse reads environment defaults and applies command-line overrides.
@@ -52,26 +54,36 @@ func Parse(args []string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	maxGuestSessions, err := envPositiveInt("WIREDRAFT_GUEST_SESSION_LIMIT")
+	if err != nil {
+		return Config{}, err
+	}
+	maxGuestSessionsPerClient, err := envPositiveInt("WIREDRAFT_GUEST_SESSIONS_PER_CLIENT")
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
-		Port:                  envInt("PORT", 8080),
-		DatabaseURL:           envString("DATABASE_URL", ""),
-		MediaDir:              envString("WIREDRAFT_MEDIA_DIR", "data/media"),
-		LogLevel:              envString("LOG_LEVEL", "info"),
-		LogFormat:             envString("LOG_FORMAT", "json"),
-		AdminUsername:         envString("WIREDRAFT_ADMIN_USER", "admin"),
-		AdminPassword:         envString("WIREDRAFT_ADMIN_PASSWORD", ""),
-		AdminTOTPSecret:       envString("WIREDRAFT_ADMIN_TOTP_SECRET", ""),
-		GuestEnabled:          guestEnabled,
-		CookieSecure:          cookieSecure,
-		TrustedProxies:        trustedProxies,
-		SecretKeyFile:         strings.TrimSpace(os.Getenv("WIREDRAFT_AUTH_SECRET_KEY_FILE")),
-		PreviousSecretKeyFile: strings.TrimSpace(os.Getenv("WIREDRAFT_AUTH_PREVIOUS_SECRET_KEY_FILE")),
-		EntraEnabled:          false,
-		EntraTenantID:         strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_TENANT_ID")),
-		EntraClientID:         strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_CLIENT_ID")),
-		EntraSecretFile:       strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_CLIENT_SECRET_FILE")),
-		EntraRedirectURL:      strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_REDIRECT_URL")),
-		HealthcheckURL:        envString("HEALTHCHECK_URL", "http://127.0.0.1:8080/api/v1/health"),
+		Port:                      envInt("PORT", 8080),
+		DatabaseURL:               envString("DATABASE_URL", ""),
+		MediaDir:                  envString("WIREDRAFT_MEDIA_DIR", "data/media"),
+		LogLevel:                  envString("LOG_LEVEL", "info"),
+		LogFormat:                 envString("LOG_FORMAT", "json"),
+		AdminUsername:             envString("WIREDRAFT_ADMIN_USER", "admin"),
+		AdminPassword:             envString("WIREDRAFT_ADMIN_PASSWORD", ""),
+		AdminTOTPSecret:           envString("WIREDRAFT_ADMIN_TOTP_SECRET", ""),
+		GuestEnabled:              guestEnabled,
+		CookieSecure:              cookieSecure,
+		TrustedProxies:            trustedProxies,
+		MaxGuestSessions:          maxGuestSessions,
+		MaxGuestSessionsPerClient: maxGuestSessionsPerClient,
+		SecretKeyFile:             strings.TrimSpace(os.Getenv("WIREDRAFT_AUTH_SECRET_KEY_FILE")),
+		PreviousSecretKeyFile:     strings.TrimSpace(os.Getenv("WIREDRAFT_AUTH_PREVIOUS_SECRET_KEY_FILE")),
+		EntraEnabled:              false,
+		EntraTenantID:             strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_TENANT_ID")),
+		EntraClientID:             strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_CLIENT_ID")),
+		EntraSecretFile:           strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_CLIENT_SECRET_FILE")),
+		EntraRedirectURL:          strings.TrimSpace(os.Getenv("WIREDRAFT_ENTRA_REDIRECT_URL")),
+		HealthcheckURL:            envString("HEALTHCHECK_URL", "http://127.0.0.1:8080/api/v1/health"),
 	}
 	if cfg.EntraEnabled, err = envBool("WIREDRAFT_ENTRA_ENABLED", false); err != nil {
 		return Config{}, err
@@ -135,7 +147,22 @@ func parseTrustedProxies(value string) ([]netip.Prefix, error) {
 	return prefixes, nil
 }
 
+// envPositiveInt reads an optional positive integer; empty selects the
+// built-in default, reported as zero.
+func envPositiveInt(name string) (int, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return parsed, nil
+}
+
 func envString(name, fallback string) string {
+
 	if value := os.Getenv(name); value != "" {
 		return value
 	}

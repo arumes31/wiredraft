@@ -120,3 +120,19 @@ func TestEntraConfigurationRequiresSecureCompleteSettings(t *testing.T) {
 		t.Fatalf("HTTP redirect configuration error = %v", err)
 	}
 }
+
+func TestGuestSessionLimitsEnvironment(t *testing.T) {
+	t.Setenv("WIREDRAFT_GUEST_SESSION_LIMIT", "50")
+	t.Setenv("WIREDRAFT_GUEST_SESSIONS_PER_CLIENT", "3")
+	configuration, err := Parse(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.MaxGuestSessions != 50 || configuration.MaxGuestSessionsPerClient != 3 {
+		t.Fatalf("guest limits = %d, %d", configuration.MaxGuestSessions, configuration.MaxGuestSessionsPerClient)
+	}
+	t.Setenv("WIREDRAFT_GUEST_SESSIONS_PER_CLIENT", "0")
+	if _, err := Parse(nil); err == nil || !strings.Contains(err.Error(), "WIREDRAFT_GUEST_SESSIONS_PER_CLIENT") {
+		t.Fatalf("Parse error = %v, want named invalid limit", err)
+	}
+}

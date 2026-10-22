@@ -153,7 +153,7 @@ func TestSecondFactorReservesConcurrentAttempts(t *testing.T) {
 func TestGuestSessionsAreBounded(t *testing.T) {
 	t.Parallel()
 	manager, now := newLimitsTestManager(t)
-	for attempt := range maxGuestSessionsPerHost {
+	for attempt := range defaultMaxGuestSessionsPerHost {
 		if _, err := manager.NewGuestSession(fmt.Sprintf("192.0.2.40:%d", 40000+attempt)); err != nil {
 			t.Fatal(err)
 		}
@@ -170,7 +170,7 @@ func TestGuestSessionsAreBounded(t *testing.T) {
 	}
 
 	manager.mu.Lock()
-	for index := range maxGuestSessions {
+	for index := range defaultMaxGuestSessions {
 		token := fmt.Sprintf("guest-%d", index)
 		manager.sessions[token] = Session{
 			Token: token, Principal: Principal{UserID: RoleGuest, Role: RoleGuest}, ExpiresAt: now.Add(time.Hour),
@@ -198,5 +198,30 @@ func TestSessionLookupRejectsExpiredSessionsBetweenSweeps(t *testing.T) {
 	*now = session.ExpiresAt
 	if _, ok := manager.Session(session.Token); ok {
 		t.Fatal("expired session resolves before the next sweep")
+	}
+}
+
+func TestGuestSessionLimitsAreConfigurable(t *testing.T) {
+	t.Parallel()
+	manager, err := New(t.TempDir(), Config{
+		AdminUsername: "admin", AdminPassword: testPassword, GuestEnabled: true,
+		MaxGuestSessions: 3, MaxGuestSessionsPerClient: 2,
+	}, testOrganizationRefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := manager.NewGuestSession("192.0.2.60:1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := manager.NewGuestSession("192.0.2.60:2"); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("configured per-client limit error = %v", err)
+	}
+	if _, err := manager.NewGuestSession("192.0.2.61:1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.NewGuestSession("192.0.2.62:1"); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("configured total limit error = %v", err)
 	}
 }

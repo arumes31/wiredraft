@@ -55,6 +55,12 @@ type Config struct {
 	// TrustedProxies lists reverse-proxy networks whose X-Forwarded-For
 	// entries identify the client for authentication throttling.
 	TrustedProxies []netip.Prefix
+	// MaxGuestSessions caps live Guest sessions and MaxGuestSessionsPerClient
+	// caps new Guest sessions per client address every five minutes. Zero
+	// selects the defaults (1024 and 10).
+	MaxGuestSessions          int
+	MaxGuestSessionsPerClient int
+
 	// SecretKey, when set, seals TOTP secrets instead of the key stored in
 	// the database. PreviousSecretKeys only open secrets during rotation.
 	SecretKey          []byte
