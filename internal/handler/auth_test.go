@@ -391,7 +391,7 @@ type fakeEntraAuthenticator struct {
 	code        string
 }
 
-func (f *fakeEntraAuthenticator) Begin(context.Context) (auth.EntraStart, error) {
+func (f *fakeEntraAuthenticator) Begin(context.Context, string) (auth.EntraStart, error) {
 	return f.start, f.beginErr
 }
 

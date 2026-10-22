@@ -126,7 +126,7 @@ func TestManagerOrganizationAndGuestAuthorization(t *testing.T) {
 	if manager.CanAccessTopology(principal, "map-b", testLondonOrganizationID) {
 		t.Fatal("unassigned organization was allowed")
 	}
-	guestSession, err := manager.NewGuestSession()
+	guestSession, err := manager.NewGuestSession("192.0.2.1:1234")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestManagerBootstrapTOTPFromEnvironment(t *testing.T) {
 	if _, err := manager.CompleteTOTP(t.Context(), challenge.Challenge, code); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.NewGuestSession(); !errors.Is(err, ErrForbidden) {
+	if _, err := manager.NewGuestSession("192.0.2.1:1234"); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("guest session error = %v, want ErrForbidden", err)
 	}
 	disabledGuest := Principal{UserID: RoleGuest, Username: "Guest", Role: RoleGuest}
@@ -391,7 +391,7 @@ func TestManagerAccountAndSessionLifecycle(t *testing.T) {
 		t.Fatal("organization creation authorization is inconsistent")
 	}
 
-	guest, err := manager.NewGuestSession()
+	guest, err := manager.NewGuestSession("192.0.2.1:1234")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -809,11 +809,20 @@ func TestManagerValidationAndExpiryEdges(t *testing.T) {
 		t.Fatalf("expired transient state was not pruned: challenges=%d attempts=%d", len(manager.challenges), len(manager.loginAttempts))
 	}
 	manager.challenges["limited"] = pendingChallenge{Token: "limited", UserID: validUser.ID, ExpiresAt: now.Add(time.Minute)}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
 	for range maxChallengeTries {
-		manager.failChallenge("limited")
+		if err := manager.reserveSecondFactorLocked("limited", validUser.ID, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := manager.challengeUserLocked("limited", now); !errors.Is(err, ErrInvalidChallenge) {
+		t.Fatalf("exhausted challenge error = %v", err)
 	}
 	if _, exists := manager.challenges["limited"]; exists {
 		t.Fatal("exhausted challenge was not removed")
 	}
-	manager.failChallenge("missing")
+	if err := manager.reserveSecondFactorLocked("missing", validUser.ID, now); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("locked second factor error = %v", err)
+	}
 }

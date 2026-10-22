@@ -16,7 +16,7 @@ func TestAuthenticationEnvironmentDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !configuration.GuestEnabled || configuration.CookieSecure || configuration.AdminUsername != "admin" {
+	if configuration.GuestEnabled || !configuration.CookieSecure || configuration.AdminUsername != "admin" {
 		t.Fatalf("authentication defaults = %#v", configuration)
 	}
 	if configuration.MediaDir != "data/media" {
@@ -52,15 +52,36 @@ func TestWireDraftAuthenticationEnvironment(t *testing.T) {
 func TestLegacyAuthenticationBooleansRemainSupported(t *testing.T) {
 	t.Setenv("WIREDRAFT_GUEST_ENABLED", "")
 	t.Setenv("WIREDRAFT_COOKIE_SECURE", "")
-	t.Setenv("NETDIAGRAM_GUEST_ENABLED", "false")
-	t.Setenv("NETDIAGRAM_COOKIE_SECURE", "true")
+	t.Setenv("NETDIAGRAM_GUEST_ENABLED", "true")
+	t.Setenv("NETDIAGRAM_COOKIE_SECURE", "false")
 
 	configuration, err := Parse(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if configuration.GuestEnabled || !configuration.CookieSecure {
+	if !configuration.GuestEnabled || configuration.CookieSecure {
 		t.Fatalf("legacy authentication booleans = %#v", configuration)
+	}
+}
+
+func TestTrustedProxiesEnvironment(t *testing.T) {
+	t.Setenv("WIREDRAFT_TRUSTED_PROXIES", " 10.0.0.0/8, 192.0.2.7 ,::ffff:198.51.100.1,fd00::/64")
+	configuration, err := Parse(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"10.0.0.0/8", "192.0.2.7/32", "198.51.100.1/32", "fd00::/64"}
+	if len(configuration.TrustedProxies) != len(want) {
+		t.Fatalf("trusted proxies = %v, want %v", configuration.TrustedProxies, want)
+	}
+	for index, prefix := range configuration.TrustedProxies {
+		if prefix.String() != want[index] {
+			t.Fatalf("trusted proxies = %v, want %v", configuration.TrustedProxies, want)
+		}
+	}
+	t.Setenv("WIREDRAFT_TRUSTED_PROXIES", "not-an-address")
+	if _, err := Parse(nil); err == nil || !strings.Contains(err.Error(), "WIREDRAFT_TRUSTED_PROXIES") {
+		t.Fatalf("Parse error = %v, want named invalid proxy", err)
 	}
 }
 

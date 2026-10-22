@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
+
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -38,8 +42,25 @@ func NewPostgres(
 	if err != nil {
 		return nil, err
 	}
+	// columnKey is what the auth_state row stores. Once an external secret key
+	// is configured it is only random filler, so a database dump alone no
+	// longer opens the TOTP secrets.
+	columnKey := key
+	secretKey := key
 	migrationComplete := false
 	for range 3 {
+		var rekeyed bool
+		secretKey, rekeyed, err = applyExternalSecretKey(&state, key, config.SecretKey, config.PreviousSecretKeys)
+		if err != nil {
+			return nil, err
+		}
+		columnKey = key
+		if rekeyed {
+			columnKey = make([]byte, 32)
+			if _, err := rand.Read(columnKey); err != nil {
+				return nil, fmt.Errorf("generating authentication key filler: %w", err)
+			}
+		}
 		organizationMigrated, err := migrateOrganizationAssignments(&state, catalog)
 		if err != nil {
 			return nil, err
@@ -49,18 +70,18 @@ func NewPostgres(
 			return nil, err
 		}
 		guestAllowlistRetired := retireLegacyGuestTopologyIDs(&state)
-		if err := validatePersistentState(state, key, catalog); err != nil {
+		if err := validatePersistentState(state, secretKey, catalog); err != nil {
 			return nil, err
 		}
-		if !schemaMigrated && !organizationMigrated && !guestMigrated && !guestAllowlistRetired {
+		if !schemaMigrated && !organizationMigrated && !guestMigrated && !guestAllowlistRetired && !rekeyed {
 			migrationComplete = true
 			break
 		}
 		persisted := true
 		if previousVersion < authStateVersion {
-			persisted, err = savePostgresMigration(ctx, pool, state, key, previousVersion)
+			persisted, err = savePostgresMigration(ctx, pool, state, columnKey, previousVersion)
 		} else {
-			err = savePostgresState(ctx, pool, state, key)
+			err = savePostgresState(ctx, pool, state, columnKey)
 		}
 		if err != nil {
 			return nil, err
@@ -77,8 +98,8 @@ func NewPostgres(
 	if !migrationComplete || state.Version != authStateVersion {
 		return nil, errors.New("auth: authentication state migration did not converge")
 	}
-	manager := newManager(state, key, config, catalog, func(saveCtx context.Context, next persistentState) error {
-		return savePostgresState(saveCtx, pool, next, key)
+	manager := newManager(state, secretKey, config, catalog, func(saveCtx context.Context, next persistentState) error {
+		return savePostgresState(saveCtx, pool, next, columnKey)
 	})
 	if err := manager.preparePasswordComparison(); err != nil {
 		return nil, err
@@ -245,6 +266,81 @@ func savePostgresState(
 		return fmt.Errorf("persisting postgres authentication state: %w", err)
 	}
 	return nil
+}
+
+// ParseSecretKey decodes an operator-supplied 32-byte key given as base64 or
+// hexadecimal text.
+func ParseSecretKey(value string) ([]byte, error) {
+	value = strings.TrimSpace(value)
+	if len(value) == 64 {
+		if key, err := hex.DecodeString(value); err == nil {
+			return key, nil
+		}
+	}
+	for _, encoding := range []*base64.Encoding{
+		base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding,
+	} {
+		if key, err := encoding.DecodeString(value); err == nil && len(key) == 32 {
+			return key, nil
+		}
+	}
+	return nil, errors.New("auth: secret key must be 32 bytes encoded as base64 or hexadecimal")
+}
+
+// applyExternalSecretKey re-seals TOTP secrets with the operator-supplied key.
+// Secrets sealed with the database-stored key (before migration) or with a
+// previous operator key (during rotation) are opened and re-sealed. It reports
+// the key that now seals the secrets and whether the state changed.
+func applyExternalSecretKey(
+	state *persistentState,
+	storedKey []byte,
+	externalKey []byte,
+	previousKeys [][]byte,
+) ([]byte, bool, error) {
+	if len(externalKey) == 0 {
+		if state.ExternalSecretKey {
+			return nil, false, errors.New(
+				"auth: TOTP secrets are sealed with an external key; set WIREDRAFT_AUTH_SECRET_KEY_FILE",
+			)
+		}
+		return storedKey, false, nil
+	}
+	if len(externalKey) != 32 {
+		return nil, false, errors.New("auth: external secret key must contain exactly 32 bytes")
+	}
+	candidates := slices.Clone(previousKeys)
+	if !state.ExternalSecretKey {
+		candidates = append([][]byte{storedKey}, candidates...)
+	}
+	changed := !state.ExternalSecretKey
+	for index := range state.Users {
+		sealed := state.Users[index].EncryptedTOTPSecret
+		if sealed == "" {
+			continue
+		}
+		if _, err := openSecret(externalKey, sealed); err == nil {
+			continue
+		}
+		opened := false
+		for _, candidate := range candidates {
+			secret, err := openSecret(candidate, sealed)
+			if err != nil {
+				continue
+			}
+			resealed, err := sealSecret(externalKey, secret)
+			if err != nil {
+				return nil, false, err
+			}
+			state.Users[index].EncryptedTOTPSecret = resealed
+			opened, changed = true, true
+			break
+		}
+		if !opened {
+			return nil, false, errors.New("auth: a TOTP secret cannot be opened with the configured secret keys")
+		}
+	}
+	state.ExternalSecretKey = true
+	return externalKey, changed, nil
 }
 
 func normalizeUsernameDisplay(value string) string {
