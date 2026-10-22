@@ -2111,11 +2111,21 @@ function renderResources() {
   elements["documentation-list"].innerHTML = documents.length ? documents.map((item) => `<article class="resource-card">
     <header><span>${escapeHTML(item.targetKind.toUpperCase())}</span><b>${escapeHTML(item.label)}</b></header>
     <p class="document-url">${escapeHTML(item.url)}</p>
-    <footer><button type="button" data-document-embed="${item.id}">EMBED</button><a href="${escapeHTML(item.url)}" target="_blank" rel="noopener noreferrer">OPEN ↗</a><button type="button" class="danger" data-document-delete="${item.id}">DELETE</button></footer>
+    <footer>${embeddableDocumentationURL(item.url) ? `<button type="button" data-document-embed="${item.id}">EMBED</button>` : ""}<a href="${escapeHTML(item.url)}" target="_blank" rel="noopener noreferrer">OPEN ↗</a><button type="button" class="danger" data-document-delete="${item.id}">DELETE</button></footer>
   </article>`).join("") : `<p class="resources-empty">No documentation attached.</p>`;
 
   const created = createdShareURL ? `<article class="resource-card share-created"><header><span>NEW LINK · COPY NOW</span><b>SECRET SHOWN ONCE</b></header><input readonly value="${escapeHTML(createdShareURL)}"><footer><button type="button" data-share-copy="${escapeHTML(createdShareURL)}">COPY LINK</button></footer></article>` : "";
   elements["share-list"].innerHTML = created + (shareEntries.length ? shareEntries.map((share) => `<article class="resource-card"><header><span>${escapeHTML(share.name)}</span><b>${share.expiresAt ? `EXPIRES ${escapeHTML(new Date(share.expiresAt).toLocaleString())}` : "NO EXPIRY"}</b></header><footer><button type="button" class="danger" data-share-delete="${share.id}">REVOKE</button></footer></article>`).join("") : `<p class="resources-empty">No active read-only shares.</p>`);
+}
+
+// Only HTTPS documentation is framed (the CSP allows frame-src https: only);
+// plain-HTTP links remain available through OPEN.
+function embeddableDocumentationURL(value) {
+  try {
+    return new URL(String(value)).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 async function saveDocumentationLink(event) {
@@ -2138,8 +2148,9 @@ async function handleDocumentationAction(event) {
   const deleteID = event.target.closest("[data-document-delete]")?.dataset.documentDelete;
   if (embedID) {
     const item = (state.topology.documentationLinks || []).find((candidate) => candidate.id === embedID);
-    elements["documentation-preview"].src = item?.url || "about:blank";
-    elements["documentation-preview"].hidden = !item;
+    const embeddable = embeddableDocumentationURL(item?.url);
+    elements["documentation-preview"].src = embeddable ? item.url : "about:blank";
+    elements["documentation-preview"].hidden = !embeddable;
   }
   if (deleteID) {
     applyTopology(await api.deleteDocumentationLink(state.topology.id, deleteID));

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./csrf-fixture.mjs";
 import { readFile } from "node:fs/promises";
 import { hardwareCatalog, instantiateProfile } from "../web/static/js/catalog.js";
 import { defaultCableProperties } from "../web/static/js/cable-defaults.js";

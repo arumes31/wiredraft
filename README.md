@@ -47,7 +47,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Open <http://localhost:8080>. View logs or stop the stack with:
+Open <http://localhost:8080>. Session cookies are HTTPS-only by default; browsers accept them on `localhost`, but to sign in over plain HTTP from another host set `WIREDRAFT_COOKIE_SECURE=false` in `.env` (evaluation only). View logs or stop the stack with:
 
 ```sh
 docker compose logs -f wiredraft
@@ -78,7 +78,7 @@ Accounts are global: a user may be granted one, several, or all organizations. T
 
 Open **Identity Control > Administration** for the dedicated user and organization management area. Search or filter the Users directory, then choose **Manage** to edit access or sign-in settings. **Add user** shows only the fields needed for local/TOTP or Microsoft Entra accounts. The Organizations directory links to everyone with effective access, including administrators and global grants. Use **Back to workspace** to return to the remembered map.
 
-Guest access is enabled by default for existing guest-workspace maps. Set `WIREDRAFT_GUEST_ENABLED=false` before startup when anonymous workspace access is not wanted.
+Guest access is disabled by default. Set `WIREDRAFT_GUEST_ENABLED=true` before startup to let anonymous visitors open the shared Guest workspace with read/write access; existing Guest maps are kept while it is disabled. Guest sessions are limited to 10 new sessions per client address every 5 minutes and 1024 live sessions in total (`WIREDRAFT_GUEST_SESSIONS_PER_CLIENT`, `WIREDRAFT_GUEST_SESSION_LIMIT`).
 
 ## Run the GHCR image
 
@@ -223,7 +223,7 @@ Use **Arrow**, **Box**, or **Note** in the canvas toolbar to add saved markup. S
 
 Select an object and use **Field photos → Upload JPEG / PNG** to attach up to 12 images per upload, at most 10 MiB each. Open a thumbnail to view it in **Photo manager**, change its display filename or caption, or delete it. Photo access follows the map's organization. JSON backups contain photo metadata only; preserve the separate media files as described under [persistent data](#persistent-data).
 
-Open **Resources** to attach HTTP(S) documentation links or create a read-only share with an optional expiry. Copy a newly created share URL immediately: its secret is shown only once. Revoke shares from the same dialog. Documentation embeds depend on the destination site's framing policy; use **Open** when embedding is unavailable.
+Open **Resources** to attach HTTP(S) documentation links or create a read-only share with an optional expiry. Copy a newly created share URL immediately: its secret is shown only once. Revoke shares from the same dialog. Only HTTPS documentation can be embedded, in a sandboxed frame without referrer; embeds also depend on the destination site's framing policy. Use **Open** for HTTP links or when embedding is unavailable.
 
 ### Saving and exports
 
@@ -344,8 +344,13 @@ WireDraft reads environment variables first and lets command-line flags override
 | `WIREDRAFT_ADMIN_USER` | — | `admin` | Bootstrap administrator username |
 | `WIREDRAFT_ADMIN_PASSWORD` | — | required | Bootstrap administrator password; minimum 12 characters |
 | `WIREDRAFT_ADMIN_TOTP_SECRET` | — | empty | Optional Base32 TOTP secret; empty starts QR enrollment on first login |
-| `WIREDRAFT_GUEST_ENABLED` | — | `true` | Enables guest-workspace login |
-| `WIREDRAFT_COOKIE_SECURE` | — | `false` | Sends the session cookie only over HTTPS |
+| `WIREDRAFT_GUEST_ENABLED` | — | `false` | Enables anonymous guest-workspace login with read/write access to the Guest organization |
+| `WIREDRAFT_COOKIE_SECURE` | — | `true` | Sends the session cookie only over HTTPS; set `false` only for plain-HTTP local evaluation |
+| `WIREDRAFT_GUEST_SESSION_LIMIT` | — | `1024` | Maximum number of live Guest sessions |
+| `WIREDRAFT_GUEST_SESSIONS_PER_CLIENT` | — | `10` | New Guest sessions allowed per client address every 5 minutes |
+| `WIREDRAFT_TRUSTED_PROXIES` | — | empty | Comma-separated reverse-proxy IPs or CIDRs whose `X-Forwarded-For` header identifies the client for login and guest throttling |
+| `WIREDRAFT_AUTH_SECRET_KEY_FILE` | — | empty | Optional file with a 32-byte base64 or hex key that encrypts TOTP secrets instead of the key stored in PostgreSQL |
+| `WIREDRAFT_AUTH_PREVIOUS_SECRET_KEY_FILE` | — | empty | Previous TOTP encryption key, read only while rotating `WIREDRAFT_AUTH_SECRET_KEY_FILE` |
 | `WIREDRAFT_ENTRA_ENABLED` | — | `false` | Enables the Microsoft Entra ID login button and OIDC endpoints |
 | `WIREDRAFT_ENTRA_TENANT_ID` | — | empty | Directory (tenant) ID of the single permitted Entra tenant |
 | `WIREDRAFT_ENTRA_CLIENT_ID` | — | empty | Application (client) ID of the WireDraft app registration |
@@ -475,15 +480,20 @@ To rotate the secret, create a second Entra client secret, replace the mounted f
 
 ### Production checklist
 
-Session cookies have the `Secure` attribute only when `WIREDRAFT_COOKIE_SECURE=true` (or its legacy fallback alias is enabled). The default is `false` so plain-HTTP local deployments remain usable. Entra-enabled deployments enforce this setting at startup; other deployments do not. Operators terminating TLS at a reverse proxy must set it explicitly, even when the proxy connects to WireDraft over HTTP. WireDraft does not infer this setting from forwarded headers. `HttpOnly` and `SameSite=Strict` are always set on session cookies.
+Session cookies have the `Secure` attribute unless `WIREDRAFT_COOKIE_SECURE=false` (or its legacy fallback alias) is set. The default is `true`; plain-HTTP deployments other than `localhost` must opt out explicitly, otherwise browsers do not return the session cookie and sign-in fails. Entra-enabled deployments reject the opt-out at startup. WireDraft does not infer this setting from forwarded headers. `HttpOnly` and `SameSite=Strict` are always set on session cookies.
+
+Login and Guest throttling are keyed on the client address. Behind a reverse proxy, every client otherwise shares the proxy's address, so set `WIREDRAFT_TRUSTED_PROXIES` to the proxy's address or network. WireDraft then uses the right-most `X-Forwarded-For` entry that is not a trusted proxy; the header is ignored for any other peer. Second-factor (TOTP and recovery code) failures are also counted per account: every 5 failures lock that account's second factor for 1 minute, doubling up to 1 hour, and are logged as `second_factor_failed` / `second_factor_locked` events.
+
+By default the key that encrypts TOTP secrets is stored in the `auth_state` row next to them. Set `WIREDRAFT_AUTH_SECRET_KEY_FILE` to a mounted file containing a 32-byte key (for example `openssl rand -base64 32`) to keep it out of the database: on startup WireDraft re-encrypts every TOTP secret with that key and replaces the stored key with random filler. From then on the key file is required to start. To rotate, mount the new key as `WIREDRAFT_AUTH_SECRET_KEY_FILE`, the old one as `WIREDRAFT_AUTH_PREVIOUS_SECRET_KEY_FILE`, restart once, and then remove the previous key.
 
 - Use long, unique values for the database and administrator passwords.
 - Disable guest access unless it is intentionally required.
-- Terminate TLS at a trusted reverse proxy and set `WIREDRAFT_COOKIE_SECURE=true`.
+- Terminate TLS at a trusted reverse proxy, keep `WIREDRAFT_COOKIE_SECURE=true`, and set `WIREDRAFT_TRUSTED_PROXIES` to the proxy's address.
+- Set `WIREDRAFT_AUTH_SECRET_KEY_FILE` and back up the key separately from the database.
 - Keep PostgreSQL on a private network and back up `data/postgres`.
 - Back up `data/media` with PostgreSQL; do not publish or serve the media directory directly from a reverse proxy.
 - Pin the WireDraft image to a release tag or digest; WireDraft applies its embedded database migrations during startup.
-- Preserve the `auth_state` row with the rest of the database; its encryption key is required to read stored TOTP secrets.
+- Preserve the `auth_state` row with the rest of the database; unless `WIREDRAFT_AUTH_SECRET_KEY_FILE` is set, its encryption key is required to read stored TOTP secrets.
 - Run one WireDraft application replica. Authentication state is currently maintained as one PostgreSQL aggregate and is not yet safe for concurrent writers across multiple replicas.
 - Collect and retain the application's JSON logs for access-change investigations; see [access audit events](SECURITY.md#access-audit-events) for fields and retention limitations.
 
@@ -536,7 +546,9 @@ $env:PGDATABASE = "wiredraft"
 $env:PGUSER = "wiredraft"
 $env:PGPASSWORD = "the-password-from-.env"
 $env:WIREDRAFT_ADMIN_PASSWORD = "a-long-local-admin-password"
+$env:WIREDRAFT_COOKIE_SECURE = "false"
 go run ./cmd/server
+
 ```
 
 The native server reads process environment variables; it does not load `.env` automatically. Set the remaining options as needed in the same shell. Browser assets are embedded at build time, so restart `go run` or rebuild the binary after editing files under `web/static`.

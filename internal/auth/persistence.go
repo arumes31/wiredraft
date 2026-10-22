@@ -48,6 +48,9 @@ type persistentState struct {
 	Version             int             `json:"version"`
 	GuestOrganizationID string          `json:"guestOrganizationId,omitempty"`
 	Users               []persistedUser `json:"users"`
+	// ExternalSecretKey records that TOTP secrets are sealed with an operator
+	// key that is not stored alongside the state.
+	ExternalSecretKey bool `json:"externalSecretKey,omitempty"`
 
 	// Retained only to decode and erase the version 3 Guest topology allowlist.
 	LegacyGuestWorkspaceInitialized bool     `json:"guestWorkspaceInitialized,omitempty"`

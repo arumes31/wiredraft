@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
+
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,7 +24,29 @@ const (
 	maxLoginAttempts   = 5
 	maxChallengeTries  = 5
 	bootstrapAdminID   = "bootstrap-admin"
+
+	// Second-factor failures are counted per account, independently of the
+	// password step, and every maxChallengeTries failures lock the account's
+	// second factor for an exponentially growing period.
+	secondFactorLockout    = time.Minute
+	maxSecondFactorLockout = time.Hour
+	secondFactorFailureTTL = 24 * time.Hour
+
+	// Guest sessions require no credentials, so both their total number and
+	// their creation rate per client are bounded unless configured otherwise.
+	defaultMaxGuestSessions        = 1024
+	defaultMaxGuestSessionsPerHost = 10
+
+	// Expired state is swept at most once per interval; lookups check expiry
+	// individually so a sweep is never required for correctness.
+	pruneInterval = time.Minute
 )
+
+type secondFactorState struct {
+	Failures    int
+	LastFailure time.Time
+	LockedUntil time.Time
+}
 
 type loginAttempt struct {
 	StartedAt time.Time
@@ -49,10 +73,15 @@ type Manager struct {
 	guestOrganization string
 	guestEnabled      bool
 	cookieSecure      bool
+	trustedProxies    []netip.Prefix
+	maxGuestSessions  int
+	maxGuestPerHost   int
 	dummyPasswordHash string
 	sessions          map[string]Session
 	challenges        map[string]pendingChallenge
 	loginAttempts     map[string]loginAttempt
+	secondFactor      map[string]secondFactorState
+	lastPrune         time.Time
 	now               func() time.Time
 }
 
@@ -152,9 +181,13 @@ func newManager(
 		guestOrganization: state.GuestOrganizationID,
 		guestEnabled:      config.GuestEnabled,
 		cookieSecure:      config.CookieSecure,
+		trustedProxies:    slices.Clone(config.TrustedProxies),
+		maxGuestSessions:  positiveOr(config.MaxGuestSessions, defaultMaxGuestSessions),
+		maxGuestPerHost:   positiveOr(config.MaxGuestSessionsPerClient, defaultMaxGuestSessionsPerHost),
 		sessions:          make(map[string]Session),
 		challenges:        make(map[string]pendingChallenge),
 		loginAttempts:     make(map[string]loginAttempt),
+		secondFactor:      make(map[string]secondFactorState),
 		now:               func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -272,6 +305,10 @@ func (m *Manager) GuestEnabled() bool { return m.guestEnabled }
 // CookieSecure reports whether the session cookie must be HTTPS-only.
 func (m *Manager) CookieSecure() bool { return m.cookieSecure }
 
+// TrustedProxies returns the reverse-proxy networks whose forwarded client
+// addresses are honored for authentication throttling.
+func (m *Manager) TrustedProxies() []netip.Prefix { return slices.Clone(m.trustedProxies) }
+
 // GuestOrganizationID returns the stable organization used for newly created
 // Guest workspace topologies. It is empty when Guest access is disabled.
 func (m *Manager) GuestOrganizationID() string {
@@ -294,7 +331,7 @@ func (m *Manager) StartLogin(username, password, remote string) (LoginChallenge,
 	m.mu.Lock()
 	m.pruneLocked(now)
 	for _, key := range attemptKeys {
-		attempt := m.loginAttempts[key]
+		attempt := m.activeLoginAttemptLocked(key, now)
 		if attempt.Failures+attempt.InFlight >= maxLoginAttempts {
 			m.mu.Unlock()
 			return LoginChallenge{}, ErrRateLimited
@@ -376,6 +413,10 @@ func (m *Manager) CompleteSetup(ctx context.Context, challengeToken, code string
 		m.mu.Unlock()
 		return Session{}, nil, ErrInvalidChallenge
 	}
+	if err := m.reserveSecondFactorLocked(challengeToken, user.ID, now); err != nil {
+		m.mu.Unlock()
+		return Session{}, nil, err
+	}
 	secret := challenge.SetupSecret
 	m.mu.Unlock()
 	step, valid, err := verifyTOTP(secret, code, now, 0)
@@ -383,7 +424,6 @@ func (m *Manager) CompleteSetup(ctx context.Context, challengeToken, code string
 		return Session{}, nil, err
 	}
 	if !valid {
-		m.failChallenge(challengeToken)
 		return Session{}, nil, ErrInvalidCode
 	}
 	codes, hashes, err := newRecoveryCodes()
@@ -396,7 +436,7 @@ func (m *Manager) CompleteSetup(ctx context.Context, challengeToken, code string
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	challenge, user, err = m.challengeUserLocked(challengeToken, now)
+	challenge, user, err = m.reservedChallengeUserLocked(challengeToken, now)
 	if err != nil || challenge.SetupSecret != secret || user.EncryptedTOTPSecret != "" {
 		return Session{}, nil, ErrInvalidChallenge
 	}
@@ -410,6 +450,7 @@ func (m *Manager) CompleteSetup(ctx context.Context, challengeToken, code string
 		return Session{}, nil, err
 	}
 	delete(m.challenges, challengeToken)
+	delete(m.secondFactor, user.ID)
 	session, err := m.newSessionLocked(next.Users[index], now)
 	return session, codes, err
 }
@@ -423,9 +464,11 @@ func (m *Manager) CompleteRecovery(ctx context.Context, challengeToken, code str
 	if err != nil || challenge.SetupSecret != "" || user.EncryptedTOTPSecret == "" {
 		return Session{}, ErrInvalidChallenge
 	}
+	if err := m.reserveSecondFactorLocked(challengeToken, user.ID, now); err != nil {
+		return Session{}, err
+	}
 	index := recoveryCodeIndex(user.RecoveryCodeHashes, code)
 	if index < 0 {
-		m.failChallengeLocked(challengeToken)
 		return Session{}, ErrInvalidCode
 	}
 	next := clonePersistentState(m.state)
@@ -436,6 +479,7 @@ func (m *Manager) CompleteRecovery(ctx context.Context, challengeToken, code str
 		return Session{}, err
 	}
 	delete(m.challenges, challengeToken)
+	delete(m.secondFactor, user.ID)
 	return m.newSessionLocked(next.Users[userIndex], now)
 }
 
@@ -451,6 +495,12 @@ func (m *Manager) completeAuthenticator(ctx context.Context, challengeToken, cod
 		m.mu.Unlock()
 		return Session{}, ErrInvalidChallenge
 	}
+	// The attempt is counted before the lock is released, so concurrent
+	// requests on one challenge cannot exceed the challenge or account limits.
+	if err := m.reserveSecondFactorLocked(challengeToken, user.ID, now); err != nil {
+		m.mu.Unlock()
+		return Session{}, err
+	}
 	secret, err := openSecret(m.encryptionKey, user.EncryptedTOTPSecret)
 	lastStep := user.LastTOTPStep
 	m.mu.Unlock()
@@ -462,12 +512,11 @@ func (m *Manager) completeAuthenticator(ctx context.Context, challengeToken, cod
 		return Session{}, err
 	}
 	if !valid {
-		m.failChallenge(challengeToken)
 		return Session{}, ErrInvalidCode
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	challenge, user, err = m.challengeUserLocked(challengeToken, now)
+	challenge, user, err = m.reservedChallengeUserLocked(challengeToken, now)
 	if err != nil || challenge.SetupSecret != "" || user.LastTOTPStep >= step {
 		return Session{}, ErrInvalidChallenge
 	}
@@ -479,23 +528,42 @@ func (m *Manager) completeAuthenticator(ctx context.Context, challengeToken, cod
 		return Session{}, err
 	}
 	delete(m.challenges, challengeToken)
+	delete(m.secondFactor, user.ID)
 	return m.newSessionLocked(next.Users[index], now)
 }
 
-// NewGuestSession creates a session for the persistent Guest workspace.
-func (m *Manager) NewGuestSession() (Session, error) {
+// NewGuestSession creates a session for the persistent Guest workspace. The
+// number of live Guest sessions and their creation rate per client are bounded.
+func (m *Manager) NewGuestSession(remote string) (Session, error) {
 	if !m.guestEnabled {
 		return Session{}, ErrForbidden
 	}
+	now := m.now()
+	attemptKey := "guest|" + remoteHost(remote)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.guestOrganization == "" {
 		return Session{}, ErrForbidden
 	}
+	m.pruneLocked(now)
+	if m.activeLoginAttemptLocked(attemptKey, now).Failures >= m.maxGuestPerHost {
+		return Session{}, ErrRateLimited
+	}
+	guestSessions := 0
+	for _, session := range m.sessions {
+		if session.Principal.IsGuest() && session.ExpiresAt.After(now) {
+			guestSessions++
+		}
+	}
+	if guestSessions >= m.maxGuestSessions {
+		return Session{}, ErrRateLimited
+	}
+	m.reserveLoginAttemptLocked(attemptKey, now)
+	m.finishLoginAttemptLocked(attemptKey, true)
 	return m.newPrincipalSessionLocked(Principal{
 		UserID: RoleGuest, Username: "Guest", Role: RoleGuest,
 		OrganizationIDs: []string{m.guestOrganization},
-	}, m.now())
+	}, now)
 }
 
 // Session resolves an opaque cookie token and refreshes no state.
@@ -505,7 +573,8 @@ func (m *Manager) Session(token string) (Session, bool) {
 	defer m.mu.Unlock()
 	m.pruneLocked(now)
 	session, exists := m.sessions[token]
-	if !exists {
+	if !exists || !session.ExpiresAt.After(now) {
+		delete(m.sessions, token)
 		return Session{}, false
 	}
 	session.Principal = clonePrincipal(session.Principal)
@@ -848,8 +917,18 @@ func (m *Manager) CanCreateInOrganization(principal Principal, organizationID st
 }
 
 func (m *Manager) challengeUserLocked(token string, now time.Time) (pendingChallenge, persistedUser, error) {
+	if challenge, exists := m.challenges[token]; exists && challenge.FailedChecks >= maxChallengeTries {
+		delete(m.challenges, token)
+		return pendingChallenge{}, persistedUser{}, ErrInvalidChallenge
+	}
+	return m.reservedChallengeUserLocked(token, now)
+}
+
+// reservedChallengeUserLocked revalidates a challenge whose current attempt
+// was already counted by reserveSecondFactorLocked.
+func (m *Manager) reservedChallengeUserLocked(token string, now time.Time) (pendingChallenge, persistedUser, error) {
 	challenge, exists := m.challenges[token]
-	if !exists || !challenge.ExpiresAt.After(now) || challenge.FailedChecks >= maxChallengeTries {
+	if !exists || !challenge.ExpiresAt.After(now) {
 		delete(m.challenges, token)
 		return pendingChallenge{}, persistedUser{}, ErrInvalidChallenge
 	}
@@ -861,23 +940,29 @@ func (m *Manager) challengeUserLocked(token string, now time.Time) (pendingChall
 	return challenge, user, nil
 }
 
-func (m *Manager) failChallenge(token string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.failChallengeLocked(token)
-}
-
-func (m *Manager) failChallengeLocked(token string) {
-	challenge, exists := m.challenges[token]
-	if !exists {
-		return
+// reserveSecondFactorLocked counts a verification attempt as failed before the
+// code is checked. A successful verification consumes the challenge and clears
+// the account's failure record; a failed one leaves both counters in place.
+func (m *Manager) reserveSecondFactorLocked(token, userID string, now time.Time) error {
+	state := m.secondFactor[userID]
+	if now.Before(state.LockedUntil) {
+		return ErrRateLimited
 	}
-	challenge.FailedChecks++
-	if challenge.FailedChecks >= maxChallengeTries {
-		delete(m.challenges, token)
-		return
+	if !state.LastFailure.IsZero() && now.Sub(state.LastFailure) >= secondFactorFailureTTL {
+		state = secondFactorState{}
 	}
-	m.challenges[token] = challenge
+	state.Failures++
+	state.LastFailure = now
+	if state.Failures%maxChallengeTries == 0 {
+		lockout := secondFactorLockout << min(state.Failures/maxChallengeTries-1, 6)
+		state.LockedUntil = now.Add(min(lockout, maxSecondFactorLockout))
+	}
+	m.secondFactor[userID] = state
+	if challenge, exists := m.challenges[token]; exists {
+		challenge.FailedChecks++
+		m.challenges[token] = challenge
+	}
+	return nil
 }
 
 func (m *Manager) newSessionLocked(user persistedUser, now time.Time) (Session, error) {
@@ -925,9 +1010,17 @@ func (m *Manager) userByIDLocked(id string) (persistedUser, bool) {
 	return user, true
 }
 
-func (m *Manager) reserveLoginAttemptLocked(key string, now time.Time) {
+func (m *Manager) activeLoginAttemptLocked(key string, now time.Time) loginAttempt {
 	attempt := m.loginAttempts[key]
 	if attempt.StartedAt.IsZero() || now.Sub(attempt.StartedAt) >= loginAttemptWindow {
+		return loginAttempt{}
+	}
+	return attempt
+}
+
+func (m *Manager) reserveLoginAttemptLocked(key string, now time.Time) {
+	attempt := m.activeLoginAttemptLocked(key, now)
+	if attempt.StartedAt.IsZero() {
 		attempt = loginAttempt{StartedAt: now}
 	}
 	attempt.InFlight++
@@ -953,6 +1046,10 @@ func (m *Manager) finishLoginAttemptLocked(key string, failed bool) {
 }
 
 func (m *Manager) pruneLocked(now time.Time) {
+	if elapsed := now.Sub(m.lastPrune); elapsed >= 0 && elapsed < pruneInterval {
+		return
+	}
+	m.lastPrune = now
 	for token, session := range m.sessions {
 		if !session.ExpiresAt.After(now) {
 			delete(m.sessions, token)
@@ -966,6 +1063,11 @@ func (m *Manager) pruneLocked(now time.Time) {
 	for key, attempt := range m.loginAttempts {
 		if now.Sub(attempt.StartedAt) >= loginAttemptWindow {
 			delete(m.loginAttempts, key)
+		}
+	}
+	for userID, state := range m.secondFactor {
+		if !now.Before(state.LockedUntil) && now.Sub(state.LastFailure) >= secondFactorFailureTTL {
+			delete(m.secondFactor, userID)
 		}
 	}
 }
@@ -990,6 +1092,13 @@ func userView(user persistedUser) UserView {
 }
 
 func normalizeUsername(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
+
+func positiveOr(value, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	return fallback
+}
 
 func remoteHost(value string) string {
 	value = strings.TrimSpace(value)

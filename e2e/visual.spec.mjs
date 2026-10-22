@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./csrf-fixture.mjs";
 import { enterGuestWorkspace, unlockEditor } from "./auth-helper.mjs";
 
 test.beforeEach(async ({ page, request }) => {

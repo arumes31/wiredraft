@@ -2,10 +2,13 @@ package handler
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
+
 	"slices"
 	"strings"
 	"time"
@@ -77,7 +80,7 @@ func (s *Server) login(w http.ResponseWriter, request *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid login request")
 		return
 	}
-	challenge, err := s.auth.StartLogin(input.Username, input.Password, request.RemoteAddr)
+	challenge, err := s.auth.StartLogin(input.Username, input.Password, s.clientAddress(request))
 	if err != nil {
 		s.authFailure(w, err)
 		return
@@ -97,7 +100,7 @@ func (s *Server) verifyTOTP(w http.ResponseWriter, request *http.Request) {
 	}
 	session, err := s.auth.CompleteTOTP(request.Context(), input.Challenge, input.Code)
 	if err != nil {
-		s.authFailure(w, err)
+		s.secondFactorFailure(w, "totp", err)
 		return
 	}
 	s.setSessionCookie(w, session)
@@ -113,7 +116,7 @@ func (s *Server) completeTOTPSetup(w http.ResponseWriter, request *http.Request)
 	}
 	session, recoveryCodes, err := s.auth.CompleteSetup(request.Context(), input.Challenge, input.Code)
 	if err != nil {
-		s.authFailure(w, err)
+		s.secondFactorFailure(w, "totp_setup", err)
 		return
 	}
 	s.setSessionCookie(w, session)
@@ -129,7 +132,7 @@ func (s *Server) verifyRecoveryCode(w http.ResponseWriter, request *http.Request
 	}
 	session, err := s.auth.CompleteRecovery(request.Context(), input.Challenge, input.Code)
 	if err != nil {
-		s.authFailure(w, err)
+		s.secondFactorFailure(w, "recovery_code", err)
 		return
 	}
 	s.setSessionCookie(w, session)
@@ -137,8 +140,20 @@ func (s *Server) verifyRecoveryCode(w http.ResponseWriter, request *http.Request
 	s.writeSession(w, session, nil)
 }
 
-func (s *Server) guestLogin(w http.ResponseWriter, _ *http.Request) {
-	session, err := s.auth.NewGuestSession()
+// secondFactorFailure records rejected second-factor attempts so repeated
+// failures and lockouts are visible to operators in the application log.
+func (s *Server) secondFactorFailure(w http.ResponseWriter, factor string, err error) {
+	switch {
+	case errors.Is(err, auth.ErrRateLimited):
+		s.logger.Warn("second-factor verification locked", "event", "second_factor_locked", "factor", factor)
+	case errors.Is(err, auth.ErrInvalidCode), errors.Is(err, auth.ErrInvalidChallenge):
+		s.logger.Warn("second-factor verification failed", "event", "second_factor_failed", "factor", factor)
+	}
+	s.authFailure(w, err)
+}
+
+func (s *Server) guestLogin(w http.ResponseWriter, request *http.Request) {
+	session, err := s.auth.NewGuestSession(s.clientAddress(request))
 	if err != nil {
 		s.authFailure(w, err)
 		return
@@ -149,7 +164,7 @@ func (s *Server) guestLogin(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) entraStart(w http.ResponseWriter, request *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	start, err := s.entra.Begin(request.Context())
+	start, err := s.entra.Begin(request.Context(), s.clientAddress(request))
 	if err != nil {
 		s.logger.Error("starting Entra authentication", "error", err)
 		http.Redirect(w, request, "/login?entra_error=unavailable", http.StatusSeeOther)
@@ -567,11 +582,54 @@ func isUnsafeMethod(method string) bool {
 	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
 }
 
+// validBrowserMutation requires the session's CSRF token on every
+// cookie-authenticated unsafe request, whether or not the client sent Origin
+// or Fetch Metadata headers.
 func (s *Server) validBrowserMutation(request *http.Request, csrfToken string) bool {
-	if request.Header.Get("Origin") == "" && request.Header.Get("Sec-Fetch-Site") == "" {
-		return true
+	provided := request.Header.Get("X-CSRF-Token")
+	return isSameOrigin(request) && csrfToken != "" &&
+		subtle.ConstantTimeCompare([]byte(provided), []byte(csrfToken)) == 1
+}
+
+// clientAddress identifies the client for authentication throttling. The
+// X-Forwarded-For header is honored only when the direct peer is a configured
+// trusted proxy; the right-most address that is not itself a trusted proxy is
+// the client, so values prepended by the client cannot spoof another address.
+func (s *Server) clientAddress(request *http.Request) string {
+	proxies := s.auth.TrustedProxies()
+	peer, ok := parseClientIP(request.RemoteAddr)
+	if len(proxies) == 0 || !ok || !containsAddr(proxies, peer) {
+		return request.RemoteAddr
 	}
-	return isSameOrigin(request) && csrfToken != "" && request.Header.Get("X-CSRF-Token") == csrfToken
+	var hops []string
+	for _, value := range request.Header.Values("X-Forwarded-For") {
+		hops = append(hops, strings.Split(value, ",")...)
+	}
+	for index := len(hops) - 1; index >= 0; index-- {
+		address, ok := parseClientIP(hops[index])
+		if !ok {
+			break
+		}
+		if !containsAddr(proxies, address) {
+			return address.String()
+		}
+	}
+	return request.RemoteAddr
+}
+
+func parseClientIP(value string) (netip.Addr, bool) {
+	value = strings.TrimSpace(value)
+	if address, err := netip.ParseAddr(value); err == nil {
+		return address.Unmap(), true
+	}
+	if addressPort, err := netip.ParseAddrPort(value); err == nil {
+		return addressPort.Addr().Unmap(), true
+	}
+	return netip.Addr{}, false
+}
+
+func containsAddr(prefixes []netip.Prefix, address netip.Addr) bool {
+	return slices.ContainsFunc(prefixes, func(prefix netip.Prefix) bool { return prefix.Contains(address) })
 }
 
 func isSameOrigin(request *http.Request) bool {

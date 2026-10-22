@@ -87,10 +87,16 @@ func run(args []string) error {
 	for index, organization := range organizations {
 		authOrganizations[index] = auth.OrganizationRef{ID: organization.ID, Name: organization.Name}
 	}
+	secretKey, previousSecretKeys, err := readAuthSecretKeys(cfg.SecretKeyFile, cfg.PreviousSecretKeyFile)
+	if err != nil {
+		return err
+	}
 	authManager, err := auth.NewPostgres(context.Background(), databasePool, auth.Config{
 		AdminUsername: cfg.AdminUsername, AdminPassword: cfg.AdminPassword,
 		AdminTOTPSecret: cfg.AdminTOTPSecret, GuestEnabled: cfg.GuestEnabled,
-		CookieSecure: cfg.CookieSecure,
+		CookieSecure: cfg.CookieSecure, TrustedProxies: cfg.TrustedProxies,
+		MaxGuestSessions: cfg.MaxGuestSessions, MaxGuestSessionsPerClient: cfg.MaxGuestSessionsPerClient,
+		SecretKey: secretKey, PreviousSecretKeys: previousSecretKeys,
 	}, authOrganizations)
 	if err != nil {
 		return fmt.Errorf("opening authentication service: %w", err)
@@ -182,7 +188,39 @@ func startupOrganizationNames(
 	return nil, fmt.Errorf("looking up bound Guest organization: %w", err)
 }
 
+// readAuthSecretKeys loads the optional operator-held TOTP encryption key and
+// the key it replaces during rotation.
+func readAuthSecretKeys(path, previousPath string) ([]byte, [][]byte, error) {
+	if path == "" {
+		if previousPath != "" {
+			return nil, nil, errors.New("WIREDRAFT_AUTH_PREVIOUS_SECRET_KEY_FILE requires WIREDRAFT_AUTH_SECRET_KEY_FILE")
+		}
+		return nil, nil, nil
+	}
+	value, err := readSecretFile(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading authentication secret key: %w", err)
+	}
+	key, err := auth.ParseSecretKey(value)
+	if err != nil {
+		return nil, nil, err
+	}
+	if previousPath == "" {
+		return key, nil, nil
+	}
+	value, err = readSecretFile(previousPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading previous authentication secret key: %w", err)
+	}
+	previous, err := auth.ParseSecretKey(value)
+	if err != nil {
+		return nil, nil, err
+	}
+	return key, [][]byte{previous}, nil
+}
+
 func readSecretFile(path string) (returnValue string, returnErr error) {
+
 	// The path is process configuration supplied by the operator, never HTTP input.
 	file, err := os.Open(path) // #nosec G304 -- operator-controlled secret path.
 	if err != nil {

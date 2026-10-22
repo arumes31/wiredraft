@@ -26,6 +26,7 @@ func TestEntraProviderAuthorizationCodeFlow(t *testing.T) {
 	var issuer string
 	var expectedNonce string
 	var expectedChallenge string
+	var extraClaims map[string]any
 	mux := http.NewServeMux()
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
@@ -67,13 +68,17 @@ func TestEntraProviderAuthorizationCodeFlow(t *testing.T) {
 			return
 		}
 		now := time.Now()
+		claims := map[string]any{
+			"nonce": expectedNonce, "tid": "tenant-id", "oid": "object-id",
+			"preferred_username": "operator@example.com", "name": "Operator",
+		}
+		for name, value := range extraClaims {
+			claims[name] = value
+		}
 		rawIDToken, signErr := jwt.Signed(signer).Claims(jwt.Claims{
 			Issuer: issuer, Subject: "subject", Audience: jwt.Audience{"client-id"},
 			Expiry: jwt.NewNumericDate(now.Add(time.Hour)), IssuedAt: jwt.NewNumericDate(now),
-		}).Claims(map[string]any{
-			"nonce": expectedNonce, "tid": "tenant-id", "oid": "object-id",
-			"preferred_username": "operator@example.com", "name": "Operator",
-		}).Serialize()
+		}).Claims(claims).Serialize()
 		if signErr != nil {
 			t.Error(signErr)
 			http.Error(w, "signing failed", http.StatusInternalServerError)
@@ -92,7 +97,7 @@ func TestEntraProviderAuthorizationCodeFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider.issuerURL = issuer
-	start, err := provider.Begin(t.Context())
+	start, err := provider.Begin(t.Context(), "192.0.2.10:40000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,16 +122,64 @@ func TestEntraProviderAuthorizationCodeFlow(t *testing.T) {
 		t.Fatal("replayed Entra flow was accepted")
 	}
 
+	for _, claims := range []map[string]any{
+		{"idp": "https://sts.windows.net/other-tenant/"},
+		{"idp": "live.com"},
+		{"acct": 1},
+	} {
+		extraClaims = claims
+		guestStart, err := provider.Begin(t.Context(), "192.0.2.10:40001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		guestURL, err := url.Parse(guestStart.AuthorizationURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedNonce = guestURL.Query().Get("nonce")
+		expectedChallenge = guestURL.Query().Get("code_challenge")
+		if _, err := provider.Complete(
+			t.Context(), guestURL.Query().Get("state"), guestStart.FlowToken, "valid-code",
+		); !errors.Is(err, ErrInvalidExternalIdentity) {
+			t.Fatalf("guest or external account %v error = %v", claims, err)
+		}
+	}
+	extraClaims = map[string]any{"idp": "https://sts.windows.net/tenant-id/", "acct": 0}
+	memberStart, err := provider.Begin(t.Context(), "192.0.2.10:40002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberURL, err := url.Parse(memberStart.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedNonce = memberURL.Query().Get("nonce")
+	expectedChallenge = memberURL.Query().Get("code_challenge")
+	if _, err := provider.Complete(
+		t.Context(), memberURL.Query().Get("state"), memberStart.FlowToken, "valid-code",
+	); err != nil {
+		t.Fatalf("home-tenant member error = %v", err)
+	}
+
 	fixedNow := time.Now().UTC()
 	provider.now = func() time.Time { return fixedNow }
 	for index := range maxEntraFlows {
 		provider.flows[string(rune(index+1))] = pendingEntraFlow{ExpiresAt: fixedNow.Add(time.Minute)}
 	}
-	if _, err := provider.Begin(t.Context()); !errors.Is(err, ErrRateLimited) {
+	if _, err := provider.Begin(t.Context(), "192.0.2.10:40000"); !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("full pending-flow store error = %v", err)
 	}
 	fixedNow = fixedNow.Add(entraFlowLifetime + time.Second)
-	expiringStart, err := provider.Begin(t.Context())
+	for range maxEntraFlowsPerHost {
+		if _, err := provider.Begin(t.Context(), "198.51.100.7:50000"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := provider.Begin(t.Context(), "198.51.100.7:50001"); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("per-client pending-flow limit error = %v", err)
+	}
+	expiringStart, err := provider.Begin(t.Context(), "192.0.2.10:40000")
+
 	if err != nil {
 		t.Fatal(err)
 	}

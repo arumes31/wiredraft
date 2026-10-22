@@ -18,6 +18,8 @@ const (
 	entraFlowLifetime    = 5 * time.Minute
 	entraExchangeTimeout = 10 * time.Second
 	maxEntraFlows        = 512
+	// maxEntraFlowsPerHost keeps one client from occupying the shared table.
+	maxEntraFlowsPerHost = 10
 )
 
 // EntraConfig contains the single-tenant Microsoft identity settings.
@@ -39,6 +41,7 @@ type pendingEntraFlow struct {
 	CookieHash   [sha256.Size]byte
 	Nonce        string
 	PKCEVerifier string
+	Host         string
 	ExpiresAt    time.Time
 }
 
@@ -78,8 +81,9 @@ func NewEntraProvider(config EntraConfig) (*EntraProvider, error) {
 	}, nil
 }
 
-// Begin creates a browser-bound, single-use OIDC request.
-func (p *EntraProvider) Begin(ctx context.Context) (EntraStart, error) {
+// Begin creates a browser-bound, single-use OIDC request. Pending requests are
+// bounded globally and per client address.
+func (p *EntraProvider) Begin(ctx context.Context, remote string) (EntraStart, error) {
 	runtime, err := p.oidcRuntime(ctx)
 	if err != nil {
 		return EntraStart{}, err
@@ -103,14 +107,21 @@ func (p *EntraProvider) Begin(ctx context.Context) (EntraStart, error) {
 	now := p.now()
 	p.mu.Lock()
 	p.pruneFlowsLocked(now)
-	if len(p.flows) >= maxEntraFlows {
+	host := remoteHost(remote)
+	hostFlows := 0
+	for _, flow := range p.flows {
+		if flow.Host == host {
+			hostFlows++
+		}
+	}
+	if len(p.flows) >= maxEntraFlows || hostFlows >= maxEntraFlowsPerHost {
 		p.mu.Unlock()
 		return EntraStart{}, ErrRateLimited
 	}
 	expiresAt := now.Add(entraFlowLifetime)
 	p.flows[state] = pendingEntraFlow{
 		CookieHash: sha256.Sum256([]byte(flowToken)), Nonce: nonce,
-		PKCEVerifier: verifier, ExpiresAt: expiresAt,
+		PKCEVerifier: verifier, Host: host, ExpiresAt: expiresAt,
 	}
 	p.mu.Unlock()
 	authorizationURL := runtime.oauthConfig.AuthCodeURL(
@@ -166,6 +177,8 @@ func (p *EntraProvider) Complete(
 		ObjectID          string `json:"oid"`
 		PreferredUsername string `json:"preferred_username"`
 		Name              string `json:"name"`
+		IdentityProvider  string `json:"idp"`
+		AccountType       any    `json:"acct"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		return ExternalIdentity{}, ErrInvalidExternalIdentity
@@ -174,6 +187,13 @@ func (p *EntraProvider) Complete(
 		strings.TrimSpace(claims.ObjectID) == "" || validateExternalLogin(claims.PreferredUsername) != nil {
 		return ExternalIdentity{}, ErrInvalidExternalIdentity
 	}
+	// preferred_username is mutable and, for B2B guests, controlled by their
+	// home tenant. Only member accounts homed in the configured tenant may sign
+	// in, so a guest whose username matches a pre-approved login cannot claim it.
+	if !p.homeTenantMember(claims.IdentityProvider, claims.AccountType) {
+		return ExternalIdentity{}, ErrInvalidExternalIdentity
+	}
+
 	return ExternalIdentity{
 		TenantID: claims.TenantID, ObjectID: claims.ObjectID,
 		PreferredUsername: claims.PreferredUsername, DisplayName: claims.Name,
@@ -221,5 +241,25 @@ func (p *EntraProvider) pruneFlowsLocked(now time.Time) {
 		if !flow.ExpiresAt.After(now) {
 			delete(p.flows, state)
 		}
+	}
+}
+
+// homeTenantMember rejects tokens whose idp claim names another identity
+// provider (B2B guests and external accounts) and tokens whose optional acct
+// claim marks a guest account.
+func (p *EntraProvider) homeTenantMember(identityProvider string, accountType any) bool {
+	identityProvider = strings.TrimSpace(identityProvider)
+	if identityProvider != "" && !strings.Contains(strings.ToLower(identityProvider), strings.ToLower(p.config.TenantID)) {
+		return false
+	}
+	switch value := accountType.(type) {
+	case nil:
+		return true
+	case float64:
+		return value == 0
+	case string:
+		return strings.TrimSpace(value) == "0"
+	default:
+		return false
 	}
 }

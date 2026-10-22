@@ -181,7 +181,7 @@ func responseContract(value any) any {
 		result := make(map[string]any, len(typed))
 		for key, nested := range typed {
 			switch key {
-			case "id", "updatedAt", "createdAt", "go_version":
+			case "id", "updatedAt", "createdAt":
 				result[key] = "$dynamic"
 			default:
 				result[key] = responseContract(nested)

@@ -19,6 +19,10 @@ const child = spawn(executable, ["run", "./cmd/server", "-port", "41817"], {
     WIREDRAFT_ADMIN_USER: "playwright-admin",
     WIREDRAFT_ADMIN_PASSWORD: "playwright-only-long-password",
     WIREDRAFT_GUEST_ENABLED: "true",
+    WIREDRAFT_COOKIE_SECURE: "false",
+    // Every test signs in as Guest from loopback; lift the per-client limits.
+    WIREDRAFT_GUEST_SESSION_LIMIT: "100000",
+    WIREDRAFT_GUEST_SESSIONS_PER_CLIENT: "100000",
   },
 });
 
