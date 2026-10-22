@@ -15,7 +15,6 @@ import (
 	"mime"
 	"net/http"
 	"path"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,7 +41,7 @@ type Server struct {
 }
 
 type entraAuthenticator interface {
-	Begin(context.Context) (auth.EntraStart, error)
+	Begin(context.Context, string) (auth.EntraStart, error)
 	Complete(context.Context, string, string, string) (auth.ExternalIdentity, error)
 }
 
@@ -207,7 +206,7 @@ func (s *Server) health(w http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "go_version": runtime.Version()})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) listTopologies(w http.ResponseWriter, request *http.Request) {

@@ -19,6 +19,7 @@ const child = spawn(executable, ["run", "./cmd/server", "-port", "41817"], {
     WIREDRAFT_ADMIN_USER: "playwright-admin",
     WIREDRAFT_ADMIN_PASSWORD: "playwright-only-long-password",
     WIREDRAFT_GUEST_ENABLED: "true",
+    WIREDRAFT_COOKIE_SECURE: "false",
   },
 });
 
