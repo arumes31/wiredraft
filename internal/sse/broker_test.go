@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"errors"
 	"sync"
 	"testing"
 )
@@ -87,4 +88,42 @@ func TestBrokerConcurrentPublishSubscribeAndCancel(t *testing.T) {
 	}
 	wait.Wait()
 	broker.Close()
+}
+
+func TestBrokerEnforcesSubscriberLimits(t *testing.T) {
+	t.Parallel()
+	broker := NewBroker()
+	defer broker.Close()
+	cancels := make([]func(), 0, maxTopologySubscribers)
+	for range maxTopologySubscribers {
+		_, cancel, err := broker.TrySubscribe("topology")
+		if err != nil {
+			t.Fatalf("subscription within limit failed: %v", err)
+		}
+		cancels = append(cancels, cancel)
+	}
+	rejected, _, err := broker.TrySubscribe("topology")
+	if !errors.Is(err, ErrSubscriberLimit) {
+		t.Fatalf("subscription over topology limit error = %v, want ErrSubscriberLimit", err)
+	}
+	if _, open := <-rejected; open {
+		t.Fatal("rejected subscription channel is open")
+	}
+	if _, cancel, err := broker.TrySubscribe("other-topology"); err != nil {
+		t.Fatalf("other topology subscription failed: %v", err)
+	} else {
+		cancel()
+	}
+	cancels[0]()
+	_, cancel, err := broker.TrySubscribe("topology")
+	if err != nil {
+		t.Fatalf("subscription after cancel failed: %v", err)
+	}
+	cancel()
+	for _, cancel := range cancels[1:] {
+		cancel()
+	}
+	if broker.total != 0 {
+		t.Fatalf("subscriber count after cancellation = %d, want 0", broker.total)
+	}
 }

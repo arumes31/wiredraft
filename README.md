@@ -356,6 +356,7 @@ WireDraft reads environment variables first and lets command-line flags override
 | `WIREDRAFT_ENTRA_CLIENT_ID` | — | empty | Application (client) ID of the WireDraft app registration |
 | `WIREDRAFT_ENTRA_CLIENT_SECRET_FILE` | — | empty | Path to a read-only file containing the app registration client secret |
 | `WIREDRAFT_ENTRA_REDIRECT_URL` | — | empty | Exact HTTPS callback registered in Entra, ending in `/api/v1/auth/entra/callback` |
+| `WIREDRAFT_ENTRA_REQUIRE_ACCT_CLAIM` | — | `false` | Rejects ID tokens without the optional `acct` claim, so only home-tenant members (`acct=0`) can sign in. Enable after adding `acct` to the app registration |
 | `HEALTHCHECK_URL` | `-healthcheck-url` | `http://127.0.0.1:8080/api/v1/health` | Target used with `-healthcheck` |
 
 During the rename migration window, `NETDIAGRAM_GUEST_ENABLED` and `NETDIAGRAM_COOKIE_SECURE` remain fallback aliases when their `WIREDRAFT_*` replacements are unset.
@@ -442,7 +443,10 @@ WIREDRAFT_ENTRA_TENANT_ID=00000000-0000-0000-0000-000000000000
 WIREDRAFT_ENTRA_CLIENT_ID=11111111-1111-1111-1111-111111111111
 WIREDRAFT_ENTRA_CLIENT_SECRET_FILE=/run/secrets/wiredraft_entra_client_secret
 WIREDRAFT_ENTRA_REDIRECT_URL=https://wiredraft.internal.example.com/api/v1/auth/entra/callback
+WIREDRAFT_ENTRA_REQUIRE_ACCT_CLAIM=true
 ```
+
+`WIREDRAFT_ENTRA_REQUIRE_ACCT_CLAIM=true` requires the optional `acct` claim. In the app registration, open **Token configuration → Add optional claim → ID → acct** before enabling it; otherwise every sign-in is rejected. With the claim required, guest accounts (`acct=1`) can never bind a pre-approved login even if their home tenant controls a matching `preferred_username`.
 
 Start or recreate the stack with both Compose files:
 

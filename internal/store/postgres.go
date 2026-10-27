@@ -313,6 +313,20 @@ func (s *PostgresStore) Get(ctx context.Context, id string) (model.Topology, err
 	return topology, nil
 }
 
+// TopologyOrganizationID returns only the organization that owns a topology,
+// so frequent authorization checks avoid loading and decoding the document.
+func (s *PostgresStore) TopologyOrganizationID(ctx context.Context, id string) (string, error) {
+	var organizationID string
+	err := s.pool.QueryRow(ctx, `SELECT organization_id::text FROM topologies WHERE id = $1`, id).Scan(&organizationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("getting topology organization: %w", err)
+	}
+	return organizationID, nil
+}
+
 // Create validates and inserts a topology.
 func (s *PostgresStore) Create(ctx context.Context, topology model.Topology) (model.Topology, error) {
 	organization, err := s.GetOrganization(ctx, topology.OrganizationID)
@@ -331,6 +345,9 @@ func (s *PostgresStore) Create(ctx context.Context, topology model.Topology) (mo
 	document, err := json.Marshal(topology)
 	if err != nil {
 		return model.Topology{}, fmt.Errorf("encoding topology: %w", err)
+	}
+	if err := model.ValidateDocumentSize(document); err != nil {
+		return model.Topology{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO topologies (
@@ -475,6 +492,9 @@ func (s *PostgresStore) MutateAtRevision(
 		nextDocument, err := json.Marshal(next)
 		if err != nil {
 			return fmt.Errorf("encoding topology: %w", err)
+		}
+		if err := model.ValidateDocumentSize(nextDocument); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalid, err)
 		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE topologies SET

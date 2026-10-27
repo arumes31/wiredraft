@@ -3,10 +3,21 @@ package sse
 
 import (
 	"encoding/json"
+	"errors"
 	"sync"
 )
 
-const subscriberBuffer = 32
+const (
+	subscriberBuffer = 32
+	// maxTopologySubscribers and maxSubscribers bound open streams so one
+	// principal cannot hold an unlimited number of connections and fan-out
+	// targets on the shared process.
+	maxTopologySubscribers = 256
+	maxSubscribers         = 4096
+)
+
+// ErrSubscriberLimit reports that a topology or the broker has no stream capacity left.
+var ErrSubscriberLimit = errors.New("sse: subscriber limit reached")
 
 // Event is an immutable SSE message.
 type Event struct {
@@ -18,6 +29,7 @@ type Event struct {
 type Broker struct {
 	mu          sync.Mutex
 	subscribers map[string]map[chan Event]struct{}
+	total       int
 	isClosed    bool
 }
 
@@ -27,18 +39,32 @@ func NewBroker() *Broker {
 }
 
 // Subscribe returns a bounded stream and an idempotent cancellation function.
+// When no capacity is left the returned stream is already closed.
 func (b *Broker) Subscribe(topologyID string) (<-chan Event, func()) {
+	channel, cancel, _ := b.TrySubscribe(topologyID)
+	return channel, cancel
+}
+
+// TrySubscribe is Subscribe that reports ErrSubscriberLimit, with an already
+// closed stream, when the topology or the broker is at capacity.
+func (b *Broker) TrySubscribe(topologyID string) (<-chan Event, func(), error) {
 	channel := make(chan Event, subscriberBuffer)
 	b.mu.Lock()
 	if b.isClosed {
 		close(channel)
 		b.mu.Unlock()
-		return channel, func() {}
+		return channel, func() {}, nil
+	}
+	if b.total >= maxSubscribers || len(b.subscribers[topologyID]) >= maxTopologySubscribers {
+		close(channel)
+		b.mu.Unlock()
+		return channel, func() {}, ErrSubscriberLimit
 	}
 	if b.subscribers[topologyID] == nil {
 		b.subscribers[topologyID] = make(map[chan Event]struct{})
 	}
 	b.subscribers[topologyID][channel] = struct{}{}
+	b.total++
 	b.mu.Unlock()
 
 	var once sync.Once
@@ -48,6 +74,7 @@ func (b *Broker) Subscribe(topologyID string) (<-chan Event, func()) {
 			if subscribers := b.subscribers[topologyID]; subscribers != nil {
 				if _, exists := subscribers[channel]; exists {
 					delete(subscribers, channel)
+					b.total--
 					close(channel)
 				}
 				if len(subscribers) == 0 {
@@ -57,7 +84,7 @@ func (b *Broker) Subscribe(topologyID string) (<-chan Event, func()) {
 			b.mu.Unlock()
 		})
 	}
-	return channel, cancel
+	return channel, cancel, nil
 }
 
 // Publish sends an event without allowing a slow subscriber to block a mutation.
@@ -92,4 +119,5 @@ func (b *Broker) Close() {
 		}
 	}
 	b.subscribers = make(map[string]map[chan Event]struct{})
+	b.total = 0
 }

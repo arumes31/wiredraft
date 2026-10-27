@@ -38,7 +38,13 @@ type Server struct {
 	entra       entraAuthenticator
 	media       *media.Store
 	directoryMu sync.Mutex
+
+	streamMu       sync.Mutex
+	sessionStreams map[string]int
 }
+
+// maxSessionEventStreams bounds concurrent event streams per login session.
+const maxSessionEventStreams = 8
 
 type entraAuthenticator interface {
 	Begin(context.Context, string) (auth.EntraStart, error)
@@ -359,9 +365,14 @@ func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
 		organizationID := current.OrganizationID
 		organization := current.Organization
 		photos := current.Photos
+		// Share grants are server-owned authority records: only the shares
+		// endpoints mint or revoke them. Keeping the stored set stops undo,
+		// backup import or any client body from resurrecting a revoked token.
+		shareGrants := current.ShareGrants
 		*current = input
 		current.CreatedAt = createdAt
 		current.Photos = photos
+		current.ShareGrants = shareGrants
 		if requestedOrganization == nil {
 			current.OrganizationID = organizationID
 			current.Organization = organization
@@ -1608,6 +1619,18 @@ func (s *Server) events(w http.ResponseWriter, request *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	release, acquired := s.acquireSessionStream(request)
+	if !acquired {
+		writeError(w, http.StatusTooManyRequests, "too many open event streams")
+		return
+	}
+	defer release()
+	events, cancel, err := s.broker.TrySubscribe(topologyID)
+	defer cancel()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "event stream capacity reached")
+		return
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -1618,8 +1641,6 @@ func (s *Server) events(w http.ResponseWriter, request *http.Request) {
 	if err := controller.Flush(); err != nil {
 		return
 	}
-	events, cancel := s.broker.Subscribe(topologyID)
-	defer cancel()
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {
@@ -1650,9 +1671,47 @@ func (s *Server) events(w http.ResponseWriter, request *http.Request) {
 	}
 }
 
+// acquireSessionStream reserves one of the session's event-stream slots. Without
+// authentication there is no session to account against.
+func (s *Server) acquireSessionStream(request *http.Request) (func(), bool) {
+	session, authenticated := s.sessionFromRequest(request)
+	if !authenticated {
+		return func() {}, true
+	}
+	s.streamMu.Lock()
+	defer s.streamMu.Unlock()
+	if s.sessionStreams == nil {
+		s.sessionStreams = make(map[string]int)
+	}
+	if s.sessionStreams[session.Token] >= maxSessionEventStreams {
+		return nil, false
+	}
+	s.sessionStreams[session.Token]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.streamMu.Lock()
+			defer s.streamMu.Unlock()
+			if s.sessionStreams[session.Token]--; s.sessionStreams[session.Token] <= 0 {
+				delete(s.sessionStreams, session.Token)
+			}
+		})
+	}, true
+}
+
+// eventStreamAuthorized re-checks an open stream on every event and heartbeat.
+// It reads only the owning organization so idle streams never reload, decode
+// and validate the full document.
 func (s *Server) eventStreamAuthorized(request *http.Request, topologyID string) bool {
-	_, err := s.getAuthorizedTopology(request, topologyID)
-	return err == nil
+	organizationID, err := s.store.TopologyOrganizationID(request.Context(), topologyID)
+	if err != nil {
+		return false
+	}
+	if s.auth == nil {
+		return true
+	}
+	session, authenticated := s.sessionFromRequest(request)
+	return authenticated && s.auth.CanAccessTopology(session.Principal, topologyID, organizationID)
 }
 
 func (s *Server) staticFile(w http.ResponseWriter, request *http.Request) {
@@ -1713,20 +1772,24 @@ func (s *Server) mutate(request *http.Request, id string, mutation func(*model.T
 	if err != nil {
 		return model.Topology{}, fmt.Errorf("%w: %w", store.ErrInvalid, err)
 	}
-	s.directoryMu.Lock()
-	defer s.directoryMu.Unlock()
 	var previousPhotos []model.Photo
-	updated, err := s.store.MutateAtRevision(request.Context(), id, expectedRevision, func(topology *model.Topology) error {
-		if !s.authorizedTopologySnapshot(request, *topology) {
-			return store.ErrNotFound
-		}
-		previousPhotos = slices.Clone(topology.Photos)
-		if err := mutation(topology); err != nil {
-			return err
-		}
-		pruneAttachedPlanReferences(topology)
-		return nil
-	})
+	// Detached photo files are removed after the commit and outside the
+	// process-wide lock, so slow storage never delays other organizations.
+	updated, err := func() (model.Topology, error) {
+		s.directoryMu.Lock()
+		defer s.directoryMu.Unlock()
+		return s.store.MutateAtRevision(request.Context(), id, expectedRevision, func(topology *model.Topology) error {
+			if !s.authorizedTopologySnapshot(request, *topology) {
+				return store.ErrNotFound
+			}
+			previousPhotos = slices.Clone(topology.Photos)
+			if err := mutation(topology); err != nil {
+				return err
+			}
+			pruneAttachedPlanReferences(topology)
+			return nil
+		})
+	}()
 	if err != nil {
 		return model.Topology{}, err
 	}

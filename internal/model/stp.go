@@ -18,6 +18,10 @@ const (
 	// STPStateBlocking prevents a forwarding loop.
 	STPStateBlocking   = "blocking"
 	defaultSTPPriority = 32768
+	// maxSTPPathEntries bounds the bridge and link IDs materialized across all
+	// convergence paths of one analysis. Paths grow with depth, so a long chain
+	// would otherwise produce output quadratic in the number of bridges.
+	maxSTPPathEntries = 200000
 )
 
 // STPInstance is one connected spanning-tree domain for a VLAN.
@@ -29,6 +33,9 @@ type STPInstance struct {
 	Bridges      []STPBridgeState `json:"bridges"`
 	Ports        []STPPortState   `json:"ports"`
 	Paths        []STPPath        `json:"paths"`
+	// PathsTruncated reports that some bridge paths were omitted because the
+	// analysis reached maxSTPPathEntries.
+	PathsTruncated bool `json:"pathsTruncated,omitempty"`
 }
 
 // STPBridgeState describes a logical bridge after stack/peer consolidation.
@@ -85,12 +92,13 @@ type stpNeighbor struct {
 func SimulateSTP(topology Topology, ports map[string]Port) []STPInstance {
 	bridgeByDevice, bridges := stpLogicalBridges(topology)
 	instances := []STPInstance{}
+	pathBudget := maxSTPPathEntries
 	for _, vlan := range topology.VLANs {
 		edges := stpEdges(topology, ports, bridgeByDevice, vlan.ID)
 		components := stpComponents(edges)
 		connectedBridges := make(map[string]struct{})
 		for domain, component := range components {
-			instances = append(instances, simulateSTPComponent(vlan.ID, domain+1, component, bridges, bridgeByDevice))
+			instances = append(instances, simulateSTPComponent(vlan.ID, domain+1, component, bridges, bridgeByDevice, &pathBudget))
 			for _, edge := range component {
 				connectedBridges[edge.Left] = struct{}{}
 				connectedBridges[edge.Right] = struct{}{}
@@ -312,7 +320,7 @@ func stpComponents(edges []stpEdge) [][]stpEdge {
 	return components
 }
 
-func simulateSTPComponent(vlanID, domain int, edges []stpEdge, bridges map[string]stpBridge, bridgeByDevice map[string]string) STPInstance {
+func simulateSTPComponent(vlanID, domain int, edges []stpEdge, bridges map[string]stpBridge, bridgeByDevice map[string]string, pathBudget *int) STPInstance {
 	componentBridgeIDs := make(map[string]struct{})
 	adjacency := make(map[string][]stpNeighbor)
 	for _, edge := range edges {
@@ -374,7 +382,11 @@ func simulateSTPComponent(vlanID, domain int, edges []stpEdge, bridges map[strin
 			BridgeID: bridgeID, Name: bridge.Name, DeviceIDs: slices.Clone(bridge.DeviceIDs), Priority: bridge.Priority,
 			RootPathCost: distance[bridgeID], RootPortIDs: rootPorts,
 		})
-		instance.Paths = append(instance.Paths, buildSTPPath(bridgeID, rootID, parentBridge, parentEdge, edgesByID))
+		if path, complete := buildSTPPath(bridgeID, rootID, parentBridge, parentEdge, edgesByID, pathBudget); complete {
+			instance.Paths = append(instance.Paths, path)
+		} else {
+			instance.PathsTruncated = true
+		}
 	}
 	for _, edge := range edges {
 		leftRole, rightRole := stpEdgeRoles(edge, parentBridge, parentEdge, distance, bridges)
@@ -436,7 +448,14 @@ func stpPhysicalPortState(portID, deviceID, linkID, groupID string, bridgeByDevi
 	}
 }
 
-func buildSTPPath(bridgeID, rootID string, parentBridge, parentEdge map[string]string, edges map[string]stpEdge) STPPath {
+// buildSTPPath materializes one bridge's path to the root while charging every
+// emitted ID to the shared budget. It reports false, and stops walking, once the
+// budget is exhausted so the total work stays bounded.
+func buildSTPPath(bridgeID, rootID string, parentBridge, parentEdge map[string]string, edges map[string]stpEdge, budget *int) (STPPath, bool) {
+	if *budget <= 0 {
+		return STPPath{}, false
+	}
+	*budget--
 	path := STPPath{BridgeID: bridgeID, BridgeIDs: []string{bridgeID}, LinkIDs: []string{}}
 	current := bridgeID
 	for current != rootID {
@@ -445,10 +464,18 @@ func buildSTPPath(bridgeID, rootID string, parentBridge, parentEdge map[string]s
 			break
 		}
 		for _, link := range edges[edgeID].Links {
+			if *budget <= 0 {
+				return STPPath{}, false
+			}
+			*budget--
 			path.LinkIDs = append(path.LinkIDs, link.ID)
 		}
+		if *budget <= 0 {
+			return STPPath{}, false
+		}
+		*budget--
 		current = parentBridge[current]
 		path.BridgeIDs = append(path.BridgeIDs, current)
 	}
-	return path
+	return path, true
 }

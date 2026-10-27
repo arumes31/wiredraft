@@ -273,3 +273,56 @@ func TestConcurrentEditorsCommitExactlyOneRevision(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaceTopologyCannotResurrectRevokedShare(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t)
+	topology := requestTopology(t, handler, http.MethodPost, "/api/v1/topologies", map[string]string{
+		"name": "Revocation", "template": "demo",
+	}, http.StatusCreated)
+	sharesPath := "/api/v1/topologies/" + topology.ID + "/shares"
+	shareBody, err := json.Marshal(createShareGrantRequest{Name: "Contractor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, sharesPath, bytes.NewReader(shareBody))
+	request.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create share status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var share shareGrantResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &share); err != nil {
+		t.Fatal(err)
+	}
+	// A client snapshot taken while the grant existed, as kept by undo history
+	// or a JSON backup.
+	stale := requestTopology(t, handler, http.MethodGet, "/api/v1/topologies/"+topology.ID, nil, http.StatusOK)
+	if len(stale.ShareGrants) != 1 {
+		t.Fatalf("share grants before revocation = %d, want 1", len(stale.ShareGrants))
+	}
+
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodDelete, sharesPath+"/"+stale.ShareGrants[0].ID, nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete share status = %d, want 204", response.Code)
+	}
+
+	replaced := requestTopology(t, handler, http.MethodPut, "/api/v1/topologies/"+topology.ID, stale, http.StatusOK)
+	if len(replaced.ShareGrants) != 0 {
+		t.Fatalf("share grants after replace = %d, want 0", len(replaced.ShareGrants))
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, share.Path, nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("revoked share read after replace status = %d, want 404", response.Code)
+	}
+
+	forged := replaced
+	forged.ShareGrants = stale.ShareGrants
+	replaced = requestTopology(t, handler, http.MethodPut, "/api/v1/topologies/"+topology.ID, forged, http.StatusOK)
+	if len(replaced.ShareGrants) != 0 {
+		t.Fatalf("client-supplied share grants were persisted: %#v", replaced.ShareGrants)
+	}
+}

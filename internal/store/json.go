@@ -338,6 +338,17 @@ func (s *JSONStore) Get(_ context.Context, id string) (model.Topology, error) {
 	return clone, nil
 }
 
+// TopologyOrganizationID returns only the organization that owns a topology.
+func (s *JSONStore) TopologyOrganizationID(_ context.Context, id string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	topology, exists := s.topologies[id]
+	if !exists {
+		return "", ErrNotFound
+	}
+	return topology.OrganizationID, nil
+}
+
 // Create validates and durably inserts a topology.
 func (s *JSONStore) Create(_ context.Context, topology model.Topology) (model.Topology, error) {
 	s.writeMu.Lock()

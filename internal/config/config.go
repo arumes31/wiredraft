@@ -34,6 +34,7 @@ type Config struct {
 	EntraClientID             string
 	EntraSecretFile           string
 	EntraRedirectURL          string
+	EntraRequireAcctClaim     bool
 	Healthcheck               bool
 	HealthcheckURL            string
 }
@@ -86,6 +87,9 @@ func Parse(args []string) (Config, error) {
 		HealthcheckURL:            envString("HEALTHCHECK_URL", "http://127.0.0.1:8080/api/v1/health"),
 	}
 	if cfg.EntraEnabled, err = envBool("WIREDRAFT_ENTRA_ENABLED", false); err != nil {
+		return Config{}, err
+	}
+	if cfg.EntraRequireAcctClaim, err = envBool("WIREDRAFT_ENTRA_REQUIRE_ACCT_CLAIM", false); err != nil {
 		return Config{}, err
 	}
 
