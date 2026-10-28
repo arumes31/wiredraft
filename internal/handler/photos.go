@@ -211,7 +211,7 @@ func (s *Server) getPhoto(w http.ResponseWriter, request *http.Request) {
 	}
 	w.Header().Set("Content-Type", photo.MediaType)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": photo.OriginalName}))
-	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("Cache-Control", "private, no-cache")
 	http.ServeContent(w, request, photo.OriginalName, info.ModTime(), file)
 }
 

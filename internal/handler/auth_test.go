@@ -747,6 +747,9 @@ func newJSONRequest(t *testing.T, method, path string, body any, cookie *http.Co
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	if topology, replacing := body.(model.Topology); replacing && method == http.MethodPut {
+		request.Header.Set("If-Match", topologyRevisionETag(topology.Revision))
+	}
 	if cookie != nil {
 		request.AddCookie(cookie)
 	}

@@ -46,6 +46,13 @@ type Server struct {
 // maxSessionEventStreams bounds concurrent event streams per login session.
 const maxSessionEventStreams = 8
 
+// Share links always expire: defaultShareLifetime applies when the client sets
+// no expiry and maxShareLifetime caps any requested expiry.
+const (
+	defaultShareLifetime = 90 * 24 * time.Hour
+	maxShareLifetime     = 365 * 24 * time.Hour
+)
+
 type entraAuthenticator interface {
 	Begin(context.Context, string) (auth.EntraStart, error)
 	Complete(context.Context, string, string, string) (auth.ExternalIdentity, error)
@@ -329,6 +336,12 @@ func (s *Server) getAuthorizedTopology(request *http.Request, id string) (model.
 }
 
 func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
+	// A whole-document replace must name the revision it was built from, so a
+	// stale client copy can never silently overwrite newer server state.
+	if strings.TrimSpace(request.Header.Get("If-Match")) == "" {
+		writeError(w, http.StatusPreconditionRequired, "If-Match revision is required")
+		return
+	}
 	var input model.Topology
 	if err := decodeJSON(w, request, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid topology")
@@ -369,10 +382,19 @@ func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
 		// endpoints mint or revoke them. Keeping the stored set stops undo,
 		// backup import or any client body from resurrecting a revoked token.
 		shareGrants := current.ShareGrants
+		// Comment threads are likewise managed only by the comment endpoints,
+		// which bind authorship to the session.
+		commentThreads := current.CommentThreads
 		*current = input
 		current.CreatedAt = createdAt
 		current.Photos = photos
 		current.ShareGrants = shareGrants
+		current.CommentThreads = commentThreads
+		if requestedOrganization != nil && requestedOrganization.ID != organizationID {
+			// Anonymous links issued under the previous organization must not
+			// keep exposing the map after it moves.
+			current.ShareGrants = nil
+		}
 		if requestedOrganization == nil {
 			current.OrganizationID = organizationID
 			current.Organization = organization
@@ -1336,7 +1358,7 @@ func (s *Server) createCommentThread(w http.ResponseWriter, request *http.Reques
 	thread := model.CommentThread{
 		ID: threadID, Anchor: input.Anchor, CreatedAt: now, UpdatedAt: now,
 		Messages: []model.CommentMessage{{
-			ID: messageID, Author: strings.TrimSpace(input.Author), Body: strings.TrimSpace(input.Body), CreatedAt: now, UpdatedAt: now,
+			ID: messageID, Author: s.commentAuthor(request, input.Author), Body: strings.TrimSpace(input.Body), CreatedAt: now, UpdatedAt: now,
 		}},
 	}
 	topologyID := request.PathValue("id")
@@ -1364,7 +1386,7 @@ func (s *Server) createCommentReply(w http.ResponseWriter, request *http.Request
 		return
 	}
 	now := time.Now().UTC()
-	message := model.CommentMessage{ID: messageID, Author: strings.TrimSpace(input.Author), Body: strings.TrimSpace(input.Body), CreatedAt: now, UpdatedAt: now}
+	message := model.CommentMessage{ID: messageID, Author: s.commentAuthor(request, input.Author), Body: strings.TrimSpace(input.Body), CreatedAt: now, UpdatedAt: now}
 	topologyID := request.PathValue("id")
 	threadID := request.PathValue("threadId")
 	updated, err := s.mutate(request, topologyID, func(topology *model.Topology) error {
@@ -1537,8 +1559,16 @@ func (s *Server) createShareGrant(w http.ResponseWriter, request *http.Request) 
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	digest := sha256.Sum256([]byte(token))
 	now := time.Now().UTC()
+	expiresAt := now.Add(defaultShareLifetime)
+	if input.ExpiresAt != nil {
+		expiresAt = input.ExpiresAt.UTC()
+	}
+	if !expiresAt.After(now) || expiresAt.After(now.Add(maxShareLifetime)) {
+		writeError(w, http.StatusBadRequest, "share expiry must be in the future and at most 365 days away")
+		return
+	}
 	grant := model.ShareGrant{
-		ID: shareID, Name: strings.TrimSpace(input.Name), TokenHash: hex.EncodeToString(digest[:]), CreatedAt: now, ExpiresAt: input.ExpiresAt,
+		ID: shareID, Name: strings.TrimSpace(input.Name), TokenHash: hex.EncodeToString(digest[:]), CreatedAt: now, ExpiresAt: &expiresAt,
 	}
 	if grant.Name == "" {
 		grant.Name = "Read-only share"
@@ -1651,14 +1681,19 @@ func (s *Server) events(w http.ResponseWriter, request *http.Request) {
 			if !open {
 				return
 			}
-			if !s.eventStreamAuthorized(request, topologyID) {
+			organizationID, authorized := s.eventStreamAuthorized(request, topologyID)
+			if !authorized {
 				return
+			}
+			if event.OrganizationID != "" && event.OrganizationID != organizationID {
+				// Produced while the topology belonged to another organization.
+				continue
 			}
 			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, event.Data); err != nil {
 				return
 			}
 		case <-heartbeat.C:
-			if !s.eventStreamAuthorized(request, topologyID) {
+			if _, authorized := s.eventStreamAuthorized(request, topologyID); !authorized {
 				return
 			}
 			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
@@ -1669,6 +1704,19 @@ func (s *Server) events(w http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
+}
+
+// commentAuthor attributes a comment to the signed-in account. The free-text
+// author is used only when the server runs without authentication.
+func (s *Server) commentAuthor(request *http.Request, provided string) string {
+	session, authenticated := s.sessionFromRequest(request)
+	if !authenticated {
+		return strings.TrimSpace(provided)
+	}
+	if session.Principal.IsGuest() {
+		return "Guest"
+	}
+	return session.Principal.Username
 }
 
 // acquireSessionStream reserves one of the session's event-stream slots. Without
@@ -1702,16 +1750,16 @@ func (s *Server) acquireSessionStream(request *http.Request) (func(), bool) {
 // eventStreamAuthorized re-checks an open stream on every event and heartbeat.
 // It reads only the owning organization so idle streams never reload, decode
 // and validate the full document.
-func (s *Server) eventStreamAuthorized(request *http.Request, topologyID string) bool {
+func (s *Server) eventStreamAuthorized(request *http.Request, topologyID string) (string, bool) {
 	organizationID, err := s.store.TopologyOrganizationID(request.Context(), topologyID)
 	if err != nil {
-		return false
+		return "", false
 	}
 	if s.auth == nil {
-		return true
+		return organizationID, true
 	}
 	session, authenticated := s.sessionFromRequest(request)
-	return authenticated && s.auth.CanAccessTopology(session.Principal, topologyID, organizationID)
+	return organizationID, authenticated && s.auth.CanAccessTopology(session.Principal, topologyID, organizationID)
 }
 
 func (s *Server) staticFile(w http.ResponseWriter, request *http.Request) {
@@ -1762,7 +1810,7 @@ func (s *Server) serveStaticContent(w http.ResponseWriter, request *http.Request
 }
 
 func (s *Server) publish(id, eventType string, topology model.Topology) {
-	if err := s.broker.Publish(id, eventType, topology); err != nil {
+	if err := s.broker.PublishScoped(id, topology.OrganizationID, eventType, publicTopology(topology)); err != nil {
 		s.logger.Error("publishing sse event", "event", eventType, "error", err)
 	}
 }

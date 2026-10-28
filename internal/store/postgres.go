@@ -502,7 +502,7 @@ func (s *PostgresStore) MutateAtRevision(
 				rack_count = $7, device_count = $8, link_count = $9,
 				updated_at = $10, document = $11::jsonb
 			WHERE id = $1 AND revision = $12`,
-			next.ID, next.Name, next.OrganizationID, next.Organization, next.Location, next.Revision,
+			id, next.Name, next.OrganizationID, next.Organization, next.Location, next.Revision,
 			len(next.Racks), next.LogicalDeviceCount(), len(next.Links), next.UpdatedAt,
 			nextDocument, actualRevision,
 		)

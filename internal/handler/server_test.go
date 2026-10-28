@@ -1205,6 +1205,10 @@ func requestTopology(
 	}
 	request := httptest.NewRequestWithContext(t.Context(), method, path, bytes.NewReader(data))
 	request.Header.Set("Content-Type", "application/json")
+	if topology, replacing := body.(model.Topology); replacing && method == http.MethodPut {
+		// Whole-document replaces must name their base revision, as the SPA does.
+		request.Header.Set("If-Match", topologyRevisionETag(topology.Revision))
+	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != expectedStatus {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"wiredraft/internal/model"
 )
 
 const maxRequestBody = 2 << 20
@@ -32,11 +33,22 @@ func decodeJSON(w http.ResponseWriter, request *http.Request, destination any) e
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
+	if topology, ok := value.(model.Topology); ok {
+		value = publicTopology(topology)
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(value); err != nil {
 		panic(http.ErrAbortHandler)
 	}
+}
+
+// publicTopology removes share-grant token digests from a topology before it
+// leaves the server. Clients list shares through the shares endpoint, so the
+// digests never need to reach browsers, event streams or exported files.
+func publicTopology(topology model.Topology) model.Topology {
+	topology.ShareGrants = nil
+	return topology
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
