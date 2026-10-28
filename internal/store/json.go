@@ -366,6 +366,9 @@ func (s *JSONStore) Create(_ context.Context, topology model.Topology) (model.To
 	if err := topology.Validate(); err != nil {
 		return model.Topology{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
+	if err := validateEncodedSize(topology); err != nil {
+		return model.Topology{}, err
+	}
 	s.mu.RLock()
 	_, exists := s.topologies[topology.ID]
 	s.mu.RUnlock()
@@ -475,6 +478,9 @@ func (s *JSONStore) MutateAtRevision(
 	next.Normalize()
 	if err := next.Validate(); err != nil {
 		return model.Topology{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	if err := validateEncodedSize(next); err != nil {
+		return model.Topology{}, err
 	}
 	if err := s.writeTopology(next); err != nil {
 		return model.Topology{}, err
@@ -590,6 +596,18 @@ func decodeTopologyFile(
 		return model.Topology{}, err
 	}
 	return topology, nil
+}
+
+// validateEncodedSize applies the same stored-document cap as PostgresStore.
+func validateEncodedSize(topology model.Topology) error {
+	document, err := json.Marshal(topology)
+	if err != nil {
+		return fmt.Errorf("encoding topology: %w", err)
+	}
+	if err := model.ValidateDocumentSize(document); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	return nil
 }
 
 func (s *JSONStore) writeTopology(topology model.Topology) (returnErr error) {
