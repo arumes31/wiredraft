@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -101,4 +102,49 @@ func validJPEG(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return output.Bytes()
+}
+
+func TestSweepRemovesOnlyUnreferencedTopologyMedia(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	store, err := Open(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	const kept = "11111111-1111-4111-8111-111111111111"
+	const orphanTopology = "22222222-2222-4222-8222-222222222222"
+	files := map[string]string{
+		kept + "/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png":           "keep",
+		kept + "/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.png":           "orphan photo",
+		orphanTopology + "/cccccccc-cccc-4ccc-8ccc-cccccccccccc.jpg": "orphan topology",
+		"lost+found/unrelated":                                       "not media",
+	}
+	for name, content := range files {
+		path := filepath.Join(directory, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := store.Sweep([]Reference{{TopologyID: kept, PhotoID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", MediaType: "image/png"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed = %d, want 2", removed)
+	}
+	for name, wantExists := range map[string]bool{
+		kept + "/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png": true,
+		kept + "/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.png": false,
+		orphanTopology:         false,
+		"lost+found/unrelated": true,
+	} {
+		_, statErr := os.Stat(filepath.Join(directory, filepath.FromSlash(name)))
+		if exists := statErr == nil; exists != wantExists {
+			t.Errorf("%s exists = %t, want %t", name, exists, wantExists)
+		}
+	}
 }

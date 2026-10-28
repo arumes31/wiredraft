@@ -39,6 +39,9 @@ func (s *Server) duplicateTopology(w http.ResponseWriter, request *http.Request)
 			return
 		}
 	}
+	if !s.organizationHasCapacity(w, request, source.OrganizationID) {
+		return
+	}
 	if source.Revision != expected {
 		s.fail(w, &store.RevisionConflictError{Expected: expected, Actual: source.Revision})
 		return

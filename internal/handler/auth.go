@@ -606,6 +606,13 @@ func (s *Server) clientAddress(request *http.Request) string {
 	proxies := s.auth.TrustedProxies()
 	peer, ok := parseClientIP(request.RemoteAddr)
 	if len(proxies) == 0 || !ok || !containsAddr(proxies, peer) {
+		if len(proxies) == 0 && request.Header.Get("X-Forwarded-For") != "" {
+			// Behind an unconfigured proxy every client shares the proxy's
+			// address, so one client can exhaust everyone's login budget.
+			s.forwardedWarning.Do(func() {
+				s.logger.Warn("request carries X-Forwarded-For but WIREDRAFT_TRUSTED_PROXIES is empty; throttling uses the proxy address for every client")
+			})
+		}
 		return request.RemoteAddr
 	}
 	var hops []string

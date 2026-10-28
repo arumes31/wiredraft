@@ -32,6 +32,8 @@ const (
 	MaxTopologyLinkGroups     = 5000
 	MaxTopologySwitchSystems  = 2000
 	MaxTopologyFirewallGroups = 2000
+	// MaxTopologyPhotoBytes caps the combined size of one topology's photos.
+	MaxTopologyPhotoBytes = 1 << 30
 	// MaxTopologyDocumentBytes caps the encoded document a store persists.
 	MaxTopologyDocumentBytes = 16 << 20
 )
@@ -72,6 +74,13 @@ func (t Topology) validateCardinality() error {
 	}
 	if totalPorts > MaxTopologyPorts {
 		return fmt.Errorf("topology may contain at most %d ports", MaxTopologyPorts)
+	}
+	var photoBytes int64
+	for _, photo := range t.Photos {
+		photoBytes += max(photo.SizeBytes, 0)
+	}
+	if photoBytes > MaxTopologyPhotoBytes {
+		return fmt.Errorf("topology photos may total at most %d bytes", int64(MaxTopologyPhotoBytes))
 	}
 	return nil
 }

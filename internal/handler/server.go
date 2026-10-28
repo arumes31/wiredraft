@@ -46,10 +46,22 @@ type Server struct {
 
 	streamMu       sync.Mutex
 	sessionStreams map[string]int
+
+	forwardedWarning sync.Once
 }
 
 // maxSessionEventStreams bounds concurrent event streams per login session.
 const maxSessionEventStreams = 8
+
+// computationDeadline bounds analysis-style requests. The server sets no global
+// WriteTimeout because event streams are long-lived, so these routes get their
+// own limit.
+const computationDeadline = 30 * time.Second
+
+func withComputationDeadline(next http.HandlerFunc) http.HandlerFunc {
+	limited := http.TimeoutHandler(next, computationDeadline, `{"error":"analysis timed out","code":503}`)
+	return limited.ServeHTTP
+}
 
 // Share links always expire: defaultShareLifetime applies when the client sets
 // no expiry and maxShareLifetime caps any requested expiry.
@@ -195,8 +207,8 @@ func newHandler(
 	protected("POST /api/v1/topologies/{id}/vlans", server.createVLAN)
 	protected("PUT /api/v1/topologies/{id}/vlans/{vlanId}", server.updateVLAN)
 	protected("DELETE /api/v1/topologies/{id}/vlans/{vlanId}", server.deleteVLAN)
-	protected("GET /api/v1/topologies/{id}/analysis", server.analysis)
-	protected("GET /api/v1/topologies/{id}/trace", server.trace)
+	protected("GET /api/v1/topologies/{id}/analysis", withComputationDeadline(server.analysis))
+	protected("GET /api/v1/topologies/{id}/trace", withComputationDeadline(server.trace))
 	protected("GET /api/v1/topologies/{id}/events", server.events)
 	protected("GET /api/v1/topologies/{id}/comments", server.listCommentThreads)
 	protected("POST /api/v1/topologies/{id}/comments", server.createCommentThread)
@@ -311,12 +323,38 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
+	if !s.organizationHasCapacity(w, request, topology.OrganizationID) {
+		return
+	}
 	created, err := s.store.Create(request.Context(), topology)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
+}
+
+// maxOrganizationTopologies bounds how many maps, and so how much attached
+// media, one organization can accumulate on the shared server.
+const maxOrganizationTopologies = 1000
+
+func (s *Server) organizationHasCapacity(w http.ResponseWriter, request *http.Request, organizationID string) bool {
+	summaries, err := s.store.List(request.Context())
+	if err != nil {
+		s.fail(w, err)
+		return false
+	}
+	count := 0
+	for _, summary := range summaries {
+		if summary.OrganizationID == organizationID {
+			count++
+		}
+	}
+	if count >= maxOrganizationTopologies {
+		writeError(w, http.StatusConflict, fmt.Sprintf("organization may contain at most %d maps", maxOrganizationTopologies))
+		return false
+	}
+	return true
 }
 
 func (s *Server) getTopology(w http.ResponseWriter, request *http.Request) {
