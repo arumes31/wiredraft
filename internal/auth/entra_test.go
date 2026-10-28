@@ -230,3 +230,20 @@ func TestEntraHomeTenantMemberRequiresAccountTypeClaimWhenConfigured(t *testing.
 		}
 	}
 }
+
+func TestEntraFlowIsNotConsumedByAWrongCookie(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	provider := &EntraProvider{
+		config: EntraConfig{TenantID: "00000000-0000-4000-8000-000000000001"},
+		flows:  map[string]pendingEntraFlow{},
+		now:    func() time.Time { return now },
+	}
+	provider.flows["state"] = pendingEntraFlow{CookieHash: sha256.Sum256([]byte("browser-cookie")), ExpiresAt: now.Add(time.Minute)}
+	if _, err := provider.Complete(t.Context(), "state", "attacker-cookie", "code"); err == nil {
+		t.Fatal("completion with the wrong flow cookie succeeded")
+	}
+	if _, exists := provider.flows["state"]; !exists {
+		t.Fatal("a caller without the flow cookie cancelled the pending login")
+	}
+}

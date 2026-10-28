@@ -847,7 +847,7 @@ func TestLegacyUnboundSecretStillOpens(t *testing.T) {
 		t.Fatal(err)
 	}
 	nonce := make([]byte, aead.NonceSize())
-	legacy := base64.RawStdEncoding.EncodeToString(aead.Seal(nonce, nonce, []byte("JBSWY3DPEHPK3PXP"), nil))
+	legacy := base64.RawStdEncoding.EncodeToString(aead.Seal(nonce, nonce, []byte("JBSWY3DPEHPK3PXP"), nil)) // #nosec G407 -- fixed nonce builds a legacy-format test fixture.
 	if secretIsBound(legacy) {
 		t.Fatal("legacy envelope reported as bound")
 	}

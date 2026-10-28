@@ -971,7 +971,7 @@ function renderCommentInspector(selection) {
       </article>`).join("") : `<p class="inspector-comment-empty">No comments on this ${escapeHTML(anchor.kind)} yet.</p>`}
     </div>
     <form class="inspector-comment-form">
-      <label><span>AUTHOR</span><input name="author" maxlength="80" value="Operator" autocomplete="name" required></label>
+      <label><span>AUTHOR</span><input name="author" maxlength="80" value="${escapeHTML(commentAuthorName())}" readonly required></label>
       <label><span>NEW COMMENT</span><textarea name="body" maxlength="4000" rows="3" placeholder="Add an operational note to this ${escapeHTML(anchor.kind)}…" required></textarea></label>
       <button class="primary">ADD TO PLAN</button>
     </form>`;
@@ -984,6 +984,12 @@ function planCommentTimestamp(value) {
   const date = new Date(value);
   if (!value || Number.isNaN(date.valueOf())) return "SAVED IN PLAN";
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+/** Comments are attributed to the signed-in account by the server; show that name. */
+function commentAuthorName() {
+  if (sessionInfo?.role === "guest") return "Guest";
+  return sessionInfo?.username || "Operator";
 }
 
 async function savePlanComment(event, anchor) {

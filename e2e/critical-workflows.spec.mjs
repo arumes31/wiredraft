@@ -390,10 +390,11 @@ test("stores plan comments in the inspector and manages map resources", async ({
   const comments = page.locator(".inspector-comments");
   await expect(comments).toContainText("PLAN COMMENTS");
   await expect(comments).toContainText("STORED WITH THIS MAP");
-  await comments.locator('[name="author"]').fill("E2E Operator");
+  await expect(comments.locator('[name="author"]')).toHaveValue("Guest");
+  await expect(comments.locator('[name="author"]')).toHaveAttribute("readonly", "");
   await comments.locator('[name="body"]').fill("Validate the maintenance path before change window.");
   await comments.locator(".inspector-comment-form button").click();
-  await expect(comments).toContainText("E2E Operator");
+  await expect(comments.locator(".inspector-comment-list")).toContainText("Guest");
   await expect(comments).toContainText("Validate the maintenance path before change window.");
 
   const persisted = await request.get(`/api/v1/topologies/${encodeURIComponent(topologyID)}`).then((response) => response.json());
