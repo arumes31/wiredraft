@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -50,6 +51,11 @@ func run(args []string) error {
 		return err
 	}
 	defer databasePool.Close()
+	releaseInstanceLock, err := store.AcquireInstanceLock(context.Background(), databasePool)
+	if err != nil {
+		return err
+	}
+	defer releaseInstanceLock()
 	if err := store.MigrateDatabase(databasePool); err != nil {
 		return fmt.Errorf("migrating database: %w", err)
 	}
@@ -79,6 +85,7 @@ func run(args []string) error {
 			appLogger.Error("closing photo storage", "error", err)
 		}
 	}()
+	sweepOrphanedMedia(context.Background(), topologyStore, mediaStore, appLogger)
 	organizations, err := topologyStore.ListOrganizations(context.Background())
 	if err != nil {
 		return fmt.Errorf("listing organizations: %w", err)
@@ -88,6 +95,9 @@ func run(args []string) error {
 		authOrganizations[index] = auth.OrganizationRef{ID: organization.ID, Name: organization.Name}
 	}
 	secretKey, previousSecretKeys, err := readAuthSecretKeys(cfg.SecretKeyFile, cfg.PreviousSecretKeyFile)
+	if cfg.SecretKeyFile == "" {
+		appLogger.Warn("TOTP secrets are sealed with a key stored in the same database row; set WIREDRAFT_AUTH_SECRET_KEY_FILE so a database dump alone cannot open them")
+	}
 	if err != nil {
 		return err
 	}
@@ -268,4 +278,36 @@ func probeHealth(url string) (returnErr error) {
 		return fmt.Errorf("healthcheck returned status %d", response.StatusCode)
 	}
 	return nil
+}
+
+// sweepOrphanedMedia removes photo files that no topology references. It runs
+// before the server accepts requests, and it skips the sweep entirely when the
+// complete reference set cannot be read.
+func sweepOrphanedMedia(ctx context.Context, topologyStore store.Store, mediaStore *media.Store, logger *slog.Logger) {
+	summaries, err := topologyStore.List(ctx)
+	if err != nil {
+		logger.Warn("skipping orphaned media sweep", "error", err)
+		return
+	}
+	var references []media.Reference
+	for _, summary := range summaries {
+		topology, err := topologyStore.Get(ctx, summary.ID)
+		if err != nil {
+			logger.Warn("skipping orphaned media sweep", "topology_id", summary.ID, "error", err)
+			return
+		}
+		for _, photo := range topology.Photos {
+			references = append(references, media.Reference{
+				TopologyID: topology.ID, PhotoID: photo.ID, MediaType: photo.MediaType,
+			})
+		}
+	}
+	removed, err := mediaStore.Sweep(references)
+	if err != nil {
+		logger.Warn("orphaned media sweep incomplete", "removed", removed, "error", err)
+		return
+	}
+	if removed > 0 {
+		logger.Info("removed orphaned media", "count", removed)
+	}
 }

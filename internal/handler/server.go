@@ -30,21 +30,46 @@ import (
 
 // Server coordinates HTTP handlers with persistence and event delivery.
 type Server struct {
-	store       store.Store
-	broker      *sse.Broker
-	logger      *slog.Logger
-	static      fs.FS
-	auth        *auth.Manager
-	entra       entraAuthenticator
-	media       *media.Store
-	directoryMu sync.Mutex
+	store  store.Store
+	broker *sse.Broker
+	logger *slog.Logger
+	static fs.FS
+	auth   *auth.Manager
+	entra  entraAuthenticator
+	media  *media.Store
+	// directoryMu orders topology writes against directory changes (accounts,
+	// grants, organizations). Topology writes share it, because per-topology
+	// consistency comes from the store's row lock, so writes in different
+	// organizations never wait on each other; directory changes take it
+	// exclusively.
+	directoryMu sync.RWMutex
 
 	streamMu       sync.Mutex
 	sessionStreams map[string]int
+
+	forwardedWarning sync.Once
+	createMu         sync.Mutex
 }
 
 // maxSessionEventStreams bounds concurrent event streams per login session.
 const maxSessionEventStreams = 8
+
+// computationDeadline bounds analysis-style requests. The server sets no global
+// WriteTimeout because event streams are long-lived, so these routes get their
+// own limit.
+const computationDeadline = 30 * time.Second
+
+func withComputationDeadline(next http.HandlerFunc) http.HandlerFunc {
+	limited := http.TimeoutHandler(next, computationDeadline, `{"error":"analysis timed out","code":503}`)
+	return limited.ServeHTTP
+}
+
+// Share links always expire: defaultShareLifetime applies when the client sets
+// no expiry and maxShareLifetime caps any requested expiry.
+const (
+	defaultShareLifetime = 90 * 24 * time.Hour
+	maxShareLifetime     = 365 * 24 * time.Hour
+)
 
 type entraAuthenticator interface {
 	Begin(context.Context, string) (auth.EntraStart, error)
@@ -183,8 +208,8 @@ func newHandler(
 	protected("POST /api/v1/topologies/{id}/vlans", server.createVLAN)
 	protected("PUT /api/v1/topologies/{id}/vlans/{vlanId}", server.updateVLAN)
 	protected("DELETE /api/v1/topologies/{id}/vlans/{vlanId}", server.deleteVLAN)
-	protected("GET /api/v1/topologies/{id}/analysis", server.analysis)
-	protected("GET /api/v1/topologies/{id}/trace", server.trace)
+	protected("GET /api/v1/topologies/{id}/analysis", withComputationDeadline(server.analysis))
+	protected("GET /api/v1/topologies/{id}/trace", withComputationDeadline(server.trace))
 	protected("GET /api/v1/topologies/{id}/events", server.events)
 	protected("GET /api/v1/topologies/{id}/comments", server.listCommentThreads)
 	protected("POST /api/v1/topologies/{id}/comments", server.createCommentThread)
@@ -261,8 +286,8 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 	topology.Location = strings.TrimSpace(input.Location)
 	principal := principalFromRequest(request)
 	if s.auth != nil {
-		s.directoryMu.Lock()
-		defer s.directoryMu.Unlock()
+		s.directoryMu.RLock()
+		defer s.directoryMu.RUnlock()
 		session, authenticated := s.sessionFromRequest(request)
 		if !authenticated {
 			writeError(w, http.StatusUnauthorized, "authentication required")
@@ -299,12 +324,52 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
+	// createMu makes the capacity count and the insert one step, so concurrent
+	// creates cannot all observe a count below the cap.
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	if !s.organizationHasCapacity(w, request, topology.OrganizationID) {
+		return
+	}
 	created, err := s.store.Create(request.Context(), topology)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
+}
+
+// shareExpiry returns when a grant stops working. Grants created before expiry
+// became mandatory have none stored; they expire maxShareLifetime after
+// creation instead of staying valid indefinitely.
+func shareExpiry(share model.ShareGrant) time.Time {
+	if share.ExpiresAt != nil {
+		return *share.ExpiresAt
+	}
+	return share.CreatedAt.Add(maxShareLifetime)
+}
+
+// maxOrganizationTopologies bounds how many maps, and so how much attached
+// media, one organization can accumulate on the shared server.
+const maxOrganizationTopologies = 1000
+
+func (s *Server) organizationHasCapacity(w http.ResponseWriter, request *http.Request, organizationID string) bool {
+	summaries, err := s.store.List(request.Context())
+	if err != nil {
+		s.fail(w, err)
+		return false
+	}
+	count := 0
+	for _, summary := range summaries {
+		if summary.OrganizationID == organizationID {
+			count++
+		}
+	}
+	if count >= maxOrganizationTopologies {
+		writeError(w, http.StatusConflict, fmt.Sprintf("organization may contain at most %d maps", maxOrganizationTopologies))
+		return false
+	}
+	return true
 }
 
 func (s *Server) getTopology(w http.ResponseWriter, request *http.Request) {
@@ -329,6 +394,12 @@ func (s *Server) getAuthorizedTopology(request *http.Request, id string) (model.
 }
 
 func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
+	// A whole-document replace must name the revision it was built from, so a
+	// stale client copy can never silently overwrite newer server state.
+	if strings.TrimSpace(request.Header.Get("If-Match")) == "" {
+		writeError(w, http.StatusPreconditionRequired, "If-Match revision is required")
+		return
+	}
 	var input model.Topology
 	if err := decodeJSON(w, request, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid topology")
@@ -369,10 +440,19 @@ func (s *Server) replaceTopology(w http.ResponseWriter, request *http.Request) {
 		// endpoints mint or revoke them. Keeping the stored set stops undo,
 		// backup import or any client body from resurrecting a revoked token.
 		shareGrants := current.ShareGrants
+		// Comment threads are likewise managed only by the comment endpoints,
+		// which bind authorship to the session.
+		commentThreads := current.CommentThreads
 		*current = input
 		current.CreatedAt = createdAt
 		current.Photos = photos
 		current.ShareGrants = shareGrants
+		current.CommentThreads = commentThreads
+		if requestedOrganization != nil && requestedOrganization.ID != organizationID {
+			// Anonymous links issued under the previous organization must not
+			// keep exposing the map after it moves.
+			current.ShareGrants = nil
+		}
 		if requestedOrganization == nil {
 			current.OrganizationID = organizationID
 			current.Organization = organization
@@ -401,8 +481,8 @@ func (s *Server) deleteTopology(w http.ResponseWriter, request *http.Request) {
 		s.fail(w, fmt.Errorf("%w: %w", store.ErrInvalid, err))
 		return
 	}
-	s.directoryMu.Lock()
-	defer s.directoryMu.Unlock()
+	s.directoryMu.RLock()
+	defer s.directoryMu.RUnlock()
 	if err := s.store.DeleteAtRevision(request.Context(), id, expectedRevision, func(topology model.Topology) error {
 		if !s.authorizedTopologySnapshot(request, topology) {
 			return store.ErrNotFound
@@ -1336,7 +1416,7 @@ func (s *Server) createCommentThread(w http.ResponseWriter, request *http.Reques
 	thread := model.CommentThread{
 		ID: threadID, Anchor: input.Anchor, CreatedAt: now, UpdatedAt: now,
 		Messages: []model.CommentMessage{{
-			ID: messageID, Author: strings.TrimSpace(input.Author), Body: strings.TrimSpace(input.Body), CreatedAt: now, UpdatedAt: now,
+			ID: messageID, Author: s.commentAuthor(request, input.Author), Body: strings.TrimSpace(input.Body), CreatedAt: now, UpdatedAt: now,
 		}},
 	}
 	topologyID := request.PathValue("id")
@@ -1364,7 +1444,7 @@ func (s *Server) createCommentReply(w http.ResponseWriter, request *http.Request
 		return
 	}
 	now := time.Now().UTC()
-	message := model.CommentMessage{ID: messageID, Author: strings.TrimSpace(input.Author), Body: strings.TrimSpace(input.Body), CreatedAt: now, UpdatedAt: now}
+	message := model.CommentMessage{ID: messageID, Author: s.commentAuthor(request, input.Author), Body: strings.TrimSpace(input.Body), CreatedAt: now, UpdatedAt: now}
 	topologyID := request.PathValue("id")
 	threadID := request.PathValue("threadId")
 	updated, err := s.mutate(request, topologyID, func(topology *model.Topology) error {
@@ -1513,7 +1593,8 @@ func (s *Server) listShareGrants(w http.ResponseWriter, request *http.Request) {
 	}
 	shares := make([]shareGrantResponse, 0, len(topology.ShareGrants))
 	for _, share := range topology.ShareGrants {
-		shares = append(shares, shareGrantResponse{ID: share.ID, Name: share.Name, CreatedAt: share.CreatedAt, ExpiresAt: share.ExpiresAt})
+		expiresAt := shareExpiry(share)
+		shares = append(shares, shareGrantResponse{ID: share.ID, Name: share.Name, CreatedAt: share.CreatedAt, ExpiresAt: &expiresAt})
 	}
 	writeJSON(w, http.StatusOK, shares)
 }
@@ -1537,8 +1618,16 @@ func (s *Server) createShareGrant(w http.ResponseWriter, request *http.Request) 
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	digest := sha256.Sum256([]byte(token))
 	now := time.Now().UTC()
+	expiresAt := now.Add(defaultShareLifetime)
+	if input.ExpiresAt != nil {
+		expiresAt = input.ExpiresAt.UTC()
+	}
+	if !expiresAt.After(now) || expiresAt.After(now.Add(maxShareLifetime)) {
+		writeError(w, http.StatusBadRequest, "share expiry must be in the future and at most 365 days away")
+		return
+	}
 	grant := model.ShareGrant{
-		ID: shareID, Name: strings.TrimSpace(input.Name), TokenHash: hex.EncodeToString(digest[:]), CreatedAt: now, ExpiresAt: input.ExpiresAt,
+		ID: shareID, Name: strings.TrimSpace(input.Name), TokenHash: hex.EncodeToString(digest[:]), CreatedAt: now, ExpiresAt: &expiresAt,
 	}
 	if grant.Name == "" {
 		grant.Name = "Read-only share"
@@ -1599,7 +1688,7 @@ func (s *Server) getSharedTopology(w http.ResponseWriter, request *http.Request)
 	for _, share := range topology.ShareGrants {
 		expected, decodeErr := hex.DecodeString(share.TokenHash)
 		matches := decodeErr == nil && len(expected) == len(digest) && subtle.ConstantTimeCompare(expected, digest[:]) == 1
-		if matches && (share.ExpiresAt == nil || share.ExpiresAt.After(now)) {
+		if matches && shareExpiry(share).After(now) {
 			granted = true
 		}
 	}
@@ -1651,14 +1740,19 @@ func (s *Server) events(w http.ResponseWriter, request *http.Request) {
 			if !open {
 				return
 			}
-			if !s.eventStreamAuthorized(request, topologyID) {
+			organizationID, authorized := s.eventStreamAuthorized(request, topologyID)
+			if !authorized {
 				return
+			}
+			if event.OrganizationID != "" && event.OrganizationID != organizationID {
+				// Produced while the topology belonged to another organization.
+				continue
 			}
 			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, event.Data); err != nil {
 				return
 			}
 		case <-heartbeat.C:
-			if !s.eventStreamAuthorized(request, topologyID) {
+			if _, authorized := s.eventStreamAuthorized(request, topologyID); !authorized {
 				return
 			}
 			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
@@ -1669,6 +1763,19 @@ func (s *Server) events(w http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
+}
+
+// commentAuthor attributes a comment to the signed-in account. The free-text
+// author is used only when the server runs without authentication.
+func (s *Server) commentAuthor(request *http.Request, provided string) string {
+	session, authenticated := s.sessionFromRequest(request)
+	if !authenticated {
+		return strings.TrimSpace(provided)
+	}
+	if session.Principal.IsGuest() {
+		return "Guest"
+	}
+	return session.Principal.Username
 }
 
 // acquireSessionStream reserves one of the session's event-stream slots. Without
@@ -1702,16 +1809,16 @@ func (s *Server) acquireSessionStream(request *http.Request) (func(), bool) {
 // eventStreamAuthorized re-checks an open stream on every event and heartbeat.
 // It reads only the owning organization so idle streams never reload, decode
 // and validate the full document.
-func (s *Server) eventStreamAuthorized(request *http.Request, topologyID string) bool {
+func (s *Server) eventStreamAuthorized(request *http.Request, topologyID string) (string, bool) {
 	organizationID, err := s.store.TopologyOrganizationID(request.Context(), topologyID)
 	if err != nil {
-		return false
+		return "", false
 	}
 	if s.auth == nil {
-		return true
+		return organizationID, true
 	}
 	session, authenticated := s.sessionFromRequest(request)
-	return authenticated && s.auth.CanAccessTopology(session.Principal, topologyID, organizationID)
+	return organizationID, authenticated && s.auth.CanAccessTopology(session.Principal, topologyID, organizationID)
 }
 
 func (s *Server) staticFile(w http.ResponseWriter, request *http.Request) {
@@ -1762,7 +1869,7 @@ func (s *Server) serveStaticContent(w http.ResponseWriter, request *http.Request
 }
 
 func (s *Server) publish(id, eventType string, topology model.Topology) {
-	if err := s.broker.Publish(id, eventType, topology); err != nil {
+	if err := s.broker.PublishScoped(id, topology.OrganizationID, eventType, publicTopology(topology)); err != nil {
 		s.logger.Error("publishing sse event", "event", eventType, "error", err)
 	}
 }
@@ -1776,8 +1883,8 @@ func (s *Server) mutate(request *http.Request, id string, mutation func(*model.T
 	// Detached photo files are removed after the commit and outside the
 	// process-wide lock, so slow storage never delays other organizations.
 	updated, err := func() (model.Topology, error) {
-		s.directoryMu.Lock()
-		defer s.directoryMu.Unlock()
+		s.directoryMu.RLock()
+		defer s.directoryMu.RUnlock()
 		return s.store.MutateAtRevision(request.Context(), id, expectedRevision, func(topology *model.Topology) error {
 			if !s.authorizedTopologySnapshot(request, *topology) {
 				return store.ErrNotFound

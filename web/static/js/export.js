@@ -526,8 +526,8 @@ export function buildSVGDocument(topology, engine) {
   for (const box of rackBoxes) {
     const x = box.x + offsetX; const y = box.y + offsetY;
     parts.push(`<g data-entity="rack" data-rack-id="${escapeXML(box.rack.id)}" data-name="${escapeXML(box.rack.name)}"><title>${escapeXML(box.rack.name)} · ${box.rack.heightU}U rack</title>`);
-    parts.push(`<rect x="${x}" y="${y}" width="${box.width}" height="${box.height}" rx="7" fill="#070d0f" stroke="${box.rack.color}" stroke-width="2"/>`);
-    parts.push(`<rect x="${x + 2}" y="${y + 2}" width="${box.width - 4}" height="62" fill="${box.rack.color}"/>`);
+    parts.push(`<rect x="${x}" y="${y}" width="${box.width}" height="${box.height}" rx="7" fill="#070d0f" stroke="${escapeXML(box.rack.color)}" stroke-width="2"/>`);
+    parts.push(`<rect x="${x + 2}" y="${y + 2}" width="${box.width - 4}" height="62" fill="${escapeXML(box.rack.color)}"/>`);
     parts.push(`<text class="name" x="${x + 26}" y="${y + 29}" fill="#e5eeee">${escapeXML(box.rack.name)}</text>`);
     parts.push(`<text class="model" x="${x + 26}" y="${y + 47}" fill="#71868a">${box.rack.heightU}U RACK</text>`);
     for (let unit = 0; unit <= box.rack.heightU; unit += 1) {
@@ -578,7 +578,7 @@ export function buildSVGDocument(topology, engine) {
     const statusX = x + statusArea.x * 690;
     const statusY = y + statusArea.y * heightU - statusArea.height / 2;
     const rackFace = device.rackId ? (box.face || device.rackFace || "front") : "free";
-    parts.push(`<g data-layer="faceplate" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${rackFace}" data-name="${escapeXML(device.name)}" data-template="${template.id}"${scene?.profile ? ` data-hardware-face="${scene.face}" data-faceplate-fidelity="${escapeXML(scene.profile.fidelity || "model")}" data-hardware-source="${escapeXML(scene.profile.source || "")}"` : ""}><title>${escapeXML(device.name)} · ${escapeXML(device.model || device.category || "Device")}</title>`);
+    parts.push(`<g data-layer="faceplate" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${escapeXML(rackFace)}" data-name="${escapeXML(device.name)}" data-template="${template.id}"${scene?.profile ? ` data-hardware-face="${scene.face}" data-faceplate-fidelity="${escapeXML(scene.profile.fidelity || "model")}" data-hardware-source="${escapeXML(scene.profile.source || "")}"` : ""}><title>${escapeXML(device.name)} · ${escapeXML(device.model || device.category || "Device")}</title>`);
     if (scene?.profile) {
       const chassis = scene.chassis;
       // A strict model opt-in replaces the generic body with its authored component silhouette.
@@ -589,7 +589,7 @@ export function buildSVGDocument(topology, engine) {
       }
       if (scene.portal) {
         const portal = scene.portal;
-        renderedPanelPortals.push(`<g data-layer="opposite-panel-portal" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${rackFace}" transform="translate(${offsetX} ${offsetY})"><title>${escapeXML(portal.label)}</title><rect x="${portal.x}" y="${portal.y}" width="${portal.width}" height="${portal.height}" rx="4" fill="#102126" stroke="#7d999e"/><text x="${portal.x + portal.width / 2}" y="${portal.y + portal.height / 2}" text-anchor="middle" dominant-baseline="middle" fill="#dce8e9" font-size="6">${escapeXML(portal.label)}</text></g>`);
+        renderedPanelPortals.push(`<g data-layer="opposite-panel-portal" data-entity="device" data-device-id="${escapeXML(device.id)}" data-rack-id="${escapeXML(device.rackId || "")}" data-rack-face="${escapeXML(rackFace)}" transform="translate(${offsetX} ${offsetY})"><title>${escapeXML(portal.label)}</title><rect x="${portal.x}" y="${portal.y}" width="${portal.width}" height="${portal.height}" rx="4" fill="#102126" stroke="#7d999e"/><text x="${portal.x + portal.width / 2}" y="${portal.y + portal.height / 2}" text-anchor="middle" dominant-baseline="middle" fill="#dce8e9" font-size="6">${escapeXML(portal.label)}</text></g>`);
       }
       parts.push(`</g>`);
     } else {
@@ -730,7 +730,7 @@ export function buildSVGDocument(topology, engine) {
     const y = box.y + box.height / 2 + offsetY;
     const badgeLink = renderedLinkByID.get(badge.linkId);
     parts.push(`<g data-layer="link-group-port-badge" data-role="${badge.role}" data-link="${escapeXML(badge.linkId)}" data-entity="link" data-link-id="${escapeXML(badge.linkId)}"${svgLinkFaceAttributes(badgeLink)}>`);
-    parts.push(`<rect x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}" rx="1.5" fill="#050d0f" fill-opacity=".96" stroke="${badge.color}" stroke-width="1.2"/>`);
+    parts.push(`<rect x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}" rx="1.5" fill="#050d0f" fill-opacity=".96" stroke="${escapeXML(badge.color)}" stroke-width="1.2"/>`);
     parts.push(`<text x="${x}" y="${y + .4}" fill="${badge.color}" font-size="${Math.max(5, size - 3)}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${badge.role}</text></g>`);
   }
   const endpointBadges = layoutEndpointBadges(renderedLinks.flatMap((entry) => entry.badges), {

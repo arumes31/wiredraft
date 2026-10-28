@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -223,7 +224,17 @@ func writePrivateFile(path string, data []byte) (returnErr error) {
 	return os.Rename(temporaryName, path)
 }
 
-func sealSecret(key []byte, value string) (string, error) {
+// boundSecretPrefix marks envelopes whose GCM associated data binds the
+// ciphertext to its owning account, so a database writer cannot move one
+// user's sealed TOTP secret onto another account. Unprefixed envelopes are the
+// legacy unbound format; they still open and are resealed at startup.
+const boundSecretPrefix = "v2."
+
+func secretAssociatedData(owner string) []byte {
+	return []byte("wiredraft-totp:" + owner)
+}
+
+func sealSecret(key []byte, value, owner string) (string, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", fmt.Errorf("creating secret cipher: %w", err)
@@ -236,11 +247,18 @@ func sealSecret(key []byte, value string) (string, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("generating secret nonce: %w", err)
 	}
-	sealed := aead.Seal(nonce, nonce, []byte(value), nil)
-	return base64.RawStdEncoding.EncodeToString(sealed), nil
+	sealed := aead.Seal(nonce, nonce, []byte(value), secretAssociatedData(owner))
+	return boundSecretPrefix + base64.RawStdEncoding.EncodeToString(sealed), nil
 }
 
-func openSecret(key []byte, encoded string) (string, error) {
+func secretIsBound(encoded string) bool { return strings.HasPrefix(encoded, boundSecretPrefix) }
+
+func openSecret(key []byte, encoded, owner string) (string, error) {
+	var associatedData []byte
+	if secretIsBound(encoded) {
+		encoded = strings.TrimPrefix(encoded, boundSecretPrefix)
+		associatedData = secretAssociatedData(owner)
+	}
 	sealed, err := base64.RawStdEncoding.DecodeString(encoded)
 	if err != nil {
 		return "", errors.New("auth: invalid encrypted secret")
@@ -256,7 +274,7 @@ func openSecret(key []byte, encoded string) (string, error) {
 	if len(sealed) < aead.NonceSize() {
 		return "", errors.New("auth: encrypted secret is too short")
 	}
-	plaintext, err := aead.Open(nil, sealed[:aead.NonceSize()], sealed[aead.NonceSize():], nil)
+	plaintext, err := aead.Open(nil, sealed[:aead.NonceSize()], sealed[aead.NonceSize():], associatedData)
 	if err != nil {
 		return "", errors.New("auth: decrypting secret failed")
 	}

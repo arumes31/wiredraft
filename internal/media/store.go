@@ -9,9 +9,11 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 )
 
 const (
@@ -178,4 +180,68 @@ func extensionForMediaType(mediaType string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// Reference names one stored photo that Sweep must keep.
+type Reference struct {
+	TopologyID string
+	PhotoID    string
+	MediaType  string
+}
+
+var topologyDirectoryPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+// Sweep removes photo files and topology directories that no reference names.
+// Uploads write files before the authorizing commit, so a crash in between, or
+// a failed removal, leaves files no document points to. Only topology-shaped
+// directories are considered; anything else in the media root is left alone.
+// Call it only with the complete reference set and while no uploads run.
+func (s *Store) Sweep(references []Reference) (int, error) {
+	keep := make(map[string]map[string]struct{})
+	for _, reference := range references {
+		extension, ok := extensionForMediaType(reference.MediaType)
+		if !ok {
+			continue
+		}
+		if keep[reference.TopologyID] == nil {
+			keep[reference.TopologyID] = make(map[string]struct{})
+		}
+		keep[reference.TopologyID][reference.PhotoID+extension] = struct{}{}
+	}
+	entries, err := fs.ReadDir(s.root.FS(), ".")
+	if err != nil {
+		return 0, fmt.Errorf("listing media directory: %w", err)
+	}
+	removed := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() || !topologyDirectoryPattern.MatchString(name) {
+			continue
+		}
+		files, referenced := keep[name]
+		if !referenced {
+			if err := s.root.RemoveAll(name); err != nil {
+				return removed, fmt.Errorf("removing orphaned topology media: %w", err)
+			}
+			removed++
+			continue
+		}
+		children, err := fs.ReadDir(s.root.FS(), name)
+		if err != nil {
+			return removed, fmt.Errorf("listing topology media: %w", err)
+		}
+		for _, child := range children {
+			if child.IsDir() {
+				continue
+			}
+			if _, ok := files[child.Name()]; ok {
+				continue
+			}
+			if err := s.root.Remove(name + "/" + child.Name()); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return removed, fmt.Errorf("removing orphaned photo: %w", err)
+			}
+			removed++
+		}
+	}
+	return removed, nil
 }

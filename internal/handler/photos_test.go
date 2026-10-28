@@ -50,8 +50,8 @@ func TestPhotoUploadReadEditAndDelete(t *testing.T) {
 	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("photo response = %d %q, want 200 image/png", response.Code, response.Header().Get("Content-Type"))
 	}
-	if response.Header().Get("Cache-Control") != "private, max-age=300" {
-		t.Fatalf("Cache-Control = %q, want private media cache", response.Header().Get("Cache-Control"))
+	if response.Header().Get("Cache-Control") != "private, no-cache" {
+		t.Fatalf("Cache-Control = %q, want private revalidated media cache", response.Header().Get("Cache-Control"))
 	}
 
 	topology = requestTopology(t, handler, http.MethodPut,

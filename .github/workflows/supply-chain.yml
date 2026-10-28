@@ -39,7 +39,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: "24.12.0"
           package-manager-cache: false
       - name: Build minified embedded modules
         run: |
@@ -87,6 +87,9 @@ jobs:
 
   container:
     name: Publish multi-architecture GHCR image
+    # Only main and release tags publish images. A manual dispatch from any
+    # other branch would otherwise turn its branch name into a GHCR tag.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -100,13 +103,25 @@ jobs:
       - name: Set up Node.js for frontend minification
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: "24.12.0"
           package-manager-cache: false
       - name: Prepare minified JavaScript before image build
         run: |
           npm ci --ignore-scripts
           npm run minify:js
           find .quality-data/minified-js -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Verify release tag points at a commit on main
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          status="$(gh api "repos/$GH_REPO/compare/main...$SHA" --jq .status)"
+          if [[ "$status" != "identical" && "$status" != "behind" ]]; then
+            echo "::error::Release tags must point at a commit already on main (compare status: $status)."
+            exit 1
+          fi
       - name: Set up QEMU
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
       - name: Set up Docker Buildx

@@ -33,7 +33,7 @@ func TestApplyExternalSecretKeyMigratesAndRotates(t *testing.T) {
 	externalKey := bytes.Repeat([]byte{2}, 32)
 	rotatedKey := bytes.Repeat([]byte{3}, 32)
 	const secret = "JBSWY3DPEHPK3PXP" // #nosec G101 -- public RFC-compatible test fixture.
-	sealed, err := sealSecret(storedKey, secret)
+	sealed, err := sealSecret(storedKey, secret, "user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,10 +49,10 @@ func TestApplyExternalSecretKeyMigratesAndRotates(t *testing.T) {
 	if err != nil || !changed || !bytes.Equal(key, externalKey) || !state.ExternalSecretKey {
 		t.Fatalf("migration = %x, %v, %v", key, changed, err)
 	}
-	if opened, err := openSecret(externalKey, state.Users[0].EncryptedTOTPSecret); err != nil || opened != secret {
+	if opened, err := openSecret(externalKey, state.Users[0].EncryptedTOTPSecret, "user"); err != nil || opened != secret {
 		t.Fatalf("migrated secret = %q, %v", opened, err)
 	}
-	if _, err := openSecret(storedKey, state.Users[0].EncryptedTOTPSecret); err == nil {
+	if _, err := openSecret(storedKey, state.Users[0].EncryptedTOTPSecret, "user"); err == nil {
 		t.Fatal("migrated secret still opens with the database-stored key")
 	}
 
@@ -71,7 +71,7 @@ func TestApplyExternalSecretKeyMigratesAndRotates(t *testing.T) {
 	if err != nil || !changed || !bytes.Equal(key, rotatedKey) {
 		t.Fatalf("rotation = %x, %v, %v", key, changed, err)
 	}
-	if opened, err := openSecret(rotatedKey, state.Users[0].EncryptedTOTPSecret); err != nil || opened != secret {
+	if opened, err := openSecret(rotatedKey, state.Users[0].EncryptedTOTPSecret, "user"); err != nil || opened != secret {
 		t.Fatalf("rotated secret = %q, %v", opened, err)
 	}
 }

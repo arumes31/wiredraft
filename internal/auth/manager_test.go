@@ -3,6 +3,8 @@ package auth
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -323,24 +325,30 @@ func TestSecretEncryptionRoundTrip(t *testing.T) {
 	for index := range key {
 		key[index] = byte(index + 1)
 	}
-	sealed, err := sealSecret(key, "JBSWY3DPEHPK3PXP")
+	sealed, err := sealSecret(key, "JBSWY3DPEHPK3PXP", "user-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	opened, err := openSecret(key, sealed)
+	if !secretIsBound(sealed) {
+		t.Fatalf("sealed secret %q is not in the bound envelope format", sealed)
+	}
+	if _, err := openSecret(key, sealed, "user-b"); err == nil {
+		t.Fatal("secret sealed for one account opened for another account")
+	}
+	opened, err := openSecret(key, sealed, "user-a")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if opened != "JBSWY3DPEHPK3PXP" {
 		t.Fatalf("opened = %q", opened)
 	}
-	sealedBytes, err := base64.RawStdEncoding.DecodeString(sealed)
+	sealedBytes, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(sealed, boundSecretPrefix))
 	if err != nil {
 		t.Fatal(err)
 	}
 	sealedBytes[len(sealedBytes)-1] ^= 1
-	tampered := base64.RawStdEncoding.EncodeToString(sealedBytes)
-	if _, err := openSecret(key, tampered); err == nil {
+	tampered := boundSecretPrefix + base64.RawStdEncoding.EncodeToString(sealedBytes)
+	if _, err := openSecret(key, tampered, "user-a"); err == nil {
 		t.Fatal("tampered ciphertext was accepted")
 	}
 }
@@ -824,5 +832,45 @@ func TestManagerValidationAndExpiryEdges(t *testing.T) {
 	}
 	if err := manager.reserveSecondFactorLocked("missing", validUser.ID, now); !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("locked second factor error = %v", err)
+	}
+}
+
+func TestLegacyUnboundSecretStillOpens(t *testing.T) {
+	t.Parallel()
+	key := make([]byte, 32)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := make([]byte, aead.NonceSize())
+	legacy := base64.RawStdEncoding.EncodeToString(aead.Seal(nonce, nonce, []byte("JBSWY3DPEHPK3PXP"), nil)) // #nosec G407 -- fixed nonce builds a legacy-format test fixture.
+	if secretIsBound(legacy) {
+		t.Fatal("legacy envelope reported as bound")
+	}
+	opened, err := openSecret(key, legacy, "any-user")
+	if err != nil || opened != "JBSWY3DPEHPK3PXP" {
+		t.Fatalf("legacy secret opened = %q, %v", opened, err)
+	}
+}
+
+func TestRemoteHostAggregatesIPv6Prefixes(t *testing.T) {
+	t.Parallel()
+	first := remoteHost("[2001:db8:1:2:aaaa::1]:51000")
+	second := remoteHost("[2001:db8:1:2:bbbb::9]:443")
+	if first != second || first != "2001:db8:1:2::/64" {
+		t.Fatalf("IPv6 keys = %q and %q, want one shared /64 key", first, second)
+	}
+	if other := remoteHost("[2001:db8:1:3::1]:1"); other == first {
+		t.Fatalf("different /64 shares key %q", other)
+	}
+	if got := remoteHost("192.0.2.10:8080"); got != "192.0.2.10" {
+		t.Fatalf("IPv4 key = %q, want 192.0.2.10", got)
+	}
+	if got := remoteHost("[::ffff:192.0.2.10]:8080"); got != "192.0.2.10" {
+		t.Fatalf("IPv4-mapped key = %q, want 192.0.2.10", got)
 	}
 }

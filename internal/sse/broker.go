@@ -23,6 +23,9 @@ var ErrSubscriberLimit = errors.New("sse: subscriber limit reached")
 type Event struct {
 	Type string
 	Data []byte
+	// OrganizationID is the organization that owned the topology when the
+	// event was produced; empty when the publisher did not scope it.
+	OrganizationID string
 }
 
 // Broker owns subscribers grouped by topology ID.
@@ -89,11 +92,16 @@ func (b *Broker) TrySubscribe(topologyID string) (<-chan Event, func(), error) {
 
 // Publish sends an event without allowing a slow subscriber to block a mutation.
 func (b *Broker) Publish(topologyID, eventType string, payload any) error {
+	return b.PublishScoped(topologyID, "", eventType, payload)
+}
+
+// PublishScoped is Publish for an event tagged with its owning organization.
+func (b *Broker) PublishScoped(topologyID, organizationID, eventType string, payload any) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	event := Event{Type: eventType, Data: data}
+	event := Event{Type: eventType, Data: data, OrganizationID: organizationID}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for channel := range b.subscribers[topologyID] {

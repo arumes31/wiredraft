@@ -331,20 +331,32 @@ func TracePath(topology Topology, sourcePortID, targetPortID string, vlanID int)
 			deviceID: left.DeviceID, linkID: link.ID, fromPortID: right.ID, toPortID: left.ID,
 		})
 	}
-	type visit struct {
-		deviceID string
-		path     []string
+	// Each device records the link it was reached through, and the path is
+	// rebuilt once at the target, so the search uses linear memory instead of
+	// copying a growing path for every queued device.
+	type arrival struct {
+		previous string
+		linkID   string
 	}
-	queue := []visit{{deviceID: source.DeviceID, path: []string{}}}
+	arrivals := map[string]arrival{}
+	rebuild := func(last string, linkID string) []string {
+		path := []string{linkID}
+		for current := last; current != source.DeviceID; current = arrivals[current].previous {
+			path = append(path, arrivals[current].linkID)
+		}
+		slices.Reverse(path)
+		return path
+	}
+	queue := []string{source.DeviceID}
 	seen := map[string]struct{}{source.DeviceID: {}}
 	for len(queue) > 0 {
-		current := queue[0]
+		currentID := queue[0]
 		queue = queue[1:]
-		if current.deviceID != source.DeviceID && categories[current.deviceID] == DeviceCategoryServer {
+		if currentID != source.DeviceID && categories[currentID] == DeviceCategoryServer {
 			continue
 		}
-		for _, next := range adjacency[current.deviceID] {
-			leavesSourceServer := current.deviceID == source.DeviceID && sourceIsServer
+		for _, next := range adjacency[currentID] {
+			leavesSourceServer := currentID == source.DeviceID && sourceIsServer
 			if leavesSourceServer && next.fromPortID != sourcePortID {
 				continue
 			}
@@ -355,12 +367,12 @@ func TracePath(topology Topology, sourcePortID, targetPortID string, vlanID int)
 			if _, visited := seen[next.deviceID]; visited {
 				continue
 			}
-			path := append(slices.Clone(current.path), next.linkID)
 			if next.deviceID == target.DeviceID {
-				return path, nil
+				return rebuild(currentID, next.linkID), nil
 			}
 			seen[next.deviceID] = struct{}{}
-			queue = append(queue, visit{deviceID: next.deviceID, path: path})
+			arrivals[next.deviceID] = arrival{previous: currentID, linkID: next.linkID}
+			queue = append(queue, next.deviceID)
 		}
 	}
 	return nil, fmt.Errorf("no path carries vlan %d", vlanID)
@@ -368,8 +380,16 @@ func TracePath(topology Topology, sourcePortID, targetPortID string, vlanID int)
 
 func missingVLANs(tagged []int, peer Port) []int {
 	missing := []int{}
+	if peer.Mode == PortModeUnconfigured {
+		return append(missing, tagged...)
+	}
+	carried := make(map[int]struct{}, len(peer.AllowedVLANs))
+	carried[peer.NativeVLAN] = struct{}{}
+	for _, vlanID := range peer.AllowedVLANs {
+		carried[vlanID] = struct{}{}
+	}
 	for _, vlanID := range tagged {
-		if !portCarriesVLAN(peer, vlanID) {
+		if _, ok := carried[vlanID]; !ok {
 			missing = append(missing, vlanID)
 		}
 	}

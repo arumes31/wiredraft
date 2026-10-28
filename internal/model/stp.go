@@ -93,8 +93,9 @@ func SimulateSTP(topology Topology, ports map[string]Port) []STPInstance {
 	bridgeByDevice, bridges := stpLogicalBridges(topology)
 	instances := []STPInstance{}
 	pathBudget := maxSTPPathEntries
+	linkIndex := newSTPLinkIndex(topology)
 	for _, vlan := range topology.VLANs {
-		edges := stpEdges(topology, ports, bridgeByDevice, vlan.ID)
+		edges := stpEdges(topology, ports, bridgeByDevice, vlan.ID, linkIndex)
 		components := stpComponents(edges)
 		connectedBridges := make(map[string]struct{})
 		for domain, component := range components {
@@ -199,17 +200,30 @@ func normalizedSTPPriority(priority int) int {
 	return priority
 }
 
-func stpEdges(topology Topology, ports map[string]Port, bridgeByDevice map[string]string, vlanID int) []stpEdge {
-	links := make(map[string]Link, len(topology.Links))
-	groupByLink := make(map[string]LinkGroup)
+// stpLinkIndex is built once per analysis; stpEdges runs once per VLAN.
+type stpLinkIndex struct {
+	links       map[string]Link
+	groupByLink map[string]LinkGroup
+}
+
+func newSTPLinkIndex(topology Topology) stpLinkIndex {
+	index := stpLinkIndex{
+		links:       make(map[string]Link, len(topology.Links)),
+		groupByLink: make(map[string]LinkGroup),
+	}
 	for _, link := range topology.Links {
-		links[link.ID] = link
+		index.links[link.ID] = link
 	}
 	for _, group := range topology.LinkGroups {
 		for _, linkID := range group.LinkIDs {
-			groupByLink[linkID] = group
+			index.groupByLink[linkID] = group
 		}
 	}
+	return index
+}
+
+func stpEdges(topology Topology, ports map[string]Port, bridgeByDevice map[string]string, vlanID int, index stpLinkIndex) []stpEdge {
+	links, groupByLink := index.links, index.groupByLink
 	eligible := func(link Link) (string, string, bool) {
 		left, leftExists := bridgeByDevice[link.SourceDeviceID]
 		right, rightExists := bridgeByDevice[link.TargetDeviceID]

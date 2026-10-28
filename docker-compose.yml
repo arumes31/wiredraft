@@ -22,7 +22,7 @@ services:
     build: .
     image: wiredraft:latest
     ports:
-      - "8080:8080"
+      - "${WIREDRAFT_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     environment:
       PORT: "8080"
       PGHOST: postgres

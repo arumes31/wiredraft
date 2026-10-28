@@ -821,7 +821,7 @@ function renderPhotoInspector(selection) {
   section.innerHTML = `
     <div class="section-heading"><h3>FIELD PHOTOS</h3><span>${photos.length} PHOTO${photos.length === 1 ? "" : "S"}</span></div>
     <div class="inspector-photo-grid">
-      ${photos.map((photo) => `<button type="button" data-photo-open="${photo.id}" title="Open ${escapeHTML(photo.originalName)}"><img src="${photoURL(photo)}" alt="${escapeHTML(photo.caption || photo.originalName)}" loading="lazy"><span>VIEW</span></button>`).join("")}
+      ${photos.map((photo) => `<button type="button" data-photo-open="${escapeHTML(photo.id)}" title="Open ${escapeHTML(photo.originalName)}"><img src="${photoURL(photo)}" alt="${escapeHTML(photo.caption || photo.originalName)}" loading="lazy"><span>VIEW</span></button>`).join("")}
       ${photos.length ? "" : `<p>No protected photos are attached to this ${escapeHTML(selection.type)}.</p>`}
     </div>
     <form class="photo-upload-form">
@@ -871,7 +871,7 @@ function renderPhotoManager() {
     photo.targetKind === active.targetKind && photo.targetId === active.targetId);
   elements["photo-manager-count"].textContent = `${photos.length} PHOTO${photos.length === 1 ? "" : "S"}`;
   elements["photo-manager-list"].innerHTML = photos.map((photo) => `
-    <button type="button" data-photo-id="${photo.id}" class="${photo.id === active.id ? "is-active" : ""}">
+    <button type="button" data-photo-id="${escapeHTML(photo.id)}" class="${photo.id === active.id ? "is-active" : ""}">
       <img src="${photoURL(photo)}" alt=""><span><b>${escapeHTML(photo.originalName)}</b><small>${escapeHTML(photo.caption || formatPhotoSize(photo.sizeBytes))}</small></span>
     </button>`).join("");
   elements["photo-preview"].src = photoURL(active);
@@ -967,11 +967,11 @@ function renderCommentInspector(selection) {
       ${threads.length ? threads.map((thread) => `<article class="inspector-comment-thread${thread.resolved ? " is-resolved" : ""}">
         <header><span>${thread.resolved ? "RESOLVED" : "ACTIVE"}</span><time datetime="${escapeHTML(thread.updatedAt || "")}">${escapeHTML(planCommentTimestamp(thread.updatedAt))}</time></header>
         <div>${(thread.messages || []).map((message) => `<p><b>${escapeHTML(message.author)}</b><span>${escapeHTML(message.body)}</span></p>`).join("")}</div>
-        <footer><button type="button" data-plan-comment-resolve="${thread.id}">${thread.resolved ? "REOPEN" : "RESOLVE"}</button><button type="button" class="danger" data-plan-comment-delete="${thread.id}">DELETE</button></footer>
+        <footer><button type="button" data-plan-comment-resolve="${escapeHTML(thread.id)}">${thread.resolved ? "REOPEN" : "RESOLVE"}</button><button type="button" class="danger" data-plan-comment-delete="${escapeHTML(thread.id)}">DELETE</button></footer>
       </article>`).join("") : `<p class="inspector-comment-empty">No comments on this ${escapeHTML(anchor.kind)} yet.</p>`}
     </div>
     <form class="inspector-comment-form">
-      <label><span>AUTHOR</span><input name="author" maxlength="80" value="Operator" autocomplete="name" required></label>
+      <label><span>AUTHOR</span><input name="author" maxlength="80" value="${escapeHTML(commentAuthorName())}" readonly required></label>
       <label><span>NEW COMMENT</span><textarea name="body" maxlength="4000" rows="3" placeholder="Add an operational note to this ${escapeHTML(anchor.kind)}…" required></textarea></label>
       <button class="primary">ADD TO PLAN</button>
     </form>`;
@@ -984,6 +984,12 @@ function planCommentTimestamp(value) {
   const date = new Date(value);
   if (!value || Number.isNaN(date.valueOf())) return "SAVED IN PLAN";
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+/** Comments are attributed to the signed-in account by the server; show that name. */
+function commentAuthorName() {
+  if (sessionInfo?.role === "guest") return "Guest";
+  return sessionInfo?.username || "Operator";
 }
 
 async function savePlanComment(event, anchor) {
@@ -1165,7 +1171,7 @@ function renderRackInspector(rackID) {
       <label><span>RACK NAME</span><input name="name" maxlength="120" value="${escapeHTML(rack.name)}" required></label>
       ${roomSelectMarkup(rack.roomId)}
       <label><span>RACK HEIGHT</span><input name="heightU" type="number" min="6" max="48" value="${rack.heightU}" required></label>
-      <label><span>FRAME COLOR</span><input name="color" type="color" value="${rack.color}"></label>
+      <label><span>FRAME COLOR</span><input name="color" type="color" value="${escapeHTML(rack.color)}"></label>
       <div class="inspector-actions"><button class="primary">UPDATE RACK</button><button id="delete-rack" type="button" class="danger">DELETE</button></div>
     </form>`;
   document.getElementById("rack-inspector-form").addEventListener("submit", async (event) => {
@@ -2111,11 +2117,11 @@ function renderResources() {
   elements["documentation-list"].innerHTML = documents.length ? documents.map((item) => `<article class="resource-card">
     <header><span>${escapeHTML(item.targetKind.toUpperCase())}</span><b>${escapeHTML(item.label)}</b></header>
     <p class="document-url">${escapeHTML(item.url)}</p>
-    <footer>${embeddableDocumentationURL(item.url) ? `<button type="button" data-document-embed="${item.id}">EMBED</button>` : ""}<a href="${escapeHTML(item.url)}" target="_blank" rel="noopener noreferrer">OPEN ↗</a><button type="button" class="danger" data-document-delete="${item.id}">DELETE</button></footer>
+    <footer>${embeddableDocumentationURL(item.url) ? `<button type="button" data-document-embed="${escapeHTML(item.id)}">EMBED</button>` : ""}<a href="${escapeHTML(item.url)}" target="_blank" rel="noopener noreferrer">OPEN ↗</a><button type="button" class="danger" data-document-delete="${escapeHTML(item.id)}">DELETE</button></footer>
   </article>`).join("") : `<p class="resources-empty">No documentation attached.</p>`;
 
   const created = createdShareURL ? `<article class="resource-card share-created"><header><span>NEW LINK · COPY NOW</span><b>SECRET SHOWN ONCE</b></header><input readonly value="${escapeHTML(createdShareURL)}"><footer><button type="button" data-share-copy="${escapeHTML(createdShareURL)}">COPY LINK</button></footer></article>` : "";
-  elements["share-list"].innerHTML = created + (shareEntries.length ? shareEntries.map((share) => `<article class="resource-card"><header><span>${escapeHTML(share.name)}</span><b>${share.expiresAt ? `EXPIRES ${escapeHTML(new Date(share.expiresAt).toLocaleString())}` : "NO EXPIRY"}</b></header><footer><button type="button" class="danger" data-share-delete="${share.id}">REVOKE</button></footer></article>`).join("") : `<p class="resources-empty">No active read-only shares.</p>`);
+  elements["share-list"].innerHTML = created + (shareEntries.length ? shareEntries.map((share) => `<article class="resource-card"><header><span>${escapeHTML(share.name)}</span><b>${share.expiresAt ? `EXPIRES ${escapeHTML(new Date(share.expiresAt).toLocaleString())}` : "NO EXPIRY"}</b></header><footer><button type="button" class="danger" data-share-delete="${escapeHTML(share.id)}">REVOKE</button></footer></article>`).join("") : `<p class="resources-empty">No active read-only shares.</p>`);
 }
 
 // Only HTTPS documentation is framed (the CSP allows frame-src https: only);
