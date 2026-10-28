@@ -318,16 +318,17 @@ func applyExternalSecretKey(
 		if sealed == "" {
 			continue
 		}
-		if _, err := openSecret(externalKey, sealed); err == nil {
+		owner := state.Users[index].ID
+		if _, err := openSecret(externalKey, sealed, owner); err == nil {
 			continue
 		}
 		opened := false
 		for _, candidate := range candidates {
-			secret, err := openSecret(candidate, sealed)
+			secret, err := openSecret(candidate, sealed, owner)
 			if err != nil {
 				continue
 			}
-			resealed, err := sealSecret(externalKey, secret)
+			resealed, err := sealSecret(externalKey, secret, owner)
 			if err != nil {
 				return nil, false, err
 			}

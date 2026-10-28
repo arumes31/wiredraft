@@ -103,7 +103,7 @@ func (s *Server) verifyTOTP(w http.ResponseWriter, request *http.Request) {
 		s.secondFactorFailure(w, "totp", err)
 		return
 	}
-	s.setSessionCookie(w, session)
+	s.setSessionCookie(w, request, session)
 	s.logger.Info("authentication succeeded", "user_id", session.Principal.UserID, "role", session.Principal.Role, "factor", "totp")
 	s.writeSession(w, session, nil)
 }
@@ -119,7 +119,7 @@ func (s *Server) completeTOTPSetup(w http.ResponseWriter, request *http.Request)
 		s.secondFactorFailure(w, "totp_setup", err)
 		return
 	}
-	s.setSessionCookie(w, session)
+	s.setSessionCookie(w, request, session)
 	s.logger.Info("totp enrollment completed", "user_id", session.Principal.UserID, "role", session.Principal.Role)
 	s.writeSession(w, session, recoveryCodes)
 }
@@ -135,7 +135,7 @@ func (s *Server) verifyRecoveryCode(w http.ResponseWriter, request *http.Request
 		s.secondFactorFailure(w, "recovery_code", err)
 		return
 	}
-	s.setSessionCookie(w, session)
+	s.setSessionCookie(w, request, session)
 	s.logger.Warn("recovery code used", "user_id", session.Principal.UserID, "role", session.Principal.Role)
 	s.writeSession(w, session, nil)
 }
@@ -158,7 +158,7 @@ func (s *Server) guestLogin(w http.ResponseWriter, request *http.Request) {
 		s.authFailure(w, err)
 		return
 	}
-	s.setSessionCookie(w, session)
+	s.setSessionCookie(w, request, session)
 	s.writeSession(w, session, nil)
 }
 
@@ -198,7 +198,7 @@ func (s *Server) entraCallback(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	s.clearEntraFlowCookie(w)
-	s.setSessionCookie(w, session)
+	s.setSessionCookie(w, request, session)
 	s.logger.Info("authentication succeeded", "user_id", session.Principal.UserID, "role", session.Principal.Role, "provider", "entra")
 	http.Redirect(w, request, "/", http.StatusSeeOther)
 }
@@ -247,6 +247,12 @@ func (s *Server) listUsers(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) createUser(w http.ResponseWriter, request *http.Request) {
+	// The body is read before the directory lock so a slow client cannot hold it.
+	var input createUserRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid account request")
+		return
+	}
 	s.directoryMu.Lock()
 	defer s.directoryMu.Unlock()
 	administrator, authorized := s.currentAdministrator(w, request)
@@ -254,11 +260,6 @@ func (s *Server) createUser(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	var input createUserRequest
-	if err := decodeJSON(w, request, &input); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid account request")
-		return
-	}
 	access, err := s.canonicalAccess(request.Context(), input.Access)
 	if err != nil {
 		s.authFailure(w, err)
@@ -297,6 +298,12 @@ func (s *Server) createUser(w http.ResponseWriter, request *http.Request) {
 }
 
 func (s *Server) updateUser(w http.ResponseWriter, request *http.Request) {
+	// The body is read before the directory lock so a slow client cannot hold it.
+	var input updateUserRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid account update")
+		return
+	}
 	s.directoryMu.Lock()
 	defer s.directoryMu.Unlock()
 	administrator, authorized := s.currentAdministrator(w, request)
@@ -304,11 +311,6 @@ func (s *Server) updateUser(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	var input updateUserRequest
-	if err := decodeJSON(w, request, &input); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid account update")
-		return
-	}
 	access, err := s.canonicalUpdatedAccess(
 		request.Context(), request.PathValue("userId"), input.Access,
 		input.Disabled, input.ResetExternalIdentity,
@@ -456,7 +458,12 @@ func (s *Server) sessionFromRequest(request *http.Request) (auth.Session, bool) 
 	return s.auth.Session(cookie.Value)
 }
 
-func (s *Server) setSessionCookie(w http.ResponseWriter, session auth.Session) {
+func (s *Server) setSessionCookie(w http.ResponseWriter, request *http.Request, session auth.Session) {
+	// A new sign-in replaces the browser's session, so the session the cookie
+	// previously named is revoked instead of lingering until it expires.
+	if previous, err := request.Cookie(sessionCookieName); err == nil && previous.Value != "" && previous.Value != session.Token {
+		s.auth.Logout(previous.Value)
+	}
 	// Secure is environment-controlled so local HTTP remains usable; production
 	// TLS deployments must enable WIREDRAFT_COOKIE_SECURE. HttpOnly and strict
 	// same-site protections are unconditional.

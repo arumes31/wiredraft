@@ -25,8 +25,8 @@ func (s *Server) duplicateTopology(w http.ResponseWriter, request *http.Request)
 		writeError(w, http.StatusBadRequest, "the source revision is required")
 		return
 	}
-	s.directoryMu.Lock()
-	defer s.directoryMu.Unlock()
+	s.directoryMu.RLock()
+	defer s.directoryMu.RUnlock()
 	source, err := s.getAuthorizedTopology(request, request.PathValue("id"))
 	if err != nil {
 		s.fail(w, err)

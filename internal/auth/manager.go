@@ -277,13 +277,13 @@ func (m *Manager) bootstrap(ctx context.Context, config Config) error {
 		admin := &next.Users[adminIndex]
 		current := ""
 		if admin.EncryptedTOTPSecret != "" {
-			current, err = openSecret(m.encryptionKey, admin.EncryptedTOTPSecret)
+			current, err = openSecret(m.encryptionKey, admin.EncryptedTOTPSecret, admin.ID)
 			if err != nil {
 				return fmt.Errorf("opening bootstrap administrator totp secret: %w", err)
 			}
 		}
 		if current != secret {
-			admin.EncryptedTOTPSecret, err = sealSecret(m.encryptionKey, secret)
+			admin.EncryptedTOTPSecret, err = sealSecret(m.encryptionKey, secret, admin.ID)
 			if err != nil {
 				return err
 			}
@@ -292,6 +292,20 @@ func (m *Manager) bootstrap(ctx context.Context, config Config) error {
 			admin.UpdatedAt = now
 			changed = true
 		}
+	}
+	for index := range next.Users {
+		user := &next.Users[index]
+		if user.EncryptedTOTPSecret == "" || secretIsBound(user.EncryptedTOTPSecret) {
+			continue
+		}
+		secret, err := openSecret(m.encryptionKey, user.EncryptedTOTPSecret, user.ID)
+		if err != nil {
+			return fmt.Errorf("opening legacy totp secret: %w", err)
+		}
+		if user.EncryptedTOTPSecret, err = sealSecret(m.encryptionKey, secret, user.ID); err != nil {
+			return err
+		}
+		changed = true
 	}
 	if !changed {
 		return nil
@@ -308,6 +322,14 @@ func (m *Manager) CookieSecure() bool { return m.cookieSecure }
 // TrustedProxies returns the reverse-proxy networks whose forwarded client
 // addresses are honored for authentication throttling.
 func (m *Manager) TrustedProxies() []netip.Prefix { return slices.Clone(m.trustedProxies) }
+
+// GuestOrganizationBinding returns the organization bound to the Guest
+// workspace even while Guest access is disabled.
+func (m *Manager) GuestOrganizationBinding() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.guestOrganization
+}
 
 // GuestOrganizationID returns the stable organization used for newly created
 // Guest workspace topologies. It is empty when Guest access is disabled.
@@ -430,7 +452,7 @@ func (m *Manager) CompleteSetup(ctx context.Context, challengeToken, code string
 	if err != nil {
 		return Session{}, nil, err
 	}
-	encryptedSecret, err := sealSecret(m.encryptionKey, secret)
+	encryptedSecret, err := sealSecret(m.encryptionKey, secret, user.ID)
 	if err != nil {
 		return Session{}, nil, err
 	}
@@ -501,7 +523,7 @@ func (m *Manager) completeAuthenticator(ctx context.Context, challengeToken, cod
 		m.mu.Unlock()
 		return Session{}, err
 	}
-	secret, err := openSecret(m.encryptionKey, user.EncryptedTOTPSecret)
+	secret, err := openSecret(m.encryptionKey, user.EncryptedTOTPSecret, user.ID)
 	lastStep := user.LastTOTPStep
 	m.mu.Unlock()
 	if err != nil {
@@ -1100,13 +1122,28 @@ func positiveOr(value, fallback int) int {
 	return fallback
 }
 
+// remoteHost returns the throttling key for a client address. IPv6 clients
+// usually control a whole /64, so their addresses are aggregated to that
+// prefix; otherwise one client could rotate through fresh per-address budgets.
 func remoteHost(value string) string {
 	value = strings.TrimSpace(value)
 	host, _, err := net.SplitHostPort(value)
-	if err == nil {
-		return strings.ToLower(host)
+	if err != nil {
+		host = value
 	}
-	return strings.ToLower(value)
+	host = strings.ToLower(host)
+	address, parseErr := netip.ParseAddr(host)
+	if parseErr != nil {
+		return host
+	}
+	address = address.Unmap()
+	if address.Is6() {
+		prefix, prefixErr := address.Prefix(64)
+		if prefixErr == nil {
+			return prefix.String()
+		}
+	}
+	return address.String()
 }
 
 func validateUsername(value string) error {
@@ -1289,7 +1326,7 @@ func validatePersistentState(
 			return errors.New("auth: account state contains an invalid authentication source")
 		}
 		if user.EncryptedTOTPSecret != "" {
-			secret, err := openSecret(encryptionKey, user.EncryptedTOTPSecret)
+			secret, err := openSecret(encryptionKey, user.EncryptedTOTPSecret, user.ID)
 			if err != nil {
 				return err
 			}

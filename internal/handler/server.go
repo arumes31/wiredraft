@@ -30,14 +30,19 @@ import (
 
 // Server coordinates HTTP handlers with persistence and event delivery.
 type Server struct {
-	store       store.Store
-	broker      *sse.Broker
-	logger      *slog.Logger
-	static      fs.FS
-	auth        *auth.Manager
-	entra       entraAuthenticator
-	media       *media.Store
-	directoryMu sync.Mutex
+	store  store.Store
+	broker *sse.Broker
+	logger *slog.Logger
+	static fs.FS
+	auth   *auth.Manager
+	entra  entraAuthenticator
+	media  *media.Store
+	// directoryMu orders topology writes against directory changes (accounts,
+	// grants, organizations). Topology writes share it, because per-topology
+	// consistency comes from the store's row lock, so writes in different
+	// organizations never wait on each other; directory changes take it
+	// exclusively.
+	directoryMu sync.RWMutex
 
 	streamMu       sync.Mutex
 	sessionStreams map[string]int
@@ -268,8 +273,8 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 	topology.Location = strings.TrimSpace(input.Location)
 	principal := principalFromRequest(request)
 	if s.auth != nil {
-		s.directoryMu.Lock()
-		defer s.directoryMu.Unlock()
+		s.directoryMu.RLock()
+		defer s.directoryMu.RUnlock()
 		session, authenticated := s.sessionFromRequest(request)
 		if !authenticated {
 			writeError(w, http.StatusUnauthorized, "authentication required")
@@ -423,8 +428,8 @@ func (s *Server) deleteTopology(w http.ResponseWriter, request *http.Request) {
 		s.fail(w, fmt.Errorf("%w: %w", store.ErrInvalid, err))
 		return
 	}
-	s.directoryMu.Lock()
-	defer s.directoryMu.Unlock()
+	s.directoryMu.RLock()
+	defer s.directoryMu.RUnlock()
 	if err := s.store.DeleteAtRevision(request.Context(), id, expectedRevision, func(topology model.Topology) error {
 		if !s.authorizedTopologySnapshot(request, topology) {
 			return store.ErrNotFound
@@ -1824,8 +1829,8 @@ func (s *Server) mutate(request *http.Request, id string, mutation func(*model.T
 	// Detached photo files are removed after the commit and outside the
 	// process-wide lock, so slow storage never delays other organizations.
 	updated, err := func() (model.Topology, error) {
-		s.directoryMu.Lock()
-		defer s.directoryMu.Unlock()
+		s.directoryMu.RLock()
+		defer s.directoryMu.RUnlock()
 		return s.store.MutateAtRevision(request.Context(), id, expectedRevision, func(topology *model.Topology) error {
 			if !s.authorizedTopologySnapshot(request, *topology) {
 				return store.ErrNotFound

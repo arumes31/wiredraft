@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -20,6 +21,17 @@ const (
 	argonSaltLen = 16
 )
 
+// argonSlots bounds concurrent Argon2id computations process-wide. Each one
+// allocates argonMemory KiB, so per-client throttles alone would let clients
+// spread across many addresses hold an unbounded amount of hashing memory.
+var argonSlots = make(chan struct{}, max(4, runtime.GOMAXPROCS(0)*2))
+
+func argonIDKey(password, salt []byte, time, memory uint32, threads uint8, keyLength uint32) []byte {
+	argonSlots <- struct{}{}
+	defer func() { <-argonSlots }()
+	return argon2.IDKey(password, salt, time, memory, threads, keyLength)
+}
+
 func hashPassword(password string) (string, error) {
 	if err := validatePassword(password); err != nil {
 		return "", err
@@ -28,7 +40,7 @@ func hashPassword(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("generating password salt: %w", err)
 	}
-	hash := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	hash := argonIDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
 	return fmt.Sprintf(
 		"$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version,
@@ -47,7 +59,7 @@ func comparePassword(encoded, password string) (bool, error) {
 	}
 	// parsePasswordHash caps decoded hashes at 64 bytes before this conversion.
 	keyLength := uint32(len(expected)) // #nosec G115 -- len(expected) is validated in the range 16..64.
-	actual := argon2.IDKey(
+	actual := argonIDKey(
 		[]byte(password), salt, parameters.time, parameters.memory, parameters.threads, keyLength,
 	)
 	return subtle.ConstantTimeCompare(actual, expected) == 1, nil

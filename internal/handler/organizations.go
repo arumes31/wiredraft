@@ -33,6 +33,12 @@ func (s *Server) listOrganizations(w http.ResponseWriter, request *http.Request)
 }
 
 func (s *Server) createOrganization(w http.ResponseWriter, request *http.Request) {
+	// The body is read before the directory lock so a slow client cannot hold it.
+	var input organizationMutationRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid organization request")
+		return
+	}
 	s.directoryMu.Lock()
 	defer s.directoryMu.Unlock()
 	administrator, authorized := s.currentAdministrator(w, request)
@@ -40,9 +46,8 @@ func (s *Server) createOrganization(w http.ResponseWriter, request *http.Request
 		return
 	}
 
-	var input organizationMutationRequest
-	if err := decodeJSON(w, request, &input); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid organization request")
+	if isReservedGuestName(input.Name) {
+		writeError(w, http.StatusConflict, "Guest is reserved for the Guest workspace organization")
 		return
 	}
 	organization, err := s.store.CreateOrganization(request.Context(), input.Name)
@@ -68,6 +73,12 @@ func (s *Server) createOrganization(w http.ResponseWriter, request *http.Request
 }
 
 func (s *Server) updateOrganization(w http.ResponseWriter, request *http.Request) {
+	// The body is read before the directory lock so a slow client cannot hold it.
+	var input organizationMutationRequest
+	if err := decodeJSON(w, request, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid organization request")
+		return
+	}
 	s.directoryMu.Lock()
 	defer s.directoryMu.Unlock()
 	administrator, authorized := s.currentAdministrator(w, request)
@@ -79,9 +90,8 @@ func (s *Server) updateOrganization(w http.ResponseWriter, request *http.Request
 		writeError(w, http.StatusForbidden, "disable Guest access before renaming its organization")
 		return
 	}
-	var input organizationMutationRequest
-	if err := decodeJSON(w, request, &input); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid organization request")
+	if isReservedGuestName(input.Name) && request.PathValue("organizationId") != s.auth.GuestOrganizationBinding() {
+		writeError(w, http.StatusConflict, "Guest is reserved for the Guest workspace organization")
 		return
 	}
 	organization, err := s.store.RenameOrganization(
@@ -227,4 +237,11 @@ func (s *Server) resolveOrganization(
 		return store.Organization{}, err
 	}
 	return organization, nil
+}
+
+// isReservedGuestName reports whether a name would be adopted as the anonymous
+// Guest workspace at startup. Only the organization already bound to Guest may
+// carry it, so no member organization can become anonymously accessible.
+func isReservedGuestName(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), auth.GuestOrganizationName)
 }

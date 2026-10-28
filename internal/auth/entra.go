@@ -150,11 +150,16 @@ func (p *EntraProvider) Complete(
 	p.mu.Lock()
 	p.pruneFlowsLocked(now)
 	flow, exists := p.flows[state]
-	delete(p.flows, state)
-	p.mu.Unlock()
 	providedHash := sha256.Sum256([]byte(flowToken))
-	if !exists || state == "" || flowToken == "" || code == "" ||
-		subtle.ConstantTimeCompare(flow.CookieHash[:], providedHash[:]) != 1 {
+	matches := exists && state != "" && flowToken != "" &&
+		subtle.ConstantTimeCompare(flow.CookieHash[:], providedHash[:]) == 1
+	// Only the browser holding the flow cookie may consume the flow, so a
+	// party that merely learns the state value cannot cancel the login.
+	if matches {
+		delete(p.flows, state)
+	}
+	p.mu.Unlock()
+	if !matches || code == "" {
 		return ExternalIdentity{}, ErrInvalidExternalIdentity
 	}
 	runtime, err := p.oidcRuntime(exchangeContext)
