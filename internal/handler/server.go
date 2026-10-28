@@ -48,6 +48,7 @@ type Server struct {
 	sessionStreams map[string]int
 
 	forwardedWarning sync.Once
+	createMu         sync.Mutex
 }
 
 // maxSessionEventStreams bounds concurrent event streams per login session.
@@ -323,6 +324,10 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
+	// createMu makes the capacity count and the insert one step, so concurrent
+	// creates cannot all observe a count below the cap.
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
 	if !s.organizationHasCapacity(w, request, topology.OrganizationID) {
 		return
 	}
@@ -332,6 +337,16 @@ func (s *Server) createTopology(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
+}
+
+// shareExpiry returns when a grant stops working. Grants created before expiry
+// became mandatory have none stored; they expire maxShareLifetime after
+// creation instead of staying valid indefinitely.
+func shareExpiry(share model.ShareGrant) time.Time {
+	if share.ExpiresAt != nil {
+		return *share.ExpiresAt
+	}
+	return share.CreatedAt.Add(maxShareLifetime)
 }
 
 // maxOrganizationTopologies bounds how many maps, and so how much attached
@@ -1578,7 +1593,8 @@ func (s *Server) listShareGrants(w http.ResponseWriter, request *http.Request) {
 	}
 	shares := make([]shareGrantResponse, 0, len(topology.ShareGrants))
 	for _, share := range topology.ShareGrants {
-		shares = append(shares, shareGrantResponse{ID: share.ID, Name: share.Name, CreatedAt: share.CreatedAt, ExpiresAt: share.ExpiresAt})
+		expiresAt := shareExpiry(share)
+		shares = append(shares, shareGrantResponse{ID: share.ID, Name: share.Name, CreatedAt: share.CreatedAt, ExpiresAt: &expiresAt})
 	}
 	writeJSON(w, http.StatusOK, shares)
 }
@@ -1672,7 +1688,7 @@ func (s *Server) getSharedTopology(w http.ResponseWriter, request *http.Request)
 	for _, share := range topology.ShareGrants {
 		expected, decodeErr := hex.DecodeString(share.TokenHash)
 		matches := decodeErr == nil && len(expected) == len(digest) && subtle.ConstantTimeCompare(expected, digest[:]) == 1
-		if matches && (share.ExpiresAt == nil || share.ExpiresAt.After(now)) {
+		if matches && shareExpiry(share).After(now) {
 			granted = true
 		}
 	}

@@ -39,6 +39,8 @@ func (s *Server) duplicateTopology(w http.ResponseWriter, request *http.Request)
 			return
 		}
 	}
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
 	if !s.organizationHasCapacity(w, request, source.OrganizationID) {
 		return
 	}

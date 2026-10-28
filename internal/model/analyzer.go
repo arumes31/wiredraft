@@ -383,7 +383,7 @@ func missingVLANs(tagged []int, peer Port) []int {
 	if peer.Mode == PortModeUnconfigured {
 		return append(missing, tagged...)
 	}
-	carried := make(map[int]struct{}, len(peer.AllowedVLANs)+1)
+	carried := make(map[int]struct{}, len(peer.AllowedVLANs))
 	carried[peer.NativeVLAN] = struct{}{}
 	for _, vlanID := range peer.AllowedVLANs {
 		carried[vlanID] = struct{}{}

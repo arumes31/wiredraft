@@ -182,3 +182,20 @@ func TestOrganizationMoveRevokesShareGrants(t *testing.T) {
 		t.Fatalf("share grants after organization move = %d, want 0", len(shares))
 	}
 }
+
+func TestLegacyShareGrantsWithoutExpiryStopWorking(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	recent := model.ShareGrant{CreatedAt: now.Add(-24 * time.Hour)}
+	if !shareExpiry(recent).After(now) {
+		t.Fatal("recent legacy grant already expired")
+	}
+	old := model.ShareGrant{CreatedAt: now.Add(-maxShareLifetime - time.Hour)}
+	if shareExpiry(old).After(now) {
+		t.Fatal("legacy grant without expiry is still valid after the maximum lifetime")
+	}
+	explicit := now.Add(time.Hour)
+	if got := shareExpiry(model.ShareGrant{CreatedAt: now.Add(-maxShareLifetime * 2), ExpiresAt: &explicit}); !got.Equal(explicit) {
+		t.Fatalf("explicit expiry = %v, want %v", got, explicit)
+	}
+}
