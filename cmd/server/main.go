@@ -110,9 +110,13 @@ func run(args []string) error {
 		entraProvider, err = auth.NewEntraProvider(auth.EntraConfig{
 			TenantID: cfg.EntraTenantID, ClientID: cfg.EntraClientID,
 			ClientSecret: clientSecret, RedirectURL: cfg.EntraRedirectURL,
+			RequireAccountTypeClaim: cfg.EntraRequireAcctClaim,
 		})
 		if err != nil {
 			return fmt.Errorf("configuring Entra login: %w", err)
+		}
+		if !cfg.EntraRequireAcctClaim {
+			appLogger.Warn("Entra guest rejection relies on the idp claim; configure the optional acct claim and set WIREDRAFT_ENTRA_REQUIRE_ACCT_CLAIM=true")
 		}
 	}
 	static, err := fs.Sub(webassets.Static, "static")

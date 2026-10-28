@@ -202,3 +202,31 @@ func writeTestJSON(t *testing.T, w http.ResponseWriter, value any) {
 		t.Error(err)
 	}
 }
+
+func TestEntraHomeTenantMemberRequiresAccountTypeClaimWhenConfigured(t *testing.T) {
+	t.Parallel()
+	const tenant = "00000000-0000-4000-8000-000000000001"
+	lenient := &EntraProvider{config: EntraConfig{TenantID: tenant}}
+	strict := &EntraProvider{config: EntraConfig{TenantID: tenant, RequireAccountTypeClaim: true}}
+	cases := []struct {
+		name     string
+		idp      string
+		acct     any
+		lenient  bool
+		required bool
+	}{
+		{"absent claims", "", nil, true, false},
+		{"member acct", "", float64(0), true, true},
+		{"guest acct", "", float64(1), false, false},
+		{"foreign idp", "https://sts.windows.net/other/", nil, false, false},
+		{"string member acct", "", "0", true, true},
+	}
+	for _, testCase := range cases {
+		if got := lenient.homeTenantMember(testCase.idp, testCase.acct); got != testCase.lenient {
+			t.Errorf("%s: lenient homeTenantMember = %t, want %t", testCase.name, got, testCase.lenient)
+		}
+		if got := strict.homeTenantMember(testCase.idp, testCase.acct); got != testCase.required {
+			t.Errorf("%s: strict homeTenantMember = %t, want %t", testCase.name, got, testCase.required)
+		}
+	}
+}

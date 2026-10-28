@@ -338,6 +338,17 @@ func (s *JSONStore) Get(_ context.Context, id string) (model.Topology, error) {
 	return clone, nil
 }
 
+// TopologyOrganizationID returns only the organization that owns a topology.
+func (s *JSONStore) TopologyOrganizationID(_ context.Context, id string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	topology, exists := s.topologies[id]
+	if !exists {
+		return "", ErrNotFound
+	}
+	return topology.OrganizationID, nil
+}
+
 // Create validates and durably inserts a topology.
 func (s *JSONStore) Create(_ context.Context, topology model.Topology) (model.Topology, error) {
 	s.writeMu.Lock()
@@ -354,6 +365,9 @@ func (s *JSONStore) Create(_ context.Context, topology model.Topology) (model.To
 	topology.Normalize()
 	if err := topology.Validate(); err != nil {
 		return model.Topology{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	if err := validateEncodedSize(topology); err != nil {
+		return model.Topology{}, err
 	}
 	s.mu.RLock()
 	_, exists := s.topologies[topology.ID]
@@ -464,6 +478,9 @@ func (s *JSONStore) MutateAtRevision(
 	next.Normalize()
 	if err := next.Validate(); err != nil {
 		return model.Topology{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	if err := validateEncodedSize(next); err != nil {
+		return model.Topology{}, err
 	}
 	if err := s.writeTopology(next); err != nil {
 		return model.Topology{}, err
@@ -579,6 +596,18 @@ func decodeTopologyFile(
 		return model.Topology{}, err
 	}
 	return topology, nil
+}
+
+// validateEncodedSize applies the same stored-document cap as PostgresStore.
+func validateEncodedSize(topology model.Topology) error {
+	document, err := json.Marshal(topology)
+	if err != nil {
+		return fmt.Errorf("encoding topology: %w", err)
+	}
+	if err := model.ValidateDocumentSize(document); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	return nil
 }
 
 func (s *JSONStore) writeTopology(topology model.Topology) (returnErr error) {

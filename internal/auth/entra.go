@@ -28,6 +28,10 @@ type EntraConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
+	// RequireAccountTypeClaim rejects ID tokens without the optional acct
+	// claim. Enable it once the app registration emits acct so that guest
+	// rejection no longer depends on Entra including idp for every guest type.
+	RequireAccountTypeClaim bool
 }
 
 // EntraStart contains the browser redirect and its short-lived binding token.
@@ -246,7 +250,9 @@ func (p *EntraProvider) pruneFlowsLocked(now time.Time) {
 
 // homeTenantMember rejects tokens whose idp claim names another identity
 // provider (B2B guests and external accounts) and tokens whose optional acct
-// claim marks a guest account.
+// claim marks a guest account. Home-tenant members carry neither idp nor acct
+// unless acct is configured, so a token without acct is accepted only while
+// RequireAccountTypeClaim is off.
 func (p *EntraProvider) homeTenantMember(identityProvider string, accountType any) bool {
 	identityProvider = strings.TrimSpace(identityProvider)
 	if identityProvider != "" && !strings.Contains(strings.ToLower(identityProvider), strings.ToLower(p.config.TenantID)) {
@@ -254,7 +260,7 @@ func (p *EntraProvider) homeTenantMember(identityProvider string, accountType an
 	}
 	switch value := accountType.(type) {
 	case nil:
-		return true
+		return !p.config.RequireAccountTypeClaim
 	case float64:
 		return value == 0
 	case string:

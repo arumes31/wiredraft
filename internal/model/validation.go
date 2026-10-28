@@ -18,10 +18,71 @@ var (
 	hostnameLabelPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
 )
 
+// Aggregate limits bound the work every load, mutation, analysis and event
+// stream performs on one topology. Request bodies are capped individually, but
+// sub-resource writes append to the stored document, so these caps are what
+// keep one tenant's topology from growing without bound.
+const (
+	MaxTopologyRooms          = 1000
+	MaxTopologyRacks          = 5000
+	MaxTopologyDevices        = 10000
+	MaxDevicePorts            = 1024
+	MaxTopologyPorts          = 200000
+	MaxTopologyLinks          = 20000
+	MaxTopologyLinkGroups     = 5000
+	MaxTopologySwitchSystems  = 2000
+	MaxTopologyFirewallGroups = 2000
+	// MaxTopologyDocumentBytes caps the encoded document a store persists.
+	MaxTopologyDocumentBytes = 16 << 20
+)
+
+// ValidateDocumentSize rejects an encoded topology above MaxTopologyDocumentBytes.
+func ValidateDocumentSize(document []byte) error {
+	if len(document) > MaxTopologyDocumentBytes {
+		return fmt.Errorf("topology document may contain at most %d bytes", MaxTopologyDocumentBytes)
+	}
+	return nil
+}
+
+func (t Topology) validateCardinality() error {
+	limits := []struct {
+		name  string
+		count int
+		limit int
+	}{
+		{"rooms", len(t.Rooms), MaxTopologyRooms},
+		{"racks", len(t.Racks), MaxTopologyRacks},
+		{"devices", len(t.Devices), MaxTopologyDevices},
+		{"links", len(t.Links), MaxTopologyLinks},
+		{"link groups", len(t.LinkGroups), MaxTopologyLinkGroups},
+		{"switch systems", len(t.SwitchSystems), MaxTopologySwitchSystems},
+		{"firewall clusters", len(t.FirewallClusters), MaxTopologyFirewallGroups},
+	}
+	for _, limit := range limits {
+		if limit.count > limit.limit {
+			return fmt.Errorf("topology may contain at most %d %s", limit.limit, limit.name)
+		}
+	}
+	totalPorts := 0
+	for _, device := range t.Devices {
+		if len(device.Ports) > MaxDevicePorts {
+			return fmt.Errorf("device %q may contain at most %d ports", device.Name, MaxDevicePorts)
+		}
+		totalPorts += len(device.Ports)
+	}
+	if totalPorts > MaxTopologyPorts {
+		return fmt.Errorf("topology may contain at most %d ports", MaxTopologyPorts)
+	}
+	return nil
+}
+
 // Validate checks the complete topology aggregate and all cross-references.
 func (t Topology) Validate() error {
 	if !idPattern.MatchString(t.ID) {
 		return errors.New("topology id must be a version 4 uuid")
+	}
+	if err := t.validateCardinality(); err != nil {
+		return err
 	}
 	if strings.TrimSpace(t.Name) == "" || len(t.Name) > 120 {
 		return errors.New("topology name must contain 1 to 120 characters")

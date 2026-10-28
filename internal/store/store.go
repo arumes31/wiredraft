@@ -77,6 +77,7 @@ type Store interface {
 	DeleteOrganization(ctx context.Context, id string) error
 	List(ctx context.Context) ([]model.Summary, error)
 	Get(ctx context.Context, id string) (model.Topology, error)
+	TopologyOrganizationID(ctx context.Context, id string) (string, error)
 	Create(ctx context.Context, topology model.Topology) (model.Topology, error)
 	Delete(ctx context.Context, id string) error
 	DeleteAtRevision(ctx context.Context, id string, expectedRevision uint64, authorize func(model.Topology) error) error

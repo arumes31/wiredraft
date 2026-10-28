@@ -52,7 +52,7 @@ function stpInstanceMarkup(instance) {
   });
   return `<details class="stp-instance"${blockedPorts.length ? " open" : ""}>
     <summary><span><b>VLAN ${instance.vlanId} · DOMAIN ${instance.domain}</b><small>ROOT ${escapeHTML(instance.rootName)}</small></span><em>${blockedPorts.length ? `${blockedPorts.length} BLOCKED` : "FORWARDING"}</em></summary>
-    <div class="stp-instance-body">${bridgeRows}${pathSummary.length ? `<p>${escapeHTML(pathSummary.join(" · "))}</p>` : ""}</div>
+    <div class="stp-instance-body">${bridgeRows}${pathSummary.length ? `<p>${escapeHTML(pathSummary.join(" · "))}</p>` : ""}${instance.pathsTruncated ? "<p>SOME CONVERGENCE PATHS OMITTED · TOPOLOGY TOO LARGE</p>" : ""}</div>
   </details>`;
 }
 
