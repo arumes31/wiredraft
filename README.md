@@ -47,7 +47,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Open <http://localhost:8080>. Session cookies are HTTPS-only by default; browsers accept them on `localhost`, but to sign in over plain HTTP from another host set `WIREDRAFT_COOKIE_SECURE=false` in `.env` (evaluation only). View logs or stop the stack with:
+Open <http://localhost:8080>. Session cookies are HTTPS-only by default; browsers accept them on `localhost`, but to sign in over plain HTTP from another host set `WIREDRAFT_BIND_ADDRESS=0.0.0.0` and `WIREDRAFT_COOKIE_SECURE=false` in `.env` (evaluation only). The port is published on `127.0.0.1` by default. View logs or stop the stack with:
 
 ```sh
 docker compose logs -f wiredraft
@@ -113,7 +113,7 @@ Compose-specific settings are separate from the application configuration below:
 | `COMPOSE_PROJECT_NAME` | `wiredraft` | Compose project and generated resource-name prefix |
 | `WIREDRAFT_IMAGE` | `ghcr.io/arumes31/wiredraft:latest` | Application image tag or digest |
 | `POSTGRES_IMAGE` | pinned PostgreSQL 17 Alpine digest | PostgreSQL image tag or digest |
-| `WIREDRAFT_BIND_ADDRESS` | `0.0.0.0` | Host address that publishes the web port; use `127.0.0.1` behind a local reverse proxy |
+| `WIREDRAFT_BIND_ADDRESS` | `127.0.0.1` | Host address that publishes the web port. WireDraft serves plain HTTP, so keep the loopback default behind a TLS reverse proxy on the host; set `0.0.0.0` only when another trusted host terminates TLS |
 | `WIREDRAFT_PUBLISHED_PORT` | `8080` | Host-side web port |
 | `POSTGRES_DB` | `wiredraft` | Database initialized in a new PostgreSQL data directory |
 | `POSTGRES_USER` | `wiredraft` | Database owner initialized in a new PostgreSQL data directory |
