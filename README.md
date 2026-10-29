@@ -331,6 +331,7 @@ WireDraft reads environment variables first and lets command-line flags override
 
 | Environment variable | Flag | Default | Description |
 | --- | --- | --- | --- |
+| `WIREDRAFT_LISTEN_HOST` | `-host` | empty (all interfaces) | HTTP listen IP address, such as `127.0.0.1` for loopback-only local runs |
 | `PORT` | `-port` | `8080` | HTTP listen port |
 | `DATABASE_URL` | — | empty | PostgreSQL URL; when empty, pgx reads the standard `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, and related variables |
 | `PGHOST` | — | pgx default | PostgreSQL host when `DATABASE_URL` is empty; the GHCR Compose stack uses `postgres` |

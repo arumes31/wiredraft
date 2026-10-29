@@ -38,6 +38,11 @@ import { SceneTileIndex } from "./scene-tiles.js";
 const DEVICE_WIDTH = 690;
 const UNIT_HEIGHT = 100;
 const GRID = 10;
+// The interactive minimum zoom (.1) keeps both grids; only zoomed-out exports
+// coarsen them. GRID_MAX_LINES is an absolute per-stroke drawing budget.
+const GRID_MIN_MINOR_PIXELS = 2;
+const GRID_MIN_MAJOR_PIXELS = 8;
+const GRID_MAX_LINES = 20000;
 const QUALITY_FALLBACK = resolveGraphicsProfile(GraphicsMode.QUALITY, null);
 
 export function cableHoverAlphaFactor({ rearIsolation, rearMapping, hasHoverFocus, hoverFocused }) {
@@ -299,27 +304,30 @@ export class CanvasEngine {
     const top = -camera.y / camera.zoom;
     const right = left + width / camera.zoom;
     const bottom = top + height / camera.zoom;
-    const minor = 20;
+    if (![left, top, right, bottom].every(Number.isFinite) || !(camera.zoom > 0)) return;
     ctx.lineWidth = 1 / camera.zoom;
-    if (profile.minorGrid) {
-      ctx.beginPath();
-      for (let x = Math.floor(left / minor) * minor; x < right; x += minor) {
-        ctx.moveTo(x, top); ctx.lineTo(x, bottom);
-      }
-      for (let y = Math.floor(top / minor) * minor; y < bottom; y += minor) {
-        ctx.moveTo(left, y); ctx.lineTo(right, y);
-      }
-      ctx.strokeStyle = "rgba(91, 122, 126, .08)";
-      ctx.stroke();
+    // Spacing follows output pixels, not world size: zoomed-out exports of
+    // widely spread maps would otherwise stroke millions of lines.
+    const minor = 20;
+    if (profile.minorGrid && minor * camera.zoom >= GRID_MIN_MINOR_PIXELS) {
+      this.strokeGridLines(ctx, left, top, right, bottom, minor, "rgba(91, 122, 126, .08)");
     }
+    let major = 100;
+    while (major * camera.zoom < GRID_MIN_MAJOR_PIXELS) major *= 10;
+    this.strokeGridLines(ctx, left, top, right, bottom, major, "rgba(91, 122, 126, .14)");
+  }
+
+  strokeGridLines(ctx, left, top, right, bottom, spacing, color) {
+    const lines = Math.ceil((right - left) / spacing) + Math.ceil((bottom - top) / spacing);
+    if (!(lines <= GRID_MAX_LINES)) return;
     ctx.beginPath();
-    for (let x = Math.floor(left / 100) * 100; x < right; x += 100) {
+    for (let x = Math.floor(left / spacing) * spacing; x < right; x += spacing) {
       ctx.moveTo(x, top); ctx.lineTo(x, bottom);
     }
-    for (let y = Math.floor(top / 100) * 100; y < bottom; y += 100) {
+    for (let y = Math.floor(top / spacing) * spacing; y < bottom; y += spacing) {
       ctx.moveTo(left, y); ctx.lineTo(right, y);
     }
-    ctx.strokeStyle = "rgba(91, 122, 126, .14)";
+    ctx.strokeStyle = color;
     ctx.stroke();
   }
 

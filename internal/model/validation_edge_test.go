@@ -123,13 +123,13 @@ func TestAggregateValidatorsRejectDuplicateMembers(t *testing.T) {
 		},
 		"switch system": func() error {
 			switches := validationMembers(DeviceCategorySwitch)
-			ids := map[string]struct{}{switches[0].ID: {}, switches[1].ID: {}}
-			return (SwitchSystem{ID: fixtureUUID(21), Name: "S", Mode: SwitchSystemModeStack, DeviceIDs: []string{switches[0].ID, switches[0].ID}}).Validate(ids, switches)
+			categories := map[string]DeviceCategory{switches[0].ID: DeviceCategorySwitch, switches[1].ID: DeviceCategorySwitch}
+			return (SwitchSystem{ID: fixtureUUID(21), Name: "S", Mode: SwitchSystemModeStack, DeviceIDs: []string{switches[0].ID, switches[0].ID}}).Validate(categories)
 		},
 		"firewall cluster": func() error {
 			firewalls := validationMembers(DeviceCategoryFirewall)
-			ids := map[string]struct{}{firewalls[0].ID: {}, firewalls[1].ID: {}}
-			return (FirewallCluster{ID: fixtureUUID(22), Name: "F", Mode: FirewallClusterModeActiveActive, DeviceIDs: []string{firewalls[0].ID, firewalls[0].ID}}).Validate(ids, firewalls)
+			categories := map[string]DeviceCategory{firewalls[0].ID: DeviceCategoryFirewall, firewalls[1].ID: DeviceCategoryFirewall}
+			return (FirewallCluster{ID: fixtureUUID(22), Name: "F", Mode: FirewallClusterModeActiveActive, DeviceIDs: []string{firewalls[0].ID, firewalls[0].ID}}).Validate(categories)
 		},
 	} {
 		if err := validate(); err == nil {

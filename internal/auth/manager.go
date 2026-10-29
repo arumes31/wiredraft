@@ -40,6 +40,8 @@ const (
 	// Expired state is swept at most once per interval; lookups check expiry
 	// individually so a sweep is never required for correctness.
 	pruneInterval = time.Minute
+	// guestCapPruneInterval throttles the early sweep a full Guest cap triggers.
+	guestCapPruneInterval = time.Second
 )
 
 type secondFactorState struct {
@@ -83,6 +85,10 @@ type Manager struct {
 	secondFactor      map[string]secondFactorState
 	lastPrune         time.Time
 	now               func() time.Time
+
+	// guestSessions counts Guest entries in sessions so the global cap check
+	// does not rescan every session; it changes only via store/deleteSession.
+	guestSessions int
 }
 
 // New opens the auth database, migrates legacy organization-name grants to the
@@ -571,17 +577,18 @@ func (m *Manager) NewGuestSession(remote string) (Session, error) {
 	if m.activeLoginAttemptLocked(attemptKey, now).Failures >= m.maxGuestPerHost {
 		return Session{}, ErrRateLimited
 	}
-	guestSessions := 0
-	for _, session := range m.sessions {
-		if session.Principal.IsGuest() && session.ExpiresAt.After(now) {
-			guestSessions++
-		}
-	}
-	if guestSessions >= m.maxGuestSessions {
-		return Session{}, ErrRateLimited
-	}
+	// Every attempt, admitted or not, consumes the per-client budget.
 	m.reserveLoginAttemptLocked(attemptKey, now)
 	m.finishLoginAttemptLocked(attemptKey, true)
+	if m.guestSessions >= m.maxGuestSessions && now.Sub(m.lastPrune) >= guestCapPruneInterval {
+		// Expired sessions linger until the next sweep; at the cap, sweep early
+		// (at most once per guestCapPruneInterval) so they stop occupying slots.
+		m.lastPrune = time.Time{}
+		m.pruneLocked(now)
+	}
+	if m.guestSessions >= m.maxGuestSessions {
+		return Session{}, ErrRateLimited
+	}
 	return m.newPrincipalSessionLocked(Principal{
 		UserID: RoleGuest, Username: "Guest", Role: RoleGuest,
 		OrganizationIDs: []string{m.guestOrganization},
@@ -596,7 +603,7 @@ func (m *Manager) Session(token string) (Session, bool) {
 	m.pruneLocked(now)
 	session, exists := m.sessions[token]
 	if !exists || !session.ExpiresAt.After(now) {
-		delete(m.sessions, token)
+		m.deleteSessionLocked(token)
 		return Session{}, false
 	}
 	session.Principal = clonePrincipal(session.Principal)
@@ -606,14 +613,14 @@ func (m *Manager) Session(token string) (Session, bool) {
 // Logout invalidates a session token.
 func (m *Manager) Logout(token string) {
 	m.mu.Lock()
-	delete(m.sessions, token)
+	m.deleteSessionLocked(token)
 	m.mu.Unlock()
 }
 
 func (m *Manager) revokeUserSessionsLocked(userID string) {
 	for token, session := range m.sessions {
 		if session.Principal.UserID == userID {
-			delete(m.sessions, token)
+			m.deleteSessionLocked(token)
 		}
 	}
 }
@@ -785,7 +792,7 @@ func (m *Manager) ResetEntraBinding(ctx context.Context, id string) (UserView, e
 	}
 	for token, session := range m.sessions {
 		if session.Principal.UserID == id {
-			delete(m.sessions, token)
+			m.deleteSessionLocked(token)
 		}
 	}
 	return userView(next.Users[index]), nil
@@ -1005,9 +1012,28 @@ func (m *Manager) newPrincipalSessionLocked(principal Principal, now time.Time) 
 		return Session{}, err
 	}
 	session := Session{Token: token, CSRFToken: csrfToken, Principal: clonePrincipal(principal), ExpiresAt: now.Add(sessionLifetime)}
-	m.sessions[token] = session
+	m.storeSessionLocked(token, session)
 	session.Principal = clonePrincipal(session.Principal)
 	return session, nil
+}
+
+func (m *Manager) storeSessionLocked(token string, session Session) {
+	if previous, exists := m.sessions[token]; exists && previous.Principal.IsGuest() {
+		m.guestSessions--
+	}
+	m.sessions[token] = session
+	if session.Principal.IsGuest() {
+		m.guestSessions++
+	}
+}
+
+func (m *Manager) deleteSessionLocked(token string) {
+	if session, exists := m.sessions[token]; exists {
+		if session.Principal.IsGuest() {
+			m.guestSessions--
+		}
+		delete(m.sessions, token)
+	}
 }
 
 func (m *Manager) userByUsernameKeyLocked(usernameKey string) (persistedUser, bool) {
@@ -1074,7 +1100,7 @@ func (m *Manager) pruneLocked(now time.Time) {
 	m.lastPrune = now
 	for token, session := range m.sessions {
 		if !session.ExpiresAt.After(now) {
-			delete(m.sessions, token)
+			m.deleteSessionLocked(token)
 		}
 	}
 	for token, challenge := range m.challenges {

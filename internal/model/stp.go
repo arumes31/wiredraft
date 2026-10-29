@@ -2,6 +2,7 @@ package model
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"slices"
 )
@@ -22,6 +23,10 @@ const (
 	// convergence paths of one analysis. Paths grow with depth, so a long chain
 	// would otherwise produce output quadratic in the number of bridges.
 	maxSTPPathEntries = 200000
+	// maxSTPBridgeMemberEntries bounds the chassis IDs reported across every
+	// per-VLAN bridge state. Membership is shared rather than copied, but the
+	// encoded response still repeats it once per VLAN and domain.
+	maxSTPBridgeMemberEntries = 200000
 )
 
 // STPInstance is one connected spanning-tree domain for a VLAN.
@@ -36,6 +41,9 @@ type STPInstance struct {
 	// PathsTruncated reports that some bridge paths were omitted because the
 	// analysis reached maxSTPPathEntries.
 	PathsTruncated bool `json:"pathsTruncated,omitempty"`
+	// BridgeMembersTruncated reports that some bridges omit their chassis IDs
+	// because the analysis reached maxSTPBridgeMemberEntries.
+	BridgeMembersTruncated bool `json:"bridgeMembersTruncated,omitempty"`
 }
 
 // STPBridgeState describes a logical bridge after stack/peer consolidation.
@@ -87,19 +95,43 @@ type stpNeighbor struct {
 	Edge     stpEdge
 }
 
+// stpBudget tracks the output entries one analysis may still materialize.
+type stpBudget struct {
+	paths   int
+	members int
+}
+
+// bridgeMembers returns the shared, immutable membership slice when the
+// member budget allows it; callers must not modify the returned slice.
+func (budget *stpBudget) bridgeMembers(bridge stpBridge) ([]string, bool) {
+	if len(bridge.DeviceIDs) > budget.members {
+		return []string{}, false
+	}
+	budget.members -= len(bridge.DeviceIDs)
+	return bridge.DeviceIDs, true
+}
+
 // SimulateSTP computes a deterministic common spanning tree per VLAN and
 // connected switching domain.
 func SimulateSTP(topology Topology, ports map[string]Port) []STPInstance {
+	instances, _ := simulateSTP(context.Background(), topology, ports)
+	return instances
+}
+
+func simulateSTP(ctx context.Context, topology Topology, ports map[string]Port) ([]STPInstance, error) {
 	bridgeByDevice, bridges := stpLogicalBridges(topology)
 	instances := []STPInstance{}
-	pathBudget := maxSTPPathEntries
+	budget := stpBudget{paths: maxSTPPathEntries, members: maxSTPBridgeMemberEntries}
 	linkIndex := newSTPLinkIndex(topology)
 	for _, vlan := range topology.VLANs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		edges := stpEdges(topology, ports, bridgeByDevice, vlan.ID, linkIndex)
 		components := stpComponents(edges)
 		connectedBridges := make(map[string]struct{})
 		for domain, component := range components {
-			instances = append(instances, simulateSTPComponent(vlan.ID, domain+1, component, bridges, bridgeByDevice, &pathBudget))
+			instances = append(instances, simulateSTPComponent(vlan.ID, domain+1, component, bridges, bridgeByDevice, &budget))
 			for _, edge := range component {
 				connectedBridges[edge.Left] = struct{}{}
 				connectedBridges[edge.Right] = struct{}{}
@@ -113,13 +145,15 @@ func SimulateSTP(topology Topology, ports map[string]Port) []STPInstance {
 				continue
 			}
 			bridge := bridges[bridgeID]
+			members, complete := budget.bridgeMembers(bridge)
 			instances = append(instances, STPInstance{
 				VLANID: vlan.ID, Domain: nextDomain, RootBridgeID: bridgeID, RootName: bridge.Name,
 				Bridges: []STPBridgeState{{
-					BridgeID: bridgeID, Name: bridge.Name, DeviceIDs: slices.Clone(bridge.DeviceIDs),
+					BridgeID: bridgeID, Name: bridge.Name, DeviceIDs: members,
 					Priority: bridge.Priority, RootPathCost: 0, RootPortIDs: []string{},
 				}},
 				Ports: []STPPortState{}, Paths: []STPPath{{BridgeID: bridgeID, BridgeIDs: []string{bridgeID}, LinkIDs: []string{}}},
+				BridgeMembersTruncated: !complete,
 			})
 			nextDomain++
 		}
@@ -130,7 +164,7 @@ func SimulateSTP(topology Topology, ports map[string]Port) []STPInstance {
 		}
 		return cmp.Compare(left.Domain, right.Domain)
 	})
-	return instances
+	return instances, nil
 }
 
 func stpActiveBridgeIDs(topology Topology, bridgeByDevice map[string]string, vlanID int) []string {
@@ -334,7 +368,7 @@ func stpComponents(edges []stpEdge) [][]stpEdge {
 	return components
 }
 
-func simulateSTPComponent(vlanID, domain int, edges []stpEdge, bridges map[string]stpBridge, bridgeByDevice map[string]string, pathBudget *int) STPInstance {
+func simulateSTPComponent(vlanID, domain int, edges []stpEdge, bridges map[string]stpBridge, bridgeByDevice map[string]string, budget *stpBudget) STPInstance {
 	componentBridgeIDs := make(map[string]struct{})
 	adjacency := make(map[string][]stpNeighbor)
 	for _, edge := range edges {
@@ -392,11 +426,15 @@ func simulateSTPComponent(vlanID, domain int, edges []stpEdge, bridges map[strin
 			}
 		}
 		slices.Sort(rootPorts)
+		members, membersComplete := budget.bridgeMembers(bridge)
+		if !membersComplete {
+			instance.BridgeMembersTruncated = true
+		}
 		instance.Bridges = append(instance.Bridges, STPBridgeState{
-			BridgeID: bridgeID, Name: bridge.Name, DeviceIDs: slices.Clone(bridge.DeviceIDs), Priority: bridge.Priority,
+			BridgeID: bridgeID, Name: bridge.Name, DeviceIDs: members, Priority: bridge.Priority,
 			RootPathCost: distance[bridgeID], RootPortIDs: rootPorts,
 		})
-		if path, complete := buildSTPPath(bridgeID, rootID, parentBridge, parentEdge, edgesByID, pathBudget); complete {
+		if path, complete := buildSTPPath(bridgeID, rootID, parentBridge, parentEdge, edgesByID, &budget.paths); complete {
 			instance.Paths = append(instance.Paths, path)
 		} else {
 			instance.PathsTruncated = true

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"slices"
 )
@@ -30,6 +31,13 @@ type Analysis struct {
 
 // Analyze compares port VLAN configuration and detects VLAN-specific cycles.
 func Analyze(topology Topology) Analysis {
+	analysis, _ := AnalyzeContext(context.Background(), topology)
+	return analysis
+}
+
+// AnalyzeContext is Analyze with cancellation checked between VLAN
+// simulations, so abandoned or timed-out requests stop consuming CPU.
+func AnalyzeContext(ctx context.Context, topology Topology) (Analysis, error) {
 	ports := make(map[string]Port)
 	for _, device := range topology.Devices {
 		for _, port := range device.Ports {
@@ -66,8 +74,11 @@ func Analyze(topology Topology) Analysis {
 		}
 	}
 	issues = append(issues, analyzeLinkGroups(topology, ports)...)
-	stp := SimulateSTP(topology, ports)
-	return Analysis{Issues: issues, Loops: loopsFromSTP(stp), STP: stp}
+	stp, err := simulateSTP(ctx, topology, ports)
+	if err != nil {
+		return Analysis{}, err
+	}
+	return Analysis{Issues: issues, Loops: loopsFromSTP(stp), STP: stp}, nil
 }
 
 func loopsFromSTP(instances []STPInstance) []Loop {

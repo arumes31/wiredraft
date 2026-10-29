@@ -25,7 +25,7 @@ test("login gateway exposes accessible operator and guest entry paths", async ({
 test("local administrator password advances to second-factor authentication", async ({ page }) => {
   await page.goto("/login");
   await page.locator('#login-form input[name="username"]').fill("playwright-admin");
-  await page.locator('#login-form input[name="password"]').fill("playwright-only-long-password");
+  await page.locator('#login-form input[name="password"]').fill(process.env.WIREDRAFT_E2E_ADMIN_PASSWORD);
   await page.locator('#login-form button[type="submit"]').click();
 
   await expect(page.locator("#setup-step:not([hidden]), #totp-step:not([hidden])")).toBeVisible();

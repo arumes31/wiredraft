@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -561,6 +562,32 @@ func TestConfigureLinkSynchronizesBothEndpointPorts(t *testing.T) {
 				port.AllowedVLANs,
 			)
 		}
+	}
+}
+
+func TestConfigureLinkRejectsUnknownVLANsBeforeCopying(t *testing.T) {
+	t.Parallel()
+	topology, err := model.NewDemo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := topology.Links[0]
+	before := findTestPort(t, topology, link.SourcePortID)
+	huge := make([]int, 0, 100000)
+	for vlanID := 5000; len(huge) < cap(huge); vlanID++ {
+		huge = append(huge, vlanID)
+	}
+	for name, input := range map[string]linkConfigurationRequest{
+		"unknown native": {Mode: model.PortModeTrunk, NativeVLAN: 4093, AllowedVLANs: []int{20}},
+		"unknown tagged": {Mode: model.PortModeTrunk, NativeVLAN: 10, AllowedVLANs: []int{20, 4093}},
+		"oversized list": {Mode: model.PortModeTrunk, NativeVLAN: 10, AllowedVLANs: huge},
+	} {
+		if err := applyLinkConfiguration(&topology, link.ID, input); !errors.Is(err, store.ErrInvalid) {
+			t.Errorf("%s: applyLinkConfiguration() error = %v, want ErrInvalid", name, err)
+		}
+	}
+	if after := findTestPort(t, topology, link.SourcePortID); !slices.Equal(after.AllowedVLANs, before.AllowedVLANs) {
+		t.Fatalf("rejected configuration changed port VLANs from %v to %v", before.AllowedVLANs, after.AllowedVLANs)
 	}
 }
 

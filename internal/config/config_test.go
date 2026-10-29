@@ -35,6 +35,24 @@ func TestMediaDirectoryEnvironmentAndFlag(t *testing.T) {
 	}
 }
 
+func TestListenHostEnvironmentAndFlag(t *testing.T) {
+	t.Setenv("WIREDRAFT_LISTEN_HOST", "")
+	configuration, err := Parse(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.ListenHost != "" {
+		t.Fatalf("default listen host = %q, want all interfaces", configuration.ListenHost)
+	}
+	t.Setenv("WIREDRAFT_LISTEN_HOST", "0.0.0.0")
+	if configuration, err = Parse([]string{"-host", "127.0.0.1"}); err != nil || configuration.ListenHost != "127.0.0.1" {
+		t.Fatalf("flag listen host = %q, %v; want 127.0.0.1", configuration.ListenHost, err)
+	}
+	if _, err := Parse([]string{"-host", "example.com"}); err == nil {
+		t.Fatal("hostname listen address accepted")
+	}
+}
+
 func TestWireDraftAuthenticationEnvironment(t *testing.T) {
 	t.Setenv("WIREDRAFT_GUEST_ENABLED", "false")
 	t.Setenv("WIREDRAFT_COOKIE_SECURE", "true")

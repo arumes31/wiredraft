@@ -319,10 +319,32 @@ function upgradeFortiGateSharedPorts(device, expected) {
   return true;
 }
 
+/** Matches the server's per-device port cap so imported profiles stay instantiable. */
+export const MAX_PROFILE_PORTS = 1024;
+const MAX_PROFILE_GROUPS = 64;
+
+/** Reject group lists whose generated inventory would exceed the per-device budget. */
+function assertProfilePortBudget(groups, name) {
+  if (!Array.isArray(groups) || groups.length > MAX_PROFILE_GROUPS) {
+    throw new Error(`Invalid hardware profile: ${name} must define at most ${MAX_PROFILE_GROUPS} port groups`);
+  }
+  let total = 0;
+  for (const group of groups) {
+    const count = group?.count;
+    if (!Number.isInteger(count) || count < 1 || count > MAX_PROFILE_PORTS) {
+      throw new Error(`Invalid hardware profile: ${name} has a port group outside 1 to ${MAX_PROFILE_PORTS} ports`);
+    }
+    total += count;
+  }
+  if (total > MAX_PROFILE_PORTS) throw new Error(`Invalid hardware profile: ${name} exceeds ${MAX_PROFILE_PORTS} ports`);
+}
+
 /** Validate imported hardware definitions before exposing them in the local catalog. */
 export function registerProfiles(input) {
   if (!Array.isArray(input)) throw new Error("Catalog import must be an array of profiles");
   for (const profile of input) {
+    // Count budget first: every later check and label generator scales with it.
+    assertProfilePortBudget(profile?.groups, `${profile?.vendor || "unknown"} ${profile?.model || "model"}`);
     const isValid = profile && typeof profile.vendor === "string" && typeof profile.model === "string" &&
       ["Switch", "Firewall", "Router", "PatchPanel", "Server", "Modem", "AccessPoint"].includes(profile.category) &&
       (profile.family === undefined || (typeof profile.family === "string" && profile.family.trim().length >= 1 && profile.family.trim().length <= 60)) &&
@@ -349,6 +371,7 @@ export function registerProfiles(input) {
 
 /** Instantiate catalog groups while preserving stable inventory indices for added shared media. */
 export function instantiateProfile(profile, name, position) {
+  assertProfilePortBudget(profile.groups, `${profile.vendor} ${profile.model}`);
   const groups = resolvePhysicalPortGroups(profile);
   const accessGroups = groups.filter((group) => group.zone === "access" && !group.inventoryAppend);
   const appendedGroups = groups.filter((group) => group.inventoryAppend);

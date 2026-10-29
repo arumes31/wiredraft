@@ -8,9 +8,11 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -136,7 +138,7 @@ func run(args []string) error {
 	broker := sse.NewBroker()
 	defer broker.Close()
 	server := &http.Server{
-		Addr: fmt.Sprintf(":%d", cfg.Port),
+		Addr: net.JoinHostPort(cfg.ListenHost, strconv.Itoa(cfg.Port)),
 		Handler: handler.NewWithAuthMediaAndEntra(
 			topologyStore, broker, appLogger, static, authManager, mediaStore, entraProvider,
 		),
