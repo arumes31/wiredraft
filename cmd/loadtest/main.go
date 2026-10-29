@@ -4,15 +4,22 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// maxTopologyListBytes caps the decompressed topology list the load test reads.
+const maxTopologyListBytes = 4 << 20
+
+var topologyIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 type topologySummary struct {
 	ID string `json:"id"`
@@ -95,12 +102,28 @@ func firstTopologyID(client *http.Client, baseURL string) (topologyID string, re
 			returnErr = fmt.Errorf("closing topology list response: %w", closeErr)
 		}
 	}()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("topology list returned status %d", response.StatusCode)
+	}
+	// Bound the decompressed body so a hostile or broken peer cannot make the
+	// load generator buffer an arbitrarily large document.
+	body := io.LimitReader(response.Body, maxTopologyListBytes+1)
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return "", fmt.Errorf("reading topology list: %w", err)
+	}
+	if len(data) > maxTopologyListBytes {
+		return "", fmt.Errorf("topology list exceeds %d bytes", maxTopologyListBytes)
+	}
 	var summaries []topologySummary
-	if err := json.NewDecoder(response.Body).Decode(&summaries); err != nil {
+	if err := json.Unmarshal(data, &summaries); err != nil {
 		return "", fmt.Errorf("decoding topology list: %w", err)
 	}
-	if response.StatusCode != http.StatusOK || len(summaries) == 0 {
-		return "", fmt.Errorf("topology list returned status %d and %d entries", response.StatusCode, len(summaries))
+	if len(summaries) == 0 {
+		return "", errors.New("topology list is empty")
+	}
+	if !topologyIDPattern.MatchString(summaries[0].ID) {
+		return "", fmt.Errorf("topology list returned invalid id %q", summaries[0].ID)
 	}
 	return summaries[0].ID, nil
 }

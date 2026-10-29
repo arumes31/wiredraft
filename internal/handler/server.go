@@ -787,6 +787,10 @@ func activateLinkEndpointPorts(topology *model.Topology, link model.Link) {
 	}
 }
 
+// maxLinkConfigurationVLANEntries caps the VLAN IDs one grouped link
+// configuration writes across all member endpoints and links.
+const maxLinkConfigurationVLANEntries = 1 << 20
+
 type linkConfigurationRequest struct {
 	Mode         model.PortMode `json:"mode"`
 	NativeVLAN   int            `json:"nativeVlan"`
@@ -838,6 +842,20 @@ func applyLinkConfiguration(
 	if input.Mode == model.PortModeAccess {
 		allowedVLANs = []int{}
 	}
+	// Reject unknown VLANs before the list is copied to every group member, so
+	// the canonical list is bounded by the topology's own VLAN set.
+	knownVLANs := make(map[int]struct{}, len(topology.VLANs))
+	for _, vlan := range topology.VLANs {
+		knownVLANs[vlan.ID] = struct{}{}
+	}
+	if _, exists := knownVLANs[input.NativeVLAN]; !exists {
+		return fmt.Errorf("%w: native vlan %d does not exist", store.ErrInvalid, input.NativeVLAN)
+	}
+	for _, vlanID := range allowedVLANs {
+		if _, exists := knownVLANs[vlanID]; !exists {
+			return fmt.Errorf("%w: allowed vlan %d does not exist", store.ErrInvalid, vlanID)
+		}
+	}
 
 	targetLinkIDs := []string{linkID}
 	for _, group := range topology.LinkGroups {
@@ -879,6 +897,10 @@ func applyLinkConfiguration(
 	}
 	if len(portLocations) != len(portIDs) {
 		return fmt.Errorf("%w: link group endpoints are incomplete", store.ErrInvalid)
+	}
+	copies := (len(portLocations) + len(linkIndexes)) * (len(allowedVLANs) + 1)
+	if copies > maxLinkConfigurationVLANEntries {
+		return fmt.Errorf("%w: link group configuration exceeds %d vlan assignments", store.ErrInvalid, maxLinkConfigurationVLANEntries)
 	}
 
 	for _, location := range portLocations {
@@ -1345,7 +1367,12 @@ func (s *Server) analysis(w http.ResponseWriter, request *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, model.Analyze(topology))
+	analysis, err := model.AnalyzeContext(request.Context(), topology)
+	if err != nil {
+		// The client went away or the timeout handler already answered.
+		return
+	}
+	writeJSON(w, http.StatusOK, analysis)
 }
 
 func (s *Server) trace(w http.ResponseWriter, request *http.Request) {

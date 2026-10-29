@@ -36,7 +36,19 @@ const (
 	MaxTopologyPhotoBytes = 1 << 30
 	// MaxTopologyDocumentBytes caps the encoded document a store persists.
 	MaxTopologyDocumentBytes = 16 << 20
+	// MaxCanvasCoordinate bounds persisted canvas positions so browser scene
+	// indexes and exports always enumerate a finite, bounded world.
+	MaxCanvasCoordinate = 1e7
 )
+
+func validCanvasCoordinates(values ...float64) bool {
+	for _, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) || math.Abs(value) > MaxCanvasCoordinate {
+			return false
+		}
+	}
+	return true
+}
 
 // ValidateDocumentSize rejects an encoded topology above MaxTopologyDocumentBytes.
 func ValidateDocumentSize(document []byte) error {
@@ -226,7 +238,7 @@ func (t Topology) Validate() error {
 	systemIDs := make(map[string]struct{}, len(t.SwitchSystems))
 	groupedDevices := make(map[string]string, len(t.Devices))
 	for _, system := range t.SwitchSystems {
-		if err := system.Validate(deviceIDs, t.Devices); err != nil {
+		if err := system.Validate(deviceCategories); err != nil {
 			return fmt.Errorf("validating switch system %q: %w", system.Name, err)
 		}
 		if _, exists := systemIDs[system.ID]; exists {
@@ -243,7 +255,7 @@ func (t Topology) Validate() error {
 	clusterIDs := make(map[string]struct{}, len(t.FirewallClusters))
 	clusteredDevices := make(map[string]string, len(t.Devices))
 	for _, cluster := range t.FirewallClusters {
-		if err := cluster.Validate(deviceIDs, t.Devices); err != nil {
+		if err := cluster.Validate(deviceCategories); err != nil {
 			return fmt.Errorf("validating firewall cluster %q: %w", cluster.Name, err)
 		}
 		if _, exists := clusterIDs[cluster.ID]; exists {
@@ -617,6 +629,9 @@ func (r Rack) Validate() error {
 	if !colorPattern.MatchString(r.Color) {
 		return errors.New("rack color must be a six-digit hex color")
 	}
+	if !validCanvasCoordinates(r.PositionX, r.PositionY) {
+		return errors.New("rack position must be finite and within canvas limits")
+	}
 	return nil
 }
 
@@ -633,6 +648,9 @@ func (d Device) Validate(vlanIDs map[int]struct{}) error {
 	}
 	if d.RackDisplay != "" && d.RackDisplay != "both" && d.RackDisplay != "mounted" {
 		return fmt.Errorf("unknown rack display %q", d.RackDisplay)
+	}
+	if !validCanvasCoordinates(d.PositionX, d.PositionY) {
+		return errors.New("device position must be finite and within canvas limits")
 	}
 	for label, value := range map[string]string{
 		"device serial number": d.SerialNumber,
@@ -881,7 +899,7 @@ func (g LinkGroup) Validate(links map[string]Link, ports map[string]Port) error 
 // Validate checks a logical switch system's structural invariants. Technology
 // and model compatibility remain advisory so unusual real-world designs can be
 // recorded without weakening identity and membership integrity.
-func (s SwitchSystem) Validate(deviceIDs map[string]struct{}, devices []Device) error {
+func (s SwitchSystem) Validate(deviceCategories map[string]DeviceCategory) error {
 	if !idPattern.MatchString(s.ID) {
 		return errors.New("switch system id must be a version 4 uuid")
 	}
@@ -894,16 +912,13 @@ func (s SwitchSystem) Validate(deviceIDs map[string]struct{}, devices []Device) 
 	if len(s.DeviceIDs) < 2 {
 		return errors.New("switch system must contain at least two devices")
 	}
-	deviceCategories := make(map[string]DeviceCategory, len(devices))
-	for _, device := range devices {
-		deviceCategories[device.ID] = device.Category
-	}
 	seen := make(map[string]struct{}, len(s.DeviceIDs))
 	for _, deviceID := range s.DeviceIDs {
-		if _, exists := deviceIDs[deviceID]; !exists {
+		category, exists := deviceCategories[deviceID]
+		if !exists {
 			return fmt.Errorf("device %q does not exist", deviceID)
 		}
-		if deviceCategories[deviceID] != DeviceCategorySwitch {
+		if category != DeviceCategorySwitch {
 			return fmt.Errorf("device %q is not a switch", deviceID)
 		}
 		if _, exists := seen[deviceID]; exists {
@@ -919,7 +934,7 @@ func (s SwitchSystem) Validate(deviceIDs map[string]struct{}, devices []Device) 
 
 // Validate checks a firewall cluster's identity, membership, and forwarding
 // role invariants. Vendor and model compatibility remain advisory.
-func (c FirewallCluster) Validate(deviceIDs map[string]struct{}, devices []Device) error {
+func (c FirewallCluster) Validate(deviceCategories map[string]DeviceCategory) error {
 	if !idPattern.MatchString(c.ID) {
 		return errors.New("firewall cluster id must be a version 4 uuid")
 	}
@@ -932,16 +947,13 @@ func (c FirewallCluster) Validate(deviceIDs map[string]struct{}, devices []Devic
 	if len(c.DeviceIDs) < 2 {
 		return errors.New("firewall cluster must contain at least two devices")
 	}
-	deviceCategories := make(map[string]DeviceCategory, len(devices))
-	for _, device := range devices {
-		deviceCategories[device.ID] = device.Category
-	}
 	seen := make(map[string]struct{}, len(c.DeviceIDs))
 	for _, deviceID := range c.DeviceIDs {
-		if _, exists := deviceIDs[deviceID]; !exists {
+		category, exists := deviceCategories[deviceID]
+		if !exists {
 			return fmt.Errorf("device %q does not exist", deviceID)
 		}
-		if deviceCategories[deviceID] != DeviceCategoryFirewall {
+		if category != DeviceCategoryFirewall {
 			return fmt.Errorf("device %q is not a firewall", deviceID)
 		}
 		if _, exists := seen[deviceID]; exists {

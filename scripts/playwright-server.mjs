@@ -1,10 +1,14 @@
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 
 if (existsSync(".env")) process.loadEnvFile(".env");
 
 const executable = process.platform === "win32" ? "go.exe" : "go";
-const child = spawn(executable, ["run", "./cmd/server", "-port", "41817"], {
+// The test server is reachable only from this machine and its administrator
+// password is fresh for every run, never a value committed to the repository.
+const adminPassword = process.env.WIREDRAFT_E2E_ADMIN_PASSWORD || randomBytes(24).toString("base64url");
+const child = spawn(executable, ["run", "./cmd/server", "-host", "127.0.0.1", "-port", "41817"], {
   cwd: new URL("..", import.meta.url),
   stdio: "inherit",
   windowsHide: true,
@@ -17,7 +21,7 @@ const child = spawn(executable, ["run", "./cmd/server", "-port", "41817"], {
     PGPASSWORD: process.env.PGPASSWORD || process.env.POSTGRES_PASSWORD || "wiredraft-playwright",
     PGSSLMODE: process.env.PGSSLMODE || "disable",
     WIREDRAFT_ADMIN_USER: "playwright-admin",
-    WIREDRAFT_ADMIN_PASSWORD: "playwright-only-long-password",
+    WIREDRAFT_ADMIN_PASSWORD: adminPassword,
     WIREDRAFT_GUEST_ENABLED: "true",
     WIREDRAFT_COOKIE_SECURE: "false",
     // Every test signs in as Guest from loopback; lift the per-client limits.

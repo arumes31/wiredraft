@@ -17,10 +17,8 @@ func (r Room) Validate() error {
 	if !colorPattern.MatchString(r.Color) {
 		return errors.New("room color must be a six-digit hex color")
 	}
-	for _, value := range []float64{r.PositionX, r.PositionY, r.Width, r.Height} {
-		if math.IsNaN(value) || math.IsInf(value, 0) || math.Abs(value) > 1e7 {
-			return errors.New("room geometry must be finite and within canvas limits")
-		}
+	if !validCanvasCoordinates(r.PositionX, r.PositionY, r.Width, r.Height) {
+		return errors.New("room geometry must be finite and within canvas limits")
 	}
 	if r.Width < 600 || r.Height < 300 {
 		return errors.New("room must be at least 600 by 300 canvas units")

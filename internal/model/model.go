@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -574,8 +575,17 @@ func (t *Topology) Normalize() {
 			t.CommentThreads[threadIndex].Messages = []CommentMessage{}
 		}
 	}
+	// Records saved before canvas bounds were enforced are pulled back inside
+	// the supported range so loading them cannot stall clients.
+	for rackIndex := range t.Racks {
+		rack := &t.Racks[rackIndex]
+		rack.PositionX = clampCanvasCoordinate(rack.PositionX)
+		rack.PositionY = clampCanvasCoordinate(rack.PositionY)
+	}
 	for deviceIndex := range t.Devices {
 		device := &t.Devices[deviceIndex]
+		device.PositionX = clampCanvasCoordinate(device.PositionX)
+		device.PositionY = clampCanvasCoordinate(device.PositionY)
 		if device.RackID == "" {
 			device.RackFace = ""
 		} else if device.RackFace == "" {
@@ -596,6 +606,7 @@ func (t *Topology) Normalize() {
 			port.AllowedVLANs = slices.Compact(port.AllowedVLANs)
 		}
 	}
+	var patchPanels map[string]struct{}
 	for linkIndex := range t.Links {
 		link := &t.Links[linkIndex]
 		link.RearChannelID = strings.TrimSpace(link.RearChannelID)
@@ -603,10 +614,16 @@ func (t *Topology) Normalize() {
 		// Panel Map links created before endpoint planes existed used this stable
 		// note prefix. Upgrade only those generated links; an intentional front
 		// patch cord between panels remains a front connection.
-		if link.SourceSide == "" && link.TargetSide == "" && strings.HasPrefix(link.Notes, "Patch range ") &&
-			isPatchPanelDevice(t.Devices, link.SourceDeviceID) && isPatchPanelDevice(t.Devices, link.TargetDeviceID) {
-			link.SourceSide = LinkEndpointSideRear
-			link.TargetSide = LinkEndpointSideRear
+		if link.SourceSide == "" && link.TargetSide == "" && strings.HasPrefix(link.Notes, "Patch range ") {
+			if patchPanels == nil {
+				patchPanels = patchPanelDeviceIDs(t.Devices)
+			}
+			_, sourceIsPanel := patchPanels[link.SourceDeviceID]
+			_, targetIsPanel := patchPanels[link.TargetDeviceID]
+			if sourceIsPanel && targetIsPanel {
+				link.SourceSide = LinkEndpointSideRear
+				link.TargetSide = LinkEndpointSideRear
+			}
 		}
 		if link.VLANIDs == nil {
 			link.VLANIDs = []int{}
@@ -640,10 +657,23 @@ func (t *Topology) Normalize() {
 	}
 }
 
-func isPatchPanelDevice(devices []Device, deviceID string) bool {
-	return slices.ContainsFunc(devices, func(device Device) bool {
-		return device.ID == deviceID && device.Category == DeviceCategoryPatchPanel
-	})
+func clampCanvasCoordinate(value float64) float64 {
+	if math.IsNaN(value) {
+		return 0
+	}
+	return math.Max(-MaxCanvasCoordinate, math.Min(MaxCanvasCoordinate, value))
+}
+
+// patchPanelDeviceIDs indexes patch panels once so legacy link migration stays
+// linear in the number of links instead of scanning devices per link.
+func patchPanelDeviceIDs(devices []Device) map[string]struct{} {
+	panels := make(map[string]struct{})
+	for _, device := range devices {
+		if device.Category == DeviceCategoryPatchPanel {
+			panels[device.ID] = struct{}{}
+		}
+	}
+	return panels
 }
 
 // LogicalDeviceCount returns the number of independently counted units. Each
@@ -706,6 +736,10 @@ func (t *Topology) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decoding topology: %w", err)
 	}
 	*t = Topology(decoded)
+	// Reject oversized collections before normalization does any per-item work.
+	if err := t.validateCardinality(); err != nil {
+		return err
+	}
 	t.Normalize()
 	return t.Validate()
 }

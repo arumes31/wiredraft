@@ -172,13 +172,48 @@ func TestGuestSessionsAreBounded(t *testing.T) {
 	manager.mu.Lock()
 	for index := range defaultMaxGuestSessions {
 		token := fmt.Sprintf("guest-%d", index)
-		manager.sessions[token] = Session{
+		manager.storeSessionLocked(token, Session{
 			Token: token, Principal: Principal{UserID: RoleGuest, Role: RoleGuest}, ExpiresAt: now.Add(time.Hour),
-		}
+		})
 	}
 	manager.mu.Unlock()
 	if _, err := manager.NewGuestSession("192.0.2.42:40000"); !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("global guest limit error = %v, want rate limited", err)
+	}
+	if attempt := manager.loginAttempts["guest|192.0.2.42"]; attempt.Failures != 1 {
+		t.Fatalf("rejected guest attempt failures = %d, want charged to the client budget", attempt.Failures)
+	}
+}
+
+func TestGuestSessionCountTracksLifecycleAndExpiry(t *testing.T) {
+	t.Parallel()
+	manager, now := newLimitsTestManager(t)
+	first, err := manager.NewGuestSession("192.0.2.60:40000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.NewGuestSession("192.0.2.61:40000"); err != nil {
+		t.Fatal(err)
+	}
+	manager.Logout(first.Token)
+	manager.Logout(first.Token)
+	manager.mu.Lock()
+	if manager.guestSessions != 1 {
+		manager.mu.Unlock()
+		t.Fatalf("guest session count after logout = %d, want 1", manager.guestSessions)
+	}
+	// Fill the cap with sessions that expire before the next scheduled sweep.
+	for index := manager.guestSessions; index < manager.maxGuestSessions; index++ {
+		token := fmt.Sprintf("expiring-%d", index)
+		manager.storeSessionLocked(token, Session{
+			Token: token, Principal: Principal{UserID: RoleGuest, Role: RoleGuest}, ExpiresAt: now.Add(time.Second),
+		})
+	}
+	manager.lastPrune = *now
+	manager.mu.Unlock()
+	*now = now.Add(2 * time.Second)
+	if _, err := manager.NewGuestSession("192.0.2.62:40000"); err != nil {
+		t.Fatalf("guest session after expired sessions free the cap: %v", err)
 	}
 }
 

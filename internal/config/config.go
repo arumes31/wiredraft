@@ -14,6 +14,7 @@ import (
 
 // Config contains all process-level runtime configuration.
 type Config struct {
+	ListenHost                string
 	Port                      int
 	DatabaseURL               string
 	MediaDir                  string
@@ -64,6 +65,7 @@ func Parse(args []string) (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{
+		ListenHost:                strings.TrimSpace(os.Getenv("WIREDRAFT_LISTEN_HOST")),
 		Port:                      envInt("PORT", 8080),
 		DatabaseURL:               envString("DATABASE_URL", ""),
 		MediaDir:                  envString("WIREDRAFT_MEDIA_DIR", "data/media"),
@@ -94,6 +96,7 @@ func Parse(args []string) (Config, error) {
 	}
 
 	set := flag.NewFlagSet("wiredraft", flag.ContinueOnError)
+	set.StringVar(&cfg.ListenHost, "host", cfg.ListenHost, "HTTP listen address; empty listens on all interfaces")
 	set.IntVar(&cfg.Port, "port", cfg.Port, "HTTP listen port")
 	set.StringVar(&cfg.MediaDir, "media-dir", cfg.MediaDir, "private uploaded-photo directory")
 	set.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "debug, info, warn, or error")
@@ -105,6 +108,11 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return Config{}, fmt.Errorf("port must be between 1 and 65535")
+	}
+	if cfg.ListenHost != "" {
+		if _, err := netip.ParseAddr(cfg.ListenHost); err != nil && cfg.ListenHost != "localhost" {
+			return Config{}, fmt.Errorf("listen host must be an IP address or localhost")
+		}
 	}
 	if cfg.MediaDir == "" {
 		return Config{}, fmt.Errorf("media directory must not be empty")

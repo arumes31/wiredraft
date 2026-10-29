@@ -1,4 +1,10 @@
+import { randomBytes } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
+
+// One unpredictable administrator password per run. Workers and the launched
+// server inherit it from this process, so it is generated only once. Export
+// WIREDRAFT_E2E_ADMIN_PASSWORD yourself to reuse an already running server.
+process.env.WIREDRAFT_E2E_ADMIN_PASSWORD ||= randomBytes(24).toString("base64url");
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:41817";
 

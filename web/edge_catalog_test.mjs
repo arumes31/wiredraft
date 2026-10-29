@@ -5,6 +5,7 @@ import {
   catalogVendors,
   hardwareCatalog,
   instantiateProfile,
+  MAX_PROFILE_PORTS,
   modelsForVendor,
   registerProfiles,
 } from "./static/js/catalog.js";
@@ -55,5 +56,14 @@ assert.equal(registerProfiles([{
   groups: [{ zone: "uplink", count: 1, type: "COAX_F", speed: 2500, poe: false, labels: ["RF"] }],
 }]), 1);
 assert.ok(modelsForVendor("Lab ISP", "Carrier Handoffs").some((profile) => profile.model === "Coax demarc"));
+
+const oversizedSwitch = (groups) => ({ vendor: "Lab", model: "Huge", category: "Switch", units: 1, color: "#29383b", groups });
+const accessGroup = (count) => ({ zone: "access", count, type: "RJ45_1G", speed: 1000, poe: false });
+const catalogSize = hardwareCatalog.length;
+assert.throws(() => registerProfiles([oversizedSwitch([accessGroup(50_000_000)])]), /1024/);
+assert.throws(() => registerProfiles([oversizedSwitch([accessGroup(MAX_PROFILE_PORTS), accessGroup(1)])]), /exceeds 1024 ports/);
+assert.throws(() => registerProfiles([oversizedSwitch(Array.from({ length: 65 }, () => accessGroup(1)))]), /port groups/);
+assert.equal(hardwareCatalog.length, catalogSize, "rejected profiles must not reach the catalog");
+assert.throws(() => instantiateProfile(oversizedSwitch([accessGroup(MAX_PROFILE_PORTS + 1)]), "Huge", { x: 0, y: 0 }), /1024/);
 
 console.log(`edge catalog checks passed: ${families.get("all").count} installable profiles`);
