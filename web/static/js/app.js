@@ -3191,10 +3191,12 @@ async function savePlacements(snapshot, collection, items) {
   });
 }
 
-async function updateFrom(operation, remember = true, message = "") {
+async function updateFrom(operation, remember = true, message = "", prepare = () => true) {
   const topologyID = state.topology?.id;
   return topologyWrites.run(async () => {
     if (state.topology?.id !== topologyID) return null;
+    // History eligibility and mutation must see all preceding write responses.
+    if (!prepare()) return null;
     const wasDirty = autosave.isDirty;
     autosave.markDirty({ capture: false });
     try {
@@ -3221,15 +3223,19 @@ async function updateFrom(operation, remember = true, message = "") {
 }
 
 async function undo() {
-  if (!state.undo()) return;
-  autosave.markDirty();
-  await updateFrom(() => api.replaceTopology(state.topology), false, "Undo applied");
+  await updateFrom(() => api.replaceTopology(state.topology), false, "Undo applied", () => {
+    if (!state.undo()) return false;
+    autosave.markDirty();
+    return true;
+  });
 }
 
 async function redo() {
-  if (!state.redo()) return;
-  autosave.markDirty();
-  await updateFrom(() => api.replaceTopology(state.topology), false, "Redo applied");
+  await updateFrom(() => api.replaceTopology(state.topology), false, "Redo applied", () => {
+    if (!state.redo()) return false;
+    autosave.markDirty();
+    return true;
+  });
 }
 
 async function importBackup(event) {

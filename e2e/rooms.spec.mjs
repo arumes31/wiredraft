@@ -161,6 +161,45 @@ test("room headers expand on double click and cancelled movement restores all me
   expect(workspace.writes.filter(write => write.method === "PUT")).toHaveLength(1);
 });
 
+for (const heldWrite of ["undo", "prior save"]) {
+  test(`redo queued before the ${heldWrite} response preserves and persists the moved room`, async ({ page }) => {
+    const workspace = await mockLockWorkspace(page);
+    const topology = workspace.topology;
+    topology.rooms = [{ id: "history-room", name: "History room", positionX: 123, positionY: 0, width: 1200, height: 1000 }];
+    await workspace.respond("/api/v1/topologies/lock-map", "PUT", topology);
+    await page.goto("/");
+    await expect(page.locator("#topology-name")).toHaveText(topology.name);
+    await page.locator('[data-edit-mode="all"]').click();
+    await page.evaluate(() => window.lockFixture.state.commit(next => { next.rooms[0].positionX = 273; }));
+    await page.locator("#diagram-canvas").click({ position: { x: 5, y: 5 } });
+
+    const undoArrived = Promise.withResolvers();
+    const releaseUndo = Promise.withResolvers();
+    const writeStart = workspace.writes.length;
+    await page.route("**/api/v1/topologies/lock-map", async route => {
+      const request = route.request();
+      const heldX = heldWrite === "undo" ? 123 : 273;
+      if (request.method() !== "PUT" || request.postDataJSON().rooms[0].positionX !== heldX) return route.fallback();
+      const response = await workspace.respond("/api/v1/topologies/lock-map", "PUT", request.postDataJSON());
+      undoArrived.resolve();
+      await releaseUndo.promise;
+      await route.fulfill(response);
+    });
+    try {
+      await page.keyboard.press(heldWrite === "undo" ? "Control+z" : "Control+s");
+      await undoArrived.promise;
+      if (heldWrite === "prior save") await page.keyboard.press("Control+z");
+      await page.keyboard.press("Control+Shift+z");
+    } finally {
+      releaseUndo.resolve();
+    }
+    const expectedWrites = heldWrite === "undo" ? [123, 273] : [273, 123, 273];
+    await expect.poll(() => workspace.writes.slice(writeStart).map(write => write.input.rooms[0].positionX)).toEqual(expectedWrites);
+    await expect.poll(() => workspace.topology.rooms[0].positionX).toBe(273);
+    await expect.poll(() => page.evaluate(() => window.lockFixture.state.topology.rooms[0].positionX)).toBe(273);
+  });
+}
+
 test("rooms group equipment, move together, collapse locally, and persist with undo", async ({ page }, testInfo) => {
   // This complete lifecycle includes two saves, history replay, reload and screenshots.
   test.setTimeout(60_000);
