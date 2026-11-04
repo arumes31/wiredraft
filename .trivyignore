@@ -1,0 +1,4 @@
+# golang.org/x/crypto/openpgp is deprecated and unsafe (GO-2026-5932). Wiredraft never
+# imports any openpgp package, and the only fixed version is an untagged pseudo-version
+# after v0.57.0. Drop this entry once a tagged x/crypto release with the fix is out.
+GO-2026-5932 exp:2027-02-01
