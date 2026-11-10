@@ -21,7 +21,7 @@ concurrency:
 jobs:
   security-scan:
     name: Strix (advisory)
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft && github.actor != 'dependabot[bot]')
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft && github.event.pull_request.user.login != 'dependabot[bot]')
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 90
@@ -151,7 +151,7 @@ jobs:
     # skipped for forks), including ones that produced no result, so an older
     # comment is never left looking current. When the scan is skipped for a
     # same-repo draft PR, an existing comment is marked stale (none is created).
-    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 5
