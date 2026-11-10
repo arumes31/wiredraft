@@ -2,6 +2,7 @@ name: Lint
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -9,8 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: lint-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
