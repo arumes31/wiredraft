@@ -23,6 +23,12 @@ func OpenDatabase(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	config.MaxConnLifetime = 30 * time.Minute
 	config.MaxConnIdleTime = 5 * time.Minute
 	config.HealthCheckPeriod = time.Minute
+	// pgx fills MinIdleConns in the background on a context detached from
+	// connectCtx, so bound each connection attempt directly; otherwise a
+	// stalled server keeps that attempt (and pool.Close) alive past startup.
+	if t := config.ConnConfig.ConnectTimeout; t <= 0 || t > connectTimeout {
+		config.ConnConfig.ConnectTimeout = connectTimeout
+	}
 
 	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
